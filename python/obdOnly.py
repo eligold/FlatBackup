@@ -6,6 +6,7 @@ from time import sleep
 def run():
     ec = 0
     count = 0
+    psi = 19.0
     obdd = OBDData()
     elm327 = getOBDconn()
     while(True):
@@ -17,20 +18,19 @@ def run():
                 elm327 = getOBDconn()
             with open('/dev/fb0','rb+') as buf:
                 while True:
-                    onScreen(buf,img,f"{psi:.2f} PSI")
                     img = screenPrint(np.full((1600,480),0x8248,np.uint16),"No Signal!",(500,200))
+                    sleep(0.038) # ~25fps
                     if elm327.is_connected():
                         psi = getPSI(elm327,obdd)
                     else:
                         psi = 19.1
+                    onScreen(buf,img,f"{psi:.2f} PSI")
                     if count > 125:
                         count = 0
                         if not elm327.is_connected():
                             elm327.close()
-                            sleep(0.1)
                             elm327 = getOBDconn()
                     else: count += 1
-            sleep(3)
         except KeyboardInterrupt:
             if elm327.is_connected():
                 elm327.close()
@@ -52,25 +52,31 @@ def getOBDconn():
     elm327.watch(obd.commands.MAF)
     elm327.watch(obd.commands.BAROMETRIC_PRESSURE)
     elm327.start()
+
+    print(f"RPM: {elm327.query(obd.commands.RPM).value}")
+    sleep(1)                                               #SLEEP HERE!!!
+
     return elm327
 
 def getPSI(elm327,obdd):
-    if elm327.supports(obd.commands.RPM):
-        obdd.update(maf = elm327.query(obd.commands.MAF).value,
-                    iat = elm327.query(obd.commands.INTAKE_TEMP).value.to('degK'), 
-                    rpm = elm327.query(obd.commands.RPM).value,
-                    atm = elm327.query(obd.commands.BAROMETRIC_PRESSURE).value.to('psi'))
-        return obdd.psi()
-    else:
-        return 19.0
+    if elm327.supports(obd.commands.RPM) and elm327.is_connected():
+        try:
+            obdd.update(maf = elm327.query(obd.commands.MAF).value,
+                        iat = elm327.query(obd.commands.INTAKE_TEMP).value.to('degK'), 
+                        rpm = elm327.query(obd.commands.RPM).value,
+                        atm = elm327.query(obd.commands.BAROMETRIC_PRESSURE).value.to('psi'))
+            return obdd.psi()
+        except AttributeError:
+            print('"None" value from obd conn')
+    return 19.0
 
-def screenPrint(img,text,pos=(1209,385)):
+def screenPrint(img,text,pos=(109,385)):
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     scale = 2.5
     return cv2.putText(img, text, pos, font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
 
 def onScreen(buf,f,t):
-    f = screenPrint(f,t)
+    f = cv2.cvtColor(screenPrint(f,t),cv2.COLOR_BGR2BGR565)
     for i in range(480):
         buf.write(f[i])
     buf.seek(0,0)
