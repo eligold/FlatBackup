@@ -32,17 +32,13 @@ def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
     obdd = OBDData()
     buffer = CircBuffer()
     elm327 = getOBDconn()
+    wait = True
     while(True):
         try:
             camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
             camera.set(WIDTH,720)
             camera.set(HEIGHT,576)
             color = COLOR_NORMAL
-            if elm327.is_connected():
-                psi = getPSI(elm327,obdd)
-            else:
-                elm327.close()
-                elm327 = getOBDconn()
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
                 while camera.isOpened():
@@ -50,16 +46,17 @@ def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
                     success, img = getUndist(camera)
                     if not success:
                         img = screenPrint(np.full((1600,480),COLOR_BAD,np.uint16),"No Signal!",(500,200))
-                    if elm327.is_connected():
+                    if not wait and elm327.is_connected():
                         psi = getPSI(elm327,obdd)
                     else:
                         psi = 19.1
                     if count > 125:
+                        wait = False
                         count = 0
                         if not elm327.is_connected():
                             elm327.close()
-                            sleep(0.1)
                             elm327 = getOBDconn()
+                            wait = True
                     else: count += 1
             sleep(3)
         except KeyboardInterrupt:

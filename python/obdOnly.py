@@ -9,27 +9,25 @@ def run():
     psi = 19.0
     obdd = OBDData()
     elm327 = getOBDconn()
+    wait = True
     while(True):
         try:
-            if elm327.is_connected():
-                psi = getPSI(elm327,obdd)
-            else:
-                elm327.close()
-                elm327 = getOBDconn()
             with open('/dev/fb0','rb+') as buf:
                 while True:
-                    img = screenPrint(np.full((1600,480),0x8248,np.uint16),"No Signal!",(500,200))
+                    img = screenPrint(np.full((480,1600),0x8248,np.uint16),"No Signal!",(500,200))
                     sleep(0.038) # ~25fps
-                    if elm327.is_connected():
+                    if not wait and elm327.is_connected():
                         psi = getPSI(elm327,obdd)
                     else:
                         psi = 19.1
                     onScreen(buf,img,f"{psi:.2f} PSI")
                     if count > 125:
+                        wait = False
                         count = 0
                         if not elm327.is_connected():
                             elm327.close()
                             elm327 = getOBDconn()
+                            wait = True
                     else: count += 1
         except KeyboardInterrupt:
             if elm327.is_connected():
@@ -53,8 +51,7 @@ def getOBDconn():
     elm327.watch(obd.commands.BAROMETRIC_PRESSURE)
     elm327.start()
 
-    print(f"RPM: {elm327.query(obd.commands.RPM).value}")
-    sleep(1)                                               #SLEEP HERE!!!
+   # print(f"RPM: {elm327.query(obd.commands.RPM).value}")
 
     return elm327
 
@@ -76,7 +73,7 @@ def screenPrint(img,text,pos=(109,385)):
     return cv2.putText(img, text, pos, font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
 
 def onScreen(buf,f,t):
-    f = cv2.cvtColor(screenPrint(f,t),cv2.COLOR_BGR2BGR565)
+    screenPrint(f,t)
     for i in range(480):
         buf.write(f[i])
     buf.seek(0,0)
