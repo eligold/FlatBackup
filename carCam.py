@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-import asyncio, time, obd, traceback, subprocess, cv2, numpy as np
+import asyncio, obd, traceback, subprocess, cv2, numpy as np
 from obd import Unit
+from time import sleep
+
 
 DIM = (720, 576) # video upscale dimensions
-SDIM = (1200,960)
-COLOR_REC=0x58
-COLOR_GOOD=0x871a
-COLOR_LOW=0xc4e4
-COLOR_BAD=0x8248
-COLOR_NORMAL=0x19ae
+SDIM = (1200, 960)
+COLOR_REC = 0x58
+COLOR_GOOD = 0x871a
+COLOR_LOW = 0xc4e4
+COLOR_BAD = 0x8248
+COLOR_NORMAL = 0x19ae
 CVT3TO2B = cv2.COLOR_BGR2BGR565    # convenience defs \/ \/
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
@@ -26,7 +28,7 @@ mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv
 def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
     psi = 19
     ec = 0
-    times = []
+    count = 0
     obdd = OBDData()
     buffer = CircBuffer()
     elm327 = getOBDconn()
@@ -52,12 +54,17 @@ def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
                         psi = getPSI(elm327,obdd)
                     else:
                         psi = 19.1
-                    if len(times) > 100:
+                    if count > 125:
+                        count = 0
                         if not elm327.is_connected():
                             elm327.close()
+                            sleep(0.1)
                             elm327 = getOBDconn()
-            time.sleep(3)
+                    else: count += 1
+            sleep(3)
         except KeyboardInterrupt:
+            if elm327.is_connected():
+                elm327.close()
             camera.release()
             exit()
         except Exception as e:
@@ -103,7 +110,7 @@ async def other():
         elm327.close()
 
 def getOBDconn():
-    elm327 = obd.Async()
+    elm327 = obd.Async(portstr="/dev/ttyUSB0")
     elm327.watch(obd.commands.INTAKE_TEMP)
     elm327.watch(obd.commands.RPM)
     elm327.watch(obd.commands.MAF)
