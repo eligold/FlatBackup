@@ -2,6 +2,8 @@
 # http://rpf.io/configtxt
 # Some settings may impact device functionality. See link above for details
 
+disable_splash=1
+
 # uncomment if you get no picture on HDMI for a default "safe" mode
 #hdmi_safe=1
 
@@ -45,7 +47,7 @@ hdmi_drive=2
 #arm_freq=800
 
 # Uncomment some or all of these to enable the optional hardware interfaces
-#dtparam=i2c_arm=on
+dtparam=i2c_arm=on
 #dtparam=i2s=on
 #dtparam=spi=on
 
@@ -69,3 +71,4 @@ max_framebuffers=2
 dtoverlay=gpio-fan,gpiopin=14,temp=60000
 #enable_tvout=1
 hdmi_enable_4kp60=1
+gpu_mem=128
