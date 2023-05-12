@@ -34,6 +34,7 @@ def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
     elm327 = getOBDconn()
     wait = True
     while(True):
+        subprocess.run(['bash','-c','ip link set wlan0 down'])
         try:
             camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
             camera.set(WIDTH,720)
@@ -60,9 +61,7 @@ def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
                     else: count += 1
             sleep(3)
         except KeyboardInterrupt:
-            if elm327.is_connected():
-                elm327.close()
-            camera.release()
+            close(elm327,camera)
             exit()
         except Exception as e:
             ec += 1
@@ -71,9 +70,7 @@ def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
                 raise e
             traceback.print_exc()
         finally:
-            camera.release()
-            if elm327.is_connected():
-                elm327.close()
+            close(elm327,camera)
 
 async def getImage():
     camera = cv2.VideoCapture(0,apiPreference=cv2.CAP_V4L2)
@@ -146,6 +143,12 @@ def onScreen(buf,f,c,t):
         buf.write(f[i])
     buf.seek(0,0)
 
+def close(elm327,camera):
+    if elm327.is_connected():
+                elm327.close()
+    camera.release()
+    subprocess.run(['bash','-c','ip link set wlan0 up'])
+
 class OBDData:
     R = Unit.Quantity(1,Unit.R).to_base_units()
     VF = Unit.Quantity(1984,Unit.cc).to_base_units()/Unit.Quantity(2,Unit.turn)
@@ -207,13 +210,8 @@ class CircBuffer:
 
 if __name__ == "__main__":
     subprocess.run(['sh','-c','echo 0 | sudo tee /sys/class/leds/PWR/brightness'])
-    try:
-       # subprocess.run(['bash','-c','ip link set wlan0 down'])
-        run()
-       # asyncio.run(other())
-    finally:
-        pass#subprocess.run(['bash','-c','ip link set wlan0 up'])
-
+    run()
+   # asyncio.run(other())
 ###############
 #  References #
 ###############

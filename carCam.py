@@ -32,17 +32,14 @@ def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
     obdd = OBDData()
     buffer = CircBuffer()
     elm327 = getOBDconn()
+    wait = True
     while(True):
+        subprocess.run(['bash','-c','ip link set wlan0 down'])
         try:
             camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
             camera.set(WIDTH,720)
             camera.set(HEIGHT,576)
             color = COLOR_NORMAL
-            if elm327.is_connected():
-                psi = getPSI(elm327,obdd)
-            else:
-                elm327.close()
-                elm327 = getOBDconn()
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
                 while camera.isOpened():
@@ -50,22 +47,21 @@ def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
                     success, img = getUndist(camera)
                     if not success:
                         img = screenPrint(np.full((1600,480),COLOR_BAD,np.uint16),"No Signal!",(500,200))
-                    if elm327.is_connected():
+                    if not wait and elm327.is_connected():
                         psi = getPSI(elm327,obdd)
                     else:
                         psi = 19.1
                     if count > 125:
+                        wait = False
                         count = 0
                         if not elm327.is_connected():
                             elm327.close()
-                            sleep(0.1)
                             elm327 = getOBDconn()
+                            wait = True
                     else: count += 1
             sleep(3)
         except KeyboardInterrupt:
-            if elm327.is_connected():
-                elm327.close()
-            camera.release()
+            close(elm327,camera)
             exit()
         except Exception as e:
             ec += 1
@@ -74,9 +70,7 @@ def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
                 raise e
             traceback.print_exc()
         finally:
-            camera.release()
-            if elm327.is_connected():
-                elm327.close()
+            close(elm327,camera)
 
 async def getImage():
     camera = cv2.VideoCapture(0,apiPreference=cv2.CAP_V4L2)
@@ -149,6 +143,12 @@ def onScreen(buf,f,c,t):
         buf.write(f[i])
     buf.seek(0,0)
 
+def close(elm327,camera):
+    if elm327.is_connected():
+                elm327.close()
+    camera.release()
+    subprocess.run(['bash','-c','ip link set wlan0 up'])
+
 class OBDData:
     R = Unit.Quantity(1,Unit.R).to_base_units()
     VF = Unit.Quantity(1984,Unit.cc).to_base_units()/Unit.Quantity(2,Unit.turn)
@@ -210,13 +210,8 @@ class CircBuffer:
 
 if __name__ == "__main__":
     subprocess.run(['sh','-c','echo 0 | sudo tee /sys/class/leds/PWR/brightness'])
-    try:
-       # subprocess.run(['bash','-c','ip link set wlan0 down'])
-        run()
-       # asyncio.run(other())
-    finally:
-        pass#subprocess.run(['bash','-c','ip link set wlan0 up'])
-
+    run()
+   # asyncio.run(other())
 ###############
 #  References #
 ###############
