@@ -2,12 +2,13 @@ import obd, asyncio
 from obd import Unit
 
 class myOBD:
-    def __init__(self):
+    async def __init__(self):
         self.car_connected = False
-        self.elm327 = None #_get_elm()
+        self.elm327 = None
+        self._get_elm()
         self.portstr = '/dev/ttyUSB0'
         self.obd_data = OBDData()
-        self.run()
+        await asyncio.gather(self.run())
 
     def _get_elm(self):
         self.car_connected, self.elm327 = self._test_connection()
@@ -20,9 +21,12 @@ class myOBD:
         psi = 19.1
         if self.car_connected:
             psi = self.obd_data.psi()
+        elif self.elm327.supports(obd.commands.ELM_VOLTAGE):
+            if self.elm327.query(obd.commands.ELM_VOLTAGE).value.magnitude > 13.4:
+                self.__init__()
         return psi
 
-    def run(self): #needs async probably
+    async def run(self): #needs async probably
         while True:
             self.obd_data.update(
                 maf = self.elm327.query(obd.commands.MAF).value,
@@ -32,6 +36,8 @@ class myOBD:
             )
 
     def _test_connection(self):
+        if self.elm327 is not None:
+            self.elm327.close()
         elm327 = obd.OBD(portstr=self.portstr)
         car_connected = False
         if elm327.is_connected():
