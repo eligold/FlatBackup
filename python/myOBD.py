@@ -4,18 +4,14 @@ from obd import Unit
 class myOBD:
     async def __init__(self):
         self.car_connected = False
-        self.elm327 = None
-        self._get_elm()
         self.portstr = '/dev/ttyUSB0'
+        self.elm327 = None
+        self._get_elm(self)
         self.obd_data = OBDData()
         await asyncio.gather(self.run())
 
     def _get_elm(self):
         self.car_connected, self.elm327 = self._test_connection()
-        # elm327.watch(obd.commands.INTAKE_TEMP)
-        # elm327.watch(obd.commands.RPM)
-        # elm327.watch(obd.commands.MAF)
-        # elm327.watch(obd.commands.BAROMETRIC_PRESSURE)
 
     def get_PSI(self):
         psi = 19.1
@@ -26,7 +22,7 @@ class myOBD:
                 self.__init__()
         return psi
 
-    async def run(self): #needs async probably
+    async def run(self):
         while True:
             self.obd_data.update(
                 maf = self.elm327.query(obd.commands.MAF).value,
@@ -74,6 +70,9 @@ class OBDData:
     def psi(self):
         return (self.iap - self.atm).magnitude
 
-    def _recalc(self): # [2] C * IAT(K) * MAF / RPM = IAP
+    def _recalc(self): # [1] C * IAT(K) * MAF / RPM = IAP
         iap = self.C / self.rpm * self.maf * self.iat
         self.iap = iap.to('psi')
+
+# Refs
+# [1] https://www.first-sensor.com/cms/upload/appnotes/AN_Massflow_E_11153.pdf
