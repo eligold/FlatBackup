@@ -36,13 +36,14 @@ def onScreen(f):
 
 def onScreen2(f):
     f = cv.resize(
-        cv.cvtColor(
-        cv.remap(f, mapx, mapy, interpolation=cv.INTER_LINEAR),
-        cv.COLOR_BGR2BGR565),
-        (960,768))
-    f1 = f[:480,:160]
-    f2 = f[69:549,-160:]
-    f = cv.resize(f,(1920,1536))[608:1088,320:1600]
+        cv.remap(f, mapx, mapy, interpolation=cv.INTER_CUBIC),
+        (960,768),interpolation=cv.INTER_CUBIC)
+    f2 = cv.cvtColor(f,cv.COLOR_BGR2BGR565)
+    f1 = f2[76:556,:160]
+    f2 = f2[68:548,-160:]
+    f = cv.cvtColor(
+        cv.resize(f[284:524,160:800],(1280,480),interpolation=cv.INTER_CUBIC),
+        cv.COLOR_BGR2BGR565)
     with open('/dev/fb0','rb+') as buf:
         for i in range(480):
             buf.write(f1[i])
@@ -69,4 +70,5 @@ def run(t = (600,480)):
         c.release()
 
 if __name__ == "__main__":
+    runDual()
     code.interact(local=globals())

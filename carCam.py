@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import asyncio, obd, traceback, subprocess, cv2, numpy as np
-from obd import Unit
+from obd import Unit, OBDStatus
 from time import sleep
 
 
@@ -47,14 +47,19 @@ def run(camIndex=0,apiPreference=cv2.CAP_V4L2):
                     success, img = getUndist(camera)
                     if not success:
                         img = screenPrint(np.full((1600,480),COLOR_BAD,np.uint16),"No Signal!",(500,200))
-                    if not wait and elm327.is_connected():
-                        psi = getPSI(elm327,obdd)
+                    if not wait:
+                        if elm327.is_connected():
+                            psi = getPSI(elm327,obdd)
+                        elif elm327.status() == OBDStatus.OBD_CONNECTED and elm327.query(obd.commands.ELM_VOLTAGE).value.magnitude > 13.4:
+                            elm327.close()
+                            elm3227 = getOBDconn()
+                            wait = True
                     else:
                         psi = 19.1
                     if count > 125:
                         wait = False
                         count = 0
-                        if not elm327.is_connected():
+                        if not (elm327.is_connected() or elm327.status() == OBDStatus.OBD_CONNECTED):
                             elm327.close()
                             elm327 = getOBDconn()
                             wait = True
@@ -105,10 +110,13 @@ async def other():
 
 def getOBDconn():
     elm327 = obd.Async(portstr="/dev/ttyUSB0")
-    elm327.watch(obd.commands.INTAKE_TEMP)
-    elm327.watch(obd.commands.RPM)
-    elm327.watch(obd.commands.MAF)
-    elm327.watch(obd.commands.BAROMETRIC_PRESSURE)
+    if elm327.is_connected():
+        elm327.watch(obd.commands.INTAKE_TEMP)
+        elm327.watch(obd.commands.RPM)
+        elm327.watch(obd.commands.MAF)
+        elm327.watch(obd.commands.BAROMETRIC_PRESSURE)
+    elif elm327.status() == OBDStatus.OBD_CONNECTED:
+        elm327.watch(obd.commands.ELM_VOLTAGE)
     elm327.start()
     return elm327
 
