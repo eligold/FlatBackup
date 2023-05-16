@@ -98,9 +98,9 @@ def getPSI(elm327,obdd):
     else:
         return 19.0
 
-def screenPrint(img,text,pos=(570,420)):
+def screenPrint(img,text,pos=(589,473)):
     font_face = cv2.FONT_HERSHEY_SIMPLEX
-    scale = 1.5
+    scale = 1
     return cv2.putText(img, text, pos, font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
 
 def getUndist(c):
