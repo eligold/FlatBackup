@@ -14,6 +14,8 @@ COLOR_NORMAL = 0x19ae
 CVT3TO2B = cv2.COLOR_BGR2BGR565
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
+BRIGHTNESS = cv2.CAP_PROP_BRIGHTNESS  #default 0?
+CONTRAST = cv2.CAP_PROP_CONTRAST #default 92
 
 # below values are specific to my backup camera run thru
 # my knock-off easy-cap calibrated with my phone screen. 
@@ -77,6 +79,7 @@ def getCamera(camIndex=0,apiPreference=cv2.CAP_V4L2):
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
     camera.set(WIDTH,720)
     camera.set(HEIGHT,576)
+    camera.set(BRIGHTNESS,25)
     return camera
 
 def getOBDconn():
@@ -108,16 +111,16 @@ def getUndist(c):
     if success:
         image = cv2.resize(
                 cv2.remap(image, mapx, mapy, interpolation=cv2.INTER_CUBIC),
-                SDIM)[68:556]
+                SDIM,interpolation=cv2.INTER_CUBIC)[64:556]
     return success, image
 
 def onScreen(frame_buffer,image,text):
     image_right = cv2.cvtColor(image,CVT3TO2B)
-    image_left = image_right[8:488,:160]
+    image_left = image_right[12:492,:160]
     image_right = image_right[:480,-160:]
     image = screenPrint(
             cv2.cvtColor(
-            cv2.resize(image[216:456,160:800], FDIM,interpolation=cv2.INTER_CUBIC),
+                cv2.resize(image[220:460,160:800], FDIM,interpolation=cv2.INTER_CUBIC),
             CVT3TO2B),
             text)
     for i in range(480):
