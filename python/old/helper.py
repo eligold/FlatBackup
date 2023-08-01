@@ -71,4 +71,4 @@ def run(t = (600,480)):
 
 if __name__ == "__main__":
     runDual()
-    code.interact(local=globals())
+    code.interact(local=globals()) # local=dict(globals(), **locals())

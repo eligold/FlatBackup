@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-import asyncio, obd, traceback, subprocess, cv2, numpy as np
+import asyncio, aiofiles, obd, traceback, subprocess, cv2, numpy as np
 from obd import Unit
 from time import sleep
 
 DIM = (720, 576) # video dimensions
 SDIM = (960, 768)
-FDIM = (1280,480)
+FDIM = (1120,480)
 COLOR_REC = 0x58
 COLOR_GOOD = 0x871a
 COLOR_LOW = 0xc4e4
@@ -26,6 +26,14 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 
+# psi queue, image queue
+# async def run():
+#     async for img in getImage():
+#         # push to queue
+#         outImage(latestPSI())
+#     async with aiofiles.open('/dev/fb0','rb+') as buf:
+#         pass
+
 def run():
     psi = 19
     ec = 0
@@ -34,7 +42,7 @@ def run():
     elm327 = getOBDconn()
     wait = True
     while(True):
-        subprocess.run(['bash','-c','ip link set wlan0 down'])
+        
         try:
             camera = getCamera()
             success, img = getUndist(camera)
@@ -70,7 +78,7 @@ def run():
             close(elm327,camera)
 
 def errScreen(frame_buffer):
-    image = screenPrint(np.full((1600,480),COLOR_BAD,np.uint16),"No Signal!",(500,200))
+    image = screenPrint(np.full((480,1600),COLOR_BAD,np.uint16),"No Signal!",(500,200))
     for i in range(480):
         frame_buffer.write(image[i])
     frame_buffer.seek(0,0)
@@ -101,7 +109,7 @@ def getPSI(elm327,obdd):
     else:
         return 19.0
 
-def screenPrint(img,text,pos=(589,473)):
+def screenPrint(img,text,pos=(569,473)):
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     scale = 1
     return cv2.putText(img, text, pos, font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
@@ -110,23 +118,24 @@ def getUndist(c):
     success, image = c.read()
     if success:
         image = cv2.resize(
-                cv2.remap(image, mapx, mapy, interpolation=cv2.INTER_LANCZOS4),
+                    cv2.remap(image, mapx, mapy, interpolation=cv2.INTER_LANCZOS4),
                 SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
     return success, image
 
 def onScreen(frame_buffer,image,text):
     image_right = cv2.cvtColor(image,CVT3TO2B)
-    image_left = image_right[12:492,:160]
-    image_right = image_right[:480,-160:]
+    image_left = image_right[8:488,:200]
+    image_right = image_right[:480,-200:]
     image = screenPrint(
-            cv2.cvtColor(
-            cv2.resize(image[220:460,160:800], FDIM,interpolation=cv2.INTER_LANCZOS4),
-            CVT3TO2B),
+                cv2.cvtColor(
+                    cv2.resize(image[220:460,200:760], FDIM,interpolation=cv2.INTER_LANCZOS4),
+                CVT3TO2B),
             text)
     for i in range(480):
         frame_buffer.write(image_left[i])
         frame_buffer.write(image[i])
         frame_buffer.write(image_right[i])
+        frame_buffer.write(np.full(80,0x19ae,np.uint16))
     frame_buffer.seek(0,0)
 
 def close(elm327,camera):
@@ -169,6 +178,12 @@ class OBDData:
 if __name__ == "__main__":
     subprocess.run(['sh','-c','echo 0 | sudo tee /sys/class/leds/PWR/brightness'])
     run()
+    # try:
+    #     subprocess.run(['bash','-c','ip link set wlan0 down'])
+    #     run()
+    # finally:
+    #     subprocess.run(['bash','-c','ip link set wlan0 up'])
+
 ###############
 #  References #
 ###############
