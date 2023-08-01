@@ -93,9 +93,10 @@ def run():
                     if count > 125:
                         wait = False
                         count = 0
-                        if not elm327.is_connected():
+                        if carOff and elm327.query(VOLT).value > 13:
                             elm327.close()
                             elm327 = getOBDconn()
+                            carOff = False
                             wait = True
                     else: count += 1
             sleep(3)
