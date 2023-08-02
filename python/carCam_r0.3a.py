@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-import asyncio, aiofiles, sys, obd, traceback, subprocess, cv2, numpy as np
+import asyncio#, aiofiles, 
+import sys, obd, traceback, subprocess, cv2, numpy as np
 import evdev
 from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
                           ABS_MT_POSITION_Y)
@@ -61,8 +62,9 @@ def run():
         try:
             camera = getCamera()
             r=subprocess.run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
-            if r.stdout is "up":
-                bounce(elm327,camera)
+            if r.stdout == b'up\n':
+                close(elm327,camera)
+                exit(0)
             subprocess.run(['bash','-c','ip link set wlan0 down'])
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
@@ -109,7 +111,7 @@ def run():
                 raise e
             traceback.print_exc()
         finally:
-            close(elm327,camera)
+            bounce(elm327,camera,1)
 
 def errScreen(frame_buffer):
     image = screenPrint(np.full((480,1600),COLOR_BAD,np.uint16),"No Signal!",(500,200))
@@ -181,11 +183,11 @@ def close(elm327,camera):
     if elm327.is_connected():
         elm327.close()
     camera.release()
-    subprocess.run(['bash','-c','ip link set wlan0 up'])
 
-def bounce(elm327,camera):
+def bounce(elm327,camera,ec=0):
     close(elm327,camera)
-    exit()
+    subprocess.run(['bash','-c','ip link set wlan0 up'])
+    exit(ec)
 
 class OBDData:
     R = Unit.Quantity(1,Unit.R).to_base_units()
@@ -218,10 +220,10 @@ if __name__ == "__main__":
     subprocess.run(['sh','-c','echo 0 | sudo tee /sys/class/leds/PWR/brightness'])
     # run()
     try:
-        subprocess.run(['bash','-c','ip link set wlan0 down'])
+        # subprocess.run(['bash','-c','ip link set wlan0 down'])
         run()
     finally:
-        subprocess.run(['bash','-c','ip link set wlan0 up'])
+        pass # subprocess.run(['bash','-c','ip link set wlan0 up'])
 
 ###############
 #  References #
