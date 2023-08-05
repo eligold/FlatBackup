@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import asyncio#, aiofiles, 
-import sys, obd, traceback, subprocess, cv2, numpy as np
+import sys, obd, traceback, cv2, numpy as np
+from subprocess import run
 import evdev
 from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
                           ABS_MT_POSITION_Y)
@@ -47,63 +48,62 @@ carOff = True
 #     async with aiofiles.open('/dev/fb0','rb+') as buf:
 #         pass
 
-def run():
+def start():
     psi = 19
     ec = 0
     count = 0
-    obdd = OBDData()
-    elm327 = getOBDconn()
+    elm = ELM327(portstr="/dev/ttyUSB0")
     wait = True
-    for path in evdev.list_devices():
-        device = evdev.InputDevice(path)
-        if evdev.ecodes.EV_ABS in device.capabilities():
-            break
+    # for path in evdev.list_devices():
+    #     device = evdev.InputDevice(path)
+    #     if evdev.ecodes.EV_ABS in device.capabilities():
+    #         r, w, x = select.select([device.fd], [], [])
+    #         break
     while(True):
         try:
             camera = getCamera()
-            r=subprocess.run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
-            if r.stdout == b'up\n':
-                close(elm327,camera)
+            res=run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
+            if res.stdout == b'up\n':
+                close(elm,camera)
                 exit(0)
-            subprocess.run(['bash','-c','ip link set wlan0 down'])
+            run(['bash','-c','ip link set wlan0 down'])
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
                 while camera.isOpened():
-                    r, w, x = select.select([device.fd], [], [])
-                    id_ = -1
-                    x = y = 0
-                    for event in device.read():
-                        if event.code == event.value == 0:
-                            if id_ != -1 and x > 1519:
-                                print(x, y)
-                                bounce(elm327,camera)
-                        elif event.code == ABS_MT_TRACKING_ID:
-                            id_ = event.value
-                        elif event.code == ABS_MT_POSITION_X:
-                            x = event.value
-                        elif event.code == ABS_MT_POSITION_Y:
-                            y = event.value
-                    if not wait and elm327.is_connected():
-                        psi = getPSI(elm327,obdd)
+                    # id_ = -1
+                    # x = y = 0
+                    # for event in device.read():
+                    #     if event.code == event.value == 0:
+                    #         if id_ != -1 and x > 1519:
+                    #             print(x, y)
+                    #             bounce(elm327,camera)
+                    #     elif event.code == ABS_MT_TRACKING_ID:
+                    #         id_ = event.value
+                    #     elif event.code == ABS_MT_POSITION_X:
+                    #         x = event.value
+                    #     elif event.code == ABS_MT_POSITION_Y:
+                    #         y = event.value
+                    if not wait:
+                        psi = elm.psi()#getPSI(elm327,obdd)
                     else:
                         psi = 19.1
                     success, img = getUndist(camera)
-                    if not success:
-                        errScreen(buf)
-                    else:
-                        onScreen(buf,img,f"{psi:.2f} PSI")
+                    onScreen(buf,img,f"{psi:.2f} PSI") if success else errScreen(buf)
                     if count > 125:
                         wait = False
                         count = 0
-                        if carOff and elm327.query(VOLT).value > 13:
-                            elm327.close()
-                            elm327 = getOBDconn()
+
+                        # NEEDS WORK:
+
+                        if carOff and elm.volts() > 13:
+                            elm.close()
+                            elm = ELM327()
                             carOff = False
                             wait = True
                     else: count += 1
-            sleep(3)
+            sleep(0.19)
         except KeyboardInterrupt:
-            bounce(elm327,camera)
+            bounce(elm,camera)
         except Exception as e:
             ec += 1
             if ec > 10:
@@ -111,7 +111,7 @@ def run():
                 raise e
             traceback.print_exc()
         finally:
-            bounce(elm327,camera,1)
+            bounce(elm,camera,1)
 
 def errScreen(frame_buffer):
     image = screenPrint(np.full((480,1600),COLOR_BAD,np.uint16),"No Signal!",(500,200))
@@ -126,31 +126,7 @@ def getCamera(camIndex=0,apiPreference=cv2.CAP_V4L2):
     camera.set(BRIGHTNESS,25)
     return camera
 
-def getOBDconn():
-    elm327 = obd.Async(portstr="/dev/ttyUSB0")
-    elm327.watch(VOLT)
-    elm327.watch(TEMP)
-    elm327.watch(RPM)
-    elm327.watch(MAF)
-    elm327.watch(PRES)
-    elm327.start()
-    return elm327
-
-def getPSI(elm327,obdd):
-    if elm327.query(VOLT).value > 13:
-        if carOff:
-            elm327 = getOBDconn()
-            carOff = False
-        obdd.update(maf = elm327.query(MAF).value,
-                    iat = elm327.query(TEMP).value.to('degK'),
-                    rpm = elm327.query(RPM).value,
-                    atm = elm327.query(PRES).value.to('psi'))
-        return obdd.psi()
-    else:
-        carOff = True
-        return 19.0
-
-def screenPrint(img,text,pos=(569,473)):
+def screenPrint(img,text,pos=(529,473)):
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     scale = 1
     return cv2.putText(img, text, pos, font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
@@ -179,51 +155,107 @@ def onScreen(frame_buffer,image,text):
         frame_buffer.write(np.full(80,0x19ae,np.uint16))
     frame_buffer.seek(0,0)
 
-def close(elm327,camera):
-    if elm327.is_connected():
-        elm327.close()
+def close(elm,camera):
+    elm.close()
     camera.release()
 
-def bounce(elm327,camera,ec=0):
-    close(elm327,camera)
-    subprocess.run(['bash','-c','ip link set wlan0 up'])
+def bounce(elm,camera,ec=0):
+    close(elm,camera)
+    run(['bash','-c','ip link set wlan0 up'])
     exit(ec)
 
-class OBDData:
-    R = Unit.Quantity(1,Unit.R).to_base_units()
-    VF = Unit.Quantity(1984,Unit.cc).to_base_units()/Unit.Quantity(2,Unit.turn)
-    MM = Unit.Quantity(28.949,"g/mol").to_base_units()
-    C = R/(VF*MM)
+class ELM327:
+    class OBDData:
+        R = Unit.Quantity(1,Unit.R).to_base_units()
+        VF = Unit.Quantity(1984,Unit.cc).to_base_units()/Unit.Quantity(2,Unit.turn)
+        MM = Unit.Quantity(28.949,"g/mol").to_base_units()
+        C = R/(VF*MM)
 
-    def __init__(self,atm=14.3,iat=499.0,maf=132.0,rpm=4900):
-        self.atm = atm*Unit.psi
-        self.iat = iat*Unit.degK
-        self.maf = maf*Unit.gps
-        self.rpm = rpm*Unit.rpm
-        self._recalc()
+        def __init__(self,atm=14.3,iat=499.0,maf=132.0,rpm=4900):
+            self.atm = atm*Unit.psi
+            self.iat = iat*Unit.degK
+            self.maf = maf*Unit.gps
+            self.rpm = rpm*Unit.rpm
+            self._recalc()
 
-    def update(self,iat,rpm,maf,atm):
-        self.iat=iat
-        self.rpm=rpm
-        self.maf=maf
-        self.atm=atm
-        self._recalc()
+        def update(self,iat,rpm,maf,atm):
+            self.iat=iat
+            self.rpm=rpm
+            self.maf=maf
+            self.atm=atm
+            self._recalc()
+
+        def psi(self):
+            return (self.iap - self.atm).magnitude
+
+        def _recalc(self): # [2] C * IAT(K) * MAF / RPM = IAP
+            iap = self.C / self.rpm * self.maf * self.iat
+            self.iap = iap.to('psi')
+
+    wait = True
+    carOn = False
+    elm327 = None
+    obdd = OBDData()
+    def __init__(self,portstr="/dev/ttyUSB0"):
+        elm = obd.Async(portstr)
+        if elm.is_connected():
+            self.carOn = True
+            elm.watch(TEMP)
+            elm.watch(RPM)
+            elm.watch(MAF)
+            elm.watch(PRES)
+        if not self.elm327.supports(VOLT):
+            elm = None
+        else:
+            elm.watch(VOLT)
+            elm.start()
+        self.elm327 = elm
 
     def psi(self):
-        return (self.iap - self.atm).magnitude
+        elm = self.elm327
+        obdd = self.obdd
+        if elm is not None:
+            if not self.carOn:
+                if elm.query(VOLT).value > 13:
+                    self.__init__()
+                    return self.psi()
+            mafr = elm.query(MAF)
+            if mafr.is_null():
+                self.__init__()
+                return self.psi()
+            obdd.update(maf = mafr.value,
+                        iat = elm.query(TEMP).value.to('degK'),
+                        rpm = elm.query(RPM).value,
+                        atm = elm.query(PRES).value.to('psi'))
+            return self.obdd.psi()
+        else:
+            return 19.0
 
-    def _recalc(self): # [2] C * IAT(K) * MAF / RPM = IAP
-        iap = self.C / self.rpm * self.maf * self.iat
-        self.iap = iap.to('psi')
+    def volts(self):
+        elm = self.elm327
+        if elm is not None:
+            return self.elm327.query(VOLT).value
+        else:
+            return 12.0
+
+    def close(self):
+        elm = self.elm327
+        if elm is not None:
+            elm.close()
+
+    def is_connected(self):
+        if self.elm327 is not None:
+            return self.elm327.is_connected()
+    
 
 if __name__ == "__main__":
-    subprocess.run(['sh','-c','echo 0 | sudo tee /sys/class/leds/PWR/brightness'])
-    # run()
+    run(['sh','-c','echo 0 | sudo tee /sys/class/leds/PWR/brightness'])
+    # start()
     try:
-        # subprocess.run(['bash','-c','ip link set wlan0 down'])
-        run()
+        # run(['bash','-c','ip link set wlan0 down'])
+        start()
     finally:
-        pass # subprocess.run(['bash','-c','ip link set wlan0 up'])
+        pass # run(['bash','-c','ip link set wlan0 up'])
 
 ###############
 #  References #
