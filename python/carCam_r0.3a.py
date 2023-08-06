@@ -109,7 +109,7 @@ def start():
             if ec > 10:
                 ec = 0
                 raise e
-            traceback.print_exc()
+            traceback.print_exc(e)
         finally:
             bounce(elm,camera,1)
 
@@ -197,6 +197,7 @@ class ELM327:
     elm327 = None
     obdd = OBDData()
     def __init__(self,portstr="/dev/ttyUSB0"):
+        self.close()
         elm = obd.Async(portstr)
         if elm.is_connected():
             self.carOn = True
@@ -204,7 +205,7 @@ class ELM327:
             elm.watch(RPM)
             elm.watch(MAF)
             elm.watch(PRES)
-        if not self.elm327.supports(VOLT):
+        if not elm.supports(VOLT):
             elm = None
         else:
             elm.watch(VOLT)
@@ -244,18 +245,19 @@ class ELM327:
             elm.close()
 
     def is_connected(self):
-        if self.elm327 is not None:
-            return self.elm327.is_connected()
+        elm = self.elm327
+        if elm is not None:
+            return elm.is_connected()
     
 
 if __name__ == "__main__":
     run(['sh','-c','echo 0 | sudo tee /sys/class/leds/PWR/brightness'])
-    # start()
-    try:
-        # run(['bash','-c','ip link set wlan0 down'])
-        start()
-    finally:
-        pass # run(['bash','-c','ip link set wlan0 up'])
+    start()
+    # try:
+    #     # run(['bash','-c','ip link set wlan0 down'])
+    #     start()
+    # finally:
+    #     pass # run(['bash','-c','ip link set wlan0 up'])
 
 ###############
 #  References #
