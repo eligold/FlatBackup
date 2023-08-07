@@ -64,9 +64,9 @@ def start():
             camera = getCamera()
             res=run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
             if res.stdout == b'up\n':
-                close(elm,camera)
-                exit(0)
-            run(['bash','-c','ip link set wlan0 down'])
+                #close(elm,camera)
+                pass#exit(0)
+            #run(['bash','-c','ip link set wlan0 down'])
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
                 while camera.isOpened():
@@ -152,7 +152,7 @@ def onScreen(frame_buffer,image,text):
         frame_buffer.write(image_left[i])
         frame_buffer.write(image[i])
         frame_buffer.write(image_right[i])
-        frame_buffer.write(np.full(80,0x19ae,np.uint16))
+        frame_buffer.write(np.full(120,0x19ae,np.uint16))
     frame_buffer.seek(0,0)
 
 def close(elm,camera):
