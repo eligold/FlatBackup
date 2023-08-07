@@ -6,12 +6,12 @@ import evdev
 from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
                           ABS_MT_POSITION_Y)
 import select
-from obd import Unit
+from obd import Unit, OBDStatus
 from time import sleep
 
 DIM = (720, 576) # video dimensions
 SDIM = (960, 768)
-FDIM = (1120,480)
+FDIM = (1040,480)
 
 COLOR_REC = 0x58
 COLOR_GOOD = 0x871a
@@ -39,7 +39,6 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 # calculate camera values to upscale and undistort. TODO upscale later vs now
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
-carOff = True
 # psi queue, image queue
 # async def run():
 #     async for img in getImage():
@@ -54,6 +53,7 @@ def start():
     count = 0
     elm = ELM327(portstr="/dev/ttyUSB0")
     wait = True
+    carOff = True
     # for path in evdev.list_devices():
     #     device = evdev.InputDevice(path)
     #     if evdev.ecodes.EV_ABS in device.capabilities():
@@ -94,7 +94,6 @@ def start():
                         count = 0
 
                         # NEEDS WORK:
-
                         if carOff and elm.volts() > 13:
                             elm.close()
                             elm = ELM327()
@@ -105,6 +104,7 @@ def start():
         except KeyboardInterrupt:
             bounce(elm,camera)
         except Exception as e:
+            print(e)
             ec += 1
             if ec > 10:
                 ec = 0
@@ -126,7 +126,7 @@ def getCamera(camIndex=0,apiPreference=cv2.CAP_V4L2):
     camera.set(BRIGHTNESS,25)
     return camera
 
-def screenPrint(img,text,pos=(529,473)):
+def screenPrint(img,text,pos=(509,473)):
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     scale = 1
     return cv2.putText(img, text, pos, font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
@@ -141,11 +141,11 @@ def getUndist(c):
 
 def onScreen(frame_buffer,image,text):
     image_right = cv2.cvtColor(image,CVT3TO2B)
-    image_left = image_right[8:488,:200]
-    image_right = image_right[:480,-200:]
+    image_left = image_right[8:488,:220]
+    image_right = image_right[:480,-220:]
     image = screenPrint(
                 cv2.cvtColor(
-                    cv2.resize(image[220:460,200:760], FDIM,interpolation=cv2.INTER_LANCZOS4),
+                    cv2.resize(image[220:460,220:740], FDIM,interpolation=cv2.INTER_LANCZOS4),
                 CVT3TO2B),
             text)
     for i in range(480):
@@ -198,16 +198,14 @@ class ELM327:
     obdd = OBDData()
     def __init__(self,portstr="/dev/ttyUSB0"):
         self.close()
-        print("made it thru close stmt")
         elm = obd.Async(portstr)
-        print("made it thru obd init")
         if elm.is_connected():
             self.carOn = True
             elm.watch(TEMP)
             elm.watch(RPM)
             elm.watch(MAF)
             elm.watch(PRES)
-        if not elm.supports(VOLT):
+        if not elm.status() != OBDStatus.OBD_CONNECTED:
             elm = None
         else:
             elm.watch(VOLT)
@@ -219,7 +217,7 @@ class ELM327:
         obdd = self.obdd
         if elm is not None:
             if not self.carOn:
-                if elm.query(VOLT).value > 13:
+                if self.volts() > 13:
                     self.__init__()
                     return self.psi()
             mafr = elm.query(MAF)
@@ -237,9 +235,10 @@ class ELM327:
     def volts(self):
         elm = self.elm327
         if elm is not None:
-            return self.elm327.query(VOLT).value
-        else:
-            return 12.0
+            vr = self.elm327.query(VOLT)
+            if not vr.is_null():
+                return vr.value
+        return 12.0
 
     def close(self):
         elm = self.elm327
