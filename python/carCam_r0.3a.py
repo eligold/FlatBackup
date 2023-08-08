@@ -4,7 +4,7 @@ import sys, obd, traceback, cv2, numpy as np
 from subprocess import run
 import evdev
 from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
-                          ABS_MT_POSITION_Y)
+                          ABS_MT_POSITION_Y, EV_ABS)
 import select
 from obd import Unit, OBDStatus
 from time import sleep
@@ -39,6 +39,8 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 # calculate camera values to upscale and undistort. TODO upscale later vs now
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
+
+touch = evdev.InputDevice('/dev/input/event4')
 # psi queue, image queue
 # async def run():
 #     async for img in getImage():
@@ -47,18 +49,24 @@ mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv
 #     async with aiofiles.open('/dev/fb0','rb+') as buf:
 #         pass
 
+async def touch_input(touch=touch):
+    async for event in touch.async_read_loop():
+        #if event.type == EV_ABS:
+        if event.code == ABS_MT_POSITION_X:
+            if event.value > 1479:
+                # bounce(elm,camera)
+                exit(0)
+
 def start():
+    asyncio.ensure_future(touch_input(touch))
+    loop = asyncio.get_event_loop()
+    loop.run_forever()
     psi = 19
     ec = 0
     count = 0
     elm = ELM327(portstr="/dev/ttyUSB0")
     wait = True
     carOff = True
-    # for path in evdev.list_devices():
-    #     device = evdev.InputDevice(path)
-    #     if evdev.ecodes.EV_ABS in device.capabilities():
-    #         r, w, x = select.select([device.fd], [], [])
-    #         break
     while(True):
         try:
             camera = getCamera()
@@ -129,7 +137,7 @@ def getCamera(camIndex=0,apiPreference=cv2.CAP_V4L2):
 def screenPrint(img,text,pos=(509,473)):
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     scale = 1
-    return cv2.putText(img, text, pos, font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
+    return img
 
 def getUndist(c):
     success, image = c.read()
@@ -139,20 +147,25 @@ def getUndist(c):
                 SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
     return success, image
 
-def onScreen(frame_buffer,image,text):
+def onScreen(frame_buffer,image,psi):
     image_right = cv2.cvtColor(image,CVT3TO2B)
     image_left = image_right[8:488,:220]
     image_right = image_right[:480,-220:]
-    image = screenPrint(
-                cv2.cvtColor(
-                    cv2.resize(image[220:460,220:740], FDIM,interpolation=cv2.INTER_LANCZOS4),
-                CVT3TO2B),
-            text)
+    font_face = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 1
+    pos = (4,19)
+    text = f"{psi:.1f}\nPSI"
+    sidebar = cv2.putText(
+                np.full((480,160),0x19ae,np.uint16),
+            text, pos, font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
+    image = cv2.cvtColor(
+                cv2.resize(image[220:460,220:740], FDIM,interpolation=cv2.INTER_LANCZOS4),
+            CVT3TO2B)
     for i in range(480):
         frame_buffer.write(image_left[i])
         frame_buffer.write(image[i])
         frame_buffer.write(image_right[i])
-        frame_buffer.write(np.full(120,0x19ae,np.uint16))
+        frame_buffer.write(sidebar[i])
     frame_buffer.seek(0,0)
 
 def close(elm,camera):
@@ -189,8 +202,12 @@ class ELM327:
             return (self.iap - self.atm).magnitude
 
         def _recalc(self): # [2] C * IAT(K) * MAF / RPM = IAP
-            iap = self.C / self.rpm * self.maf * self.iat
-            self.iap = iap.to('psi')
+            divisor = self.rpm * self.maf * self.iat
+            if divisor != 0:
+                iap = self.C / divisor
+                self.iap = iap.to('psi')
+            else:
+                self.iap = 19.19*Unit.psi
 
     wait = True
     carOn = False
@@ -214,22 +231,20 @@ class ELM327:
 
     def psi(self):
         elm = self.elm327
-        obdd = self.obdd
-        if elm is not None:
-            if not self.carOn:
-                if self.volts() > 13:
-                    self.__init__()
-                    return self.psi()
+        if self.carOn:
             mafr = elm.query(MAF)
             if mafr.is_null():
                 self.__init__()
                 return self.psi()
-            obdd.update(maf = mafr.value,
+            self.obdd.update(maf = mafr.value,
                         iat = elm.query(TEMP).value.to('degK'),
                         rpm = elm.query(RPM).value,
                         atm = elm.query(PRES).value.to('psi'))
             return self.obdd.psi()
         else:
+            if self.volts() > 13:
+                self.__init__()
+                return self.psi()
             return 19.0
 
     def volts(self):
@@ -237,7 +252,7 @@ class ELM327:
         if elm is not None:
             vr = self.elm327.query(VOLT)
             if not vr.is_null():
-                return vr.value
+                return vr.value.magnitude
         return 12.0
 
     def close(self):
