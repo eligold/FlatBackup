@@ -202,12 +202,12 @@ class ELM327:
             return (self.iap - self.atm).magnitude
 
         def _recalc(self): # [2] C * IAT(K) * MAF / RPM = IAP
-            divisor = self.rpm * self.maf * self.iat
-            if divisor != 0:
-                iap = self.C / divisor
-                self.iap = iap.to('psi')
-            else:
+            if self.rpm.is_null():
+                print("null rpm!")
                 self.iap = 19.19*Unit.psi
+            else:
+                iap = self.C / self.rpm * self.maf * self.iat
+                self.iap = iap.to('psi')
 
     wait = True
     carOn = False
@@ -232,13 +232,13 @@ class ELM327:
     def psi(self):
         elm = self.elm327
         if self.carOn:
-            mafr = elm.query(MAF)
-            if mafr.is_null():
+            rpmr = elm.query(RPM)
+            if rpmr.is_null():
                 self.__init__()
                 return self.psi()
-            self.obdd.update(maf = mafr.value,
+            self.obdd.update(rpm = rpmr.value,
                         iat = elm.query(TEMP).value.to('degK'),
-                        rpm = elm.query(RPM).value,
+                        maf = elm.query(MAF).value,
                         atm = elm.query(PRES).value.to('psi'))
             return self.obdd.psi()
         else:
