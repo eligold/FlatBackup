@@ -5,7 +5,7 @@ from subprocess import run
 import evdev
 from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
                           ABS_MT_POSITION_Y, EV_ABS)
-import select
+from gpiozero import CPUTemperature
 from obd import Unit, OBDStatus
 from time import sleep
 
@@ -49,27 +49,27 @@ touch = evdev.InputDevice('/dev/input/event4')
 #     async with aiofiles.open('/dev/fb0','rb+') as buf:
 #         pass
 
-async def touch_input(touch=touch):
+async def touch_input(elm,camera,touch=touch):
     async for event in touch.async_read_loop():
         #if event.type == EV_ABS:
         if event.code == ABS_MT_POSITION_X:
             if event.value > 1479:
-                # bounce(elm,camera)
+                bounce(elm,camera)
                 exit(0)
 
 def start():
-    asyncio.ensure_future(touch_input(touch))
-    loop = asyncio.get_event_loop()
-    loop.run_forever()
     psi = 19
     ec = 0
     count = 0
     elm = ELM327(portstr="/dev/ttyUSB0")
     wait = True
     carOff = True
+    camera = getCamera()
+    asyncio.ensure_future(touch_input(elm,camera,touch))
+    loop = asyncio.get_event_loop()
+    loop.run_forever()
     while(True):
         try:
-            camera = getCamera()
             res=run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
             if res.stdout == b'up\n':
                 #close(elm,camera)
@@ -78,21 +78,8 @@ def start():
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
                 while camera.isOpened():
-                    # id_ = -1
-                    # x = y = 0
-                    # for event in device.read():
-                    #     if event.code == event.value == 0:
-                    #         if id_ != -1 and x > 1519:
-                    #             print(x, y)
-                    #             bounce(elm327,camera)
-                    #     elif event.code == ABS_MT_TRACKING_ID:
-                    #         id_ = event.value
-                    #     elif event.code == ABS_MT_POSITION_X:
-                    #         x = event.value
-                    #     elif event.code == ABS_MT_POSITION_Y:
-                    #         y = event.value
                     if not wait:
-                        psi = elm.psi()#getPSI(elm327,obdd)
+                        psi = elm.psi()
                     else:
                         psi = 19.1
                     success, img = getUndist(camera)
@@ -117,12 +104,17 @@ def start():
             if ec > 10:
                 ec = 0
                 raise e
+            camera = getCamera()
             traceback.print_exc(e)
         finally:
             bounce(elm,camera,1)
 
 def errScreen(frame_buffer):
-    image = screenPrint(np.full((480,1600),COLOR_BAD,np.uint16),"No Signal!",(500,200))
+    font_face = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 1
+    image = cv2.putText(
+                np.full((480,1600),COLOR_BAD,np.uint16),
+            "No Signal!",(500,200), font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
     for i in range(480):
         frame_buffer.write(image[i])
     frame_buffer.seek(0,0)
@@ -135,15 +127,15 @@ def getCamera(camIndex=0,apiPreference=cv2.CAP_V4L2):
     return camera
 
 def screenPrint(img,text,pos=(509,473)):
-    font_face = cv2.FONT_HERSHEY_SIMPLEX
-    scale = 1
+    
+    img, text, pos
     return img
 
 def getUndist(c):
     success, image = c.read()
     if success:
         image = cv2.resize(
-                    cv2.remap(image, mapx, mapy, interpolation=cv2.INTER_LANCZOS4),
+                    cv2.remap(image,mapx,mapy,interpolation=cv2.INTER_LANCZOS4),
                 SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
     return success, image
 
@@ -151,21 +143,25 @@ def onScreen(frame_buffer,image,psi):
     image_right = cv2.cvtColor(image,CVT3TO2B)
     image_left = image_right[8:488,:220]
     image_right = image_right[:480,-220:]
-    font_face = cv2.FONT_HERSHEY_SIMPLEX
-    scale = 1
+    args = (cv2.FONT_HERSHEY_SIMPLEX,1,(0xc4,0xe4),2,cv2.LINE_AA)
     pos = (4,19)
     text = f"{psi:.1f}\nPSI"
     sidebar = cv2.putText(
-                np.full((480,160),0x19ae,np.uint16),
-            text, pos, font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
+                cv2.putText(
+                    np.full((480,160),0x19ae,np.uint16),
+                f"{CPUTemperature:.0f}°",(4,190),*args),
+            text,pos,*args)
     image = cv2.cvtColor(
-                cv2.resize(image[220:460,220:740], FDIM,interpolation=cv2.INTER_LANCZOS4),
+                cv2.resize(image[220:460,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4),
             CVT3TO2B)
     for i in range(480):
         frame_buffer.write(image_left[i])
         frame_buffer.write(image[i])
         frame_buffer.write(image_right[i])
-        frame_buffer.write(sidebar[i])
+        if i == 160 or i == 320:
+            frame_buffer.write(np.full((160),0xc4e4,np.uint16))
+        else:
+            frame_buffer.write(sidebar[i])
     frame_buffer.seek(0,0)
 
 def close(elm,camera):
@@ -179,35 +175,37 @@ def bounce(elm,camera,ec=0):
 
 class ELM327:
     class OBDData:
+        # Gas constant R
         R = Unit.Quantity(1,Unit.R).to_base_units()
+        # 1984 mL or cc air flow every 2 rotations
         VF = Unit.Quantity(1984,Unit.cc).to_base_units()/Unit.Quantity(2,Unit.turn)
+        # Air molar mass
         MM = Unit.Quantity(28.949,"g/mol").to_base_units()
-        C = R/(VF*MM)
+        # Constant for calculating airflow from
+        C = R/(VF*MM)  #   OBD sensor readings
 
         def __init__(self,atm=14.3,iat=499.0,maf=132.0,rpm=4900):
-            self.atm = atm*Unit.psi
-            self.iat = iat*Unit.degK
-            self.maf = maf*Unit.gps
+            self.atmospheric_pressure = atm*Unit.psi
+            self.intake_air_temp = iat*Unit.degK
+            self.mass_air_flow = maf*Unit.gps
             self.rpm = rpm*Unit.rpm
             self._recalc()
+        
+        # Calculate pressure using ideal gas law with volumetric
+        # and mass air flow  -->  P*V(f) = mm(f)*R*T
+        def _recalc(self): # C * IAT(K) * MAF / RPM = IAP
+            iap = self.C / self.rpm * self.intake_air_temp * self.mass_air_flow
+            self.intake_abs_pressure = iap.to('psi')
 
         def update(self,iat,rpm,maf,atm):
-            self.iat=iat
+            self.intake_air_temp=iat
             self.rpm=rpm
-            self.maf=maf
-            self.atm=atm
+            self.mass_air_flow=maf
+            self.atmospheric_pressure=atm
             self._recalc()
 
         def psi(self):
-            return (self.iap - self.atm).magnitude
-
-        def _recalc(self): # [2] C * IAT(K) * MAF / RPM = IAP
-            if self.rpm.is_null():
-                print("null rpm!")
-                self.iap = 19.19*Unit.psi
-            else:
-                iap = self.C / self.rpm * self.maf * self.iat
-                self.iap = iap.to('psi')
+            return (self.intake_abs_pressure - self.atmospheric_pressure).magnitude
 
     wait = True
     carOn = False
@@ -264,6 +262,7 @@ class ELM327:
         elm = self.elm327
         if elm is not None:
             return elm.is_connected()
+        return False
     
 
 if __name__ == "__main__":
