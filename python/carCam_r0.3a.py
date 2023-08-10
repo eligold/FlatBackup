@@ -40,7 +40,7 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 
-touch = evdev.InputDevice('/dev/input/event4')
+# touch = evdev.InputDevice('/dev/input/event4')
 # psi queue, image queue
 # async def run():
 #     async for img in getImage():
@@ -49,25 +49,25 @@ touch = evdev.InputDevice('/dev/input/event4')
 #     async with aiofiles.open('/dev/fb0','rb+') as buf:
 #         pass
 
-async def touch_input(elm,camera,touch=touch):
-    async for event in touch.async_read_loop():
-        #if event.type == EV_ABS:
-        if event.code == ABS_MT_POSITION_X:
-            if event.value > 1479:
-                bounce(elm,camera)
-                exit(0)
+# async def touch_input(elm,camera,touch=touch):
+#     async for event in touch.async_read_loop():
+#         #if event.type == EV_ABS:
+#         if event.code == ABS_MT_POSITION_X:
+#             if event.value > 1479:
+#                 bounce(elm,camera)
+#                 exit(0)
 
 def start():
+    camera = None
     psi = 19
     ec = 0
     count = 0
     elm = ELM327(portstr="/dev/ttyUSB0")
     wait = True
     carOff = True
-    camera = getCamera()
-    asyncio.ensure_future(touch_input(elm,camera,touch))
-    loop = asyncio.get_event_loop()
-    loop.run_forever()
+    # asyncio.ensure_future(touch_input(elm,camera,touch))
+    # loop = asyncio.get_event_loop()
+    # loop.run_forever()
     while(True):
         try:
             res=run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
@@ -85,6 +85,7 @@ def start():
                     success, img = getUndist(camera)
                     onScreen(buf,img,f"{psi:.2f} PSI") if success else errScreen(buf)
                     if count > 125:
+                        print(ec)
                         wait = False
                         count = 0
 
@@ -104,7 +105,6 @@ def start():
             if ec > 10:
                 ec = 0
                 raise e
-            camera = getCamera()
             traceback.print_exc(e)
         finally:
             bounce(elm,camera,1)
@@ -126,10 +126,7 @@ def getCamera(camIndex=0,apiPreference=cv2.CAP_V4L2):
     camera.set(BRIGHTNESS,25)
     return camera
 
-def screenPrint(img,text,pos=(509,473)):
-    
-    img, text, pos
-    return img
+# def screenPrint(img,text,pos=(509,473)):
 
 def getUndist(c):
     success, image = c.read()
@@ -185,16 +182,17 @@ class ELM327:
         C = R/(VF*MM)  #   OBD sensor readings
 
         def __init__(self,atm=14.3,iat=499.0,maf=132.0,rpm=4900):
-            self.atmospheric_pressure = atm*Unit.psi
-            self.intake_air_temp = iat*Unit.degK
-            self.mass_air_flow = maf*Unit.gps
-            self.rpm = rpm*Unit.rpm
+            self.atmospheric_pressure = atm * Unit.psi
+            self.intake_air_temp = iat * Unit.degK
+            self.mass_air_flow = maf * Unit.gps
+            self.rpm = rpm * Unit.rpm
             self._recalc()
         
         # Calculate pressure using ideal gas law with volumetric
-        # and mass air flow  -->  P*V(f) = mm(f)*R*T
+        # and mass air _flow_  -->  P*V(f) = mm(f)*R*T
         def _recalc(self): # C * IAT(K) * MAF / RPM = IAP
             iap = self.C / self.rpm * self.intake_air_temp * self.mass_air_flow
+            # this doesn't fail because _unit analysis_
             self.intake_abs_pressure = iap.to('psi')
 
         def update(self,iat,rpm,maf,atm):
