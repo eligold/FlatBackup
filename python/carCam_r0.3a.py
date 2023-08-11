@@ -5,7 +5,7 @@ from subprocess import run
 import evdev
 from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
                           ABS_MT_POSITION_Y, EV_ABS)
-from gpiozero import CPUTemperature
+from gpiozero import CPUTemperature as inTemp
 from obd import Unit, OBDStatus
 from time import sleep
 
@@ -40,6 +40,7 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 
+intemp = inTemp()
 # touch = evdev.InputDevice('/dev/input/event4')
 # psi queue, image queue
 # async def run():
@@ -70,6 +71,7 @@ def start():
     # loop.run_forever()
     while(True):
         try:
+            camera = getCamera()
             res=run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
             if res.stdout == b'up\n':
                 #close(elm,camera)
@@ -83,7 +85,7 @@ def start():
                     else:
                         psi = 19.1
                     success, img = getUndist(camera)
-                    onScreen(buf,img,f"{psi:.2f} PSI") if success else errScreen(buf)
+                    onScreen(buf,img,psi) if success else errScreen(buf)
                     if count > 125:
                         print(ec)
                         wait = False
@@ -105,7 +107,7 @@ def start():
             if ec > 10:
                 ec = 0
                 raise e
-            traceback.print_exc(e)
+            traceback.print_exc()
         finally:
             bounce(elm,camera,1)
 
@@ -140,14 +142,16 @@ def onScreen(frame_buffer,image,psi):
     image_right = cv2.cvtColor(image,CVT3TO2B)
     image_left = image_right[8:488,:220]
     image_right = image_right[:480,-220:]
-    args = (cv2.FONT_HERSHEY_SIMPLEX,1,(0xc4,0xe4),2,cv2.LINE_AA)
-    pos = (4,19)
-    text = f"{psi:.1f}\nPSI"
+    args = {"fontFace":cv2.FONT_HERSHEY_SIMPLEX,"fontScale":1,"color":(0xc4,0xe4),"thickness":2,"lineType":cv2.LINE_AA}
+    pos = (4,38)
+    text = f"{psi:.1f}"
     sidebar = cv2.putText(
                 cv2.putText(
-                    np.full((480,160),0x19ae,np.uint16),
-                f"{CPUTemperature:.0f}°",(4,190),*args),
-            text,pos,*args)
+                    cv2.putText(
+                            np.full((480,120),0x19ae,np.uint16),
+                        "PSI",(7,76),**args),
+                    f"{int(intemp.temperature)}C",(4,190),**args),
+            text,pos,**args)
     image = cv2.cvtColor(
                 cv2.resize(image[220:460,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4),
             CVT3TO2B)
@@ -156,7 +160,7 @@ def onScreen(frame_buffer,image,psi):
         frame_buffer.write(image[i])
         frame_buffer.write(image_right[i])
         if i == 160 or i == 320:
-            frame_buffer.write(np.full((160),0xc4e4,np.uint16))
+            frame_buffer.write(np.full((120),0xc4e4,np.uint16))
         else:
             frame_buffer.write(sidebar[i])
     frame_buffer.seek(0,0)
