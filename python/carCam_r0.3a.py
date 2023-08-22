@@ -281,3 +281,4 @@ if __name__ == "__main__":
 ###############
 # [1] https://towardsdatascience.com/circular-queue-or-ring-buffer-92c7b0193326
 # [2] https://www.first-sensor.com/cms/upload/appnotes/AN_Massflow_E_11153.pdf
+/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0
