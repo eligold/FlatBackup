@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import asyncio#, aiofiles, 
-import sys, obd, traceback, cv2, numpy as np
+import sys, os, obd, traceback, cv2, numpy as np
 from subprocess import run
 import evdev
 from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
@@ -58,11 +58,14 @@ intemp = inTemp()
 #                 bounce(elm,camera)
 #                 exit(0)
 
+# /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
 def start():
     camera = None
     psi = 19
     ec = 0
     count = 0
+    dashcam = getCamera(int(os.path.realpath("/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0").split("video")[-1]))
+    index = int(os.path.realpath("/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0").split("video")[-1])
     elm = ELM327(portstr="/dev/ttyUSB0")
     wait = True
     carOff = True
@@ -71,7 +74,7 @@ def start():
     # loop.run_forever()
     while(True):
         try:
-            camera = getCamera()
+            camera = getCamera(index)
             res=run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
             if res.stdout == b'up\n':
                 #close(elm,camera)
@@ -281,4 +284,3 @@ if __name__ == "__main__":
 ###############
 # [1] https://towardsdatascience.com/circular-queue-or-ring-buffer-92c7b0193326
 # [2] https://www.first-sensor.com/cms/upload/appnotes/AN_Massflow_E_11153.pdf
-/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0
