@@ -2,7 +2,7 @@
 import asyncio#, aiofiles, 
 import os, obd, traceback, cv2, numpy as np
 from obd import Unit
-from subprocess import run
+from subprocess import run, Popen, PIPE
 from time import sleep, time
 from gpiozero import CPUTemperature as inTemp
 from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
@@ -158,6 +158,7 @@ intemp = inTemp()
 
 # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
 def start():
+    elm = ELM327(portstr="/dev/ttyUSB0")
     camera = None
     psi = 19
     ec = 0
@@ -168,22 +169,32 @@ def start():
     index = int(os.path.realpath(
             "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
         ).split("video")[-1])
-    elm = ELM327(portstr="/dev/ttyUSB0")
     wait = True
+    
     # asyncio.ensure_future(touch_input(elm,camera,touch))
     # loop = asyncio.get_event_loop()
     # loop.run_forever()
     while(True):
         try:
             camera = getCamera(index)
+            # /dev/input/by-id/... (or uuid?)
+            cmd = Popen("evtest /dev/input/event0",shell=True,stdout=PIPE,stderr=PIPE)
+            line = cmd.stdout.readline()
             res=run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
-            if res.stdout == b'up\n':
+            volts = elm.volts()
+            if res.stdout == b'up\n' and volts < 13.0:
                 #close(elm,camera)
                 pass#exit(0)
-            #run(['bash','-c','ip link set wlan0 down'])
+            if volts > 13.0:
+                run(['bash','-c','ip link set wlan0 down'])
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
                 while camera.isOpened():
+                    while(line != b''):
+                        if(b'POSITION_X' in line and b'value' in line):
+                            if int(line.decode().split('value')[-1]) > 1480:
+                                bounce(elm,camera)
+                        line = cmd.stdout.readline()
                     if not wait:
                         psi = elm.psi()
                     else:
