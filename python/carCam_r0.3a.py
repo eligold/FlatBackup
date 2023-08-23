@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 import asyncio#, aiofiles, 
-import os, obd, traceback, cv2, numpy as np
-from obd import Unit
+import os, traceback, cv2, numpy as np
 from subprocess import run, Popen, PIPE
-from time import sleep, time
-from gpiozero import CPUTemperature as inTemp
+from threading  import Thread
+from queue import Queue, Empty
+from time import sleep
+from gpiozero import CPUTemperature as onboardTemp
 from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
                           ABS_MT_POSITION_Y, EV_ABS)
 import evdev
-import ELM327
+from ELM327 import ELM327
 
 DIM = (720, 576) # video dimensions
 SDIM = (960, 768)
@@ -26,12 +27,6 @@ HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
 BRIGHTNESS = cv2.CAP_PROP_BRIGHTNESS
 CONTRAST = cv2.CAP_PROP_CONTRAST
 
-TEMP = obd.commands.INTAKE_TEMP
-RPM = obd.commands.RPM
-MAF = obd.commands.MAF
-PRES = obd.commands.BAROMETRIC_PRESSURE
-VOLT = obd.commands.ELM_VOLTAGE
-
 # below values are specific to my backup camera run thru
 # my knock-off easy-cap calibrated with my phone screen. 
 # YMMV
@@ -41,104 +36,14 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 
-class ELM327:
-    class OBDData:
-        # Gas constant R
-        R = Unit.Quantity(1,Unit.R).to_base_units()
-        # 1984 mL or cc air flow every 2 rotations
-        VF = Unit.Quantity(1984,Unit.cc).to_base_units()/Unit.Quantity(2,Unit.turn)
-        # Air molar mass
-        MM = Unit.Quantity(28.949,"g/mol").to_base_units()
-        # Constant for calculating airflow from
-        C = R/(VF*MM)  #   OBD sensor readings
+intemp = onboardTemp()
 
-        def __init__(self,atm=14.3,iat=499.0,maf=132.0,rpm=4900):
-            self.atmospheric_pressure = atm * Unit.psi
-            self.intake_air_temp = iat * Unit.degK
-            self.mass_air_flow = maf * Unit.gps
-            self.rpm = rpm * Unit.rpm
-            self._recalc()
+def enqueue_output(out, queue):
+    for line in iter(out.readline, b''):
+        queue.put(line)
+    out.close()
+q = Queue()
 
-        # Calculate pressure using ideal gas law with volumetric
-        # and mass air _flow_  -->  P*V(f) = mm(f)*R*T
-        def _recalc(self): # C * IAT(K) * MAF / RPM = IAP
-            iap = self.C / self.rpm * self.intake_air_temp * self.mass_air_flow
-            # this doesn't fail because _unit analysis_
-            self.intake_abs_pressure = iap.to('psi')
-
-        def update(self,iat,rpm,maf,atm):
-            self.intake_air_temp=iat
-            self.rpm=rpm
-            self.mass_air_flow=maf
-            self.atmospheric_pressure=atm
-            self._recalc()
-
-        def psi(self):
-            return (self.intake_abs_pressure - self.atmospheric_pressure).magnitude
-
-    wait = True
-    carOn = False
-    elm327 = None
-    obdd = OBDData()
-    def __init__(self,portstr="/dev/ttyUSB0"):
-        self.close()
-        elm = obd.obd(portstr)
-        if elm.is_connected():
-            voltage = elm.query(VOLT)
-            if not voltage.is_null() and voltage.value.magnitude > 13.0:
-                self.carOn = True
-            elm.close()
-            elm = obd.Async(portstr)
-
-            if self.carOn:
-                elm.watch(TEMP)
-                elm.watch(RPM)
-                elm.watch(MAF)
-                elm.watch(PRES)
-            elm.watch(VOLT)
-            elm.start()
-            self.elm327 = elm
-        else:
-            elm = None
-
-    def psi(self):
-        elm = self.elm327
-        if self.carOn:
-            rpmr = elm.query(RPM)
-            if rpmr.is_null() or rpmr.value == 0.0:
-                self.__init__()
-                return self.psi()
-            self.obdd.update(rpm = rpmr.value,
-                        iat = elm.query(TEMP).value.to('degK'),
-                        maf = elm.query(MAF).value,
-                        atm = elm.query(PRES).value.to('psi'))
-            return self.obdd.psi()
-        else:
-            if self.volts() > 13:
-                self.__init__()
-                return self.psi()
-            return 19.0
-
-    def volts(self):
-        elm = self.elm327
-        if elm is not None:
-            vr = elm.query(VOLT)
-            if not vr.is_null():
-                return vr.value.magnitude
-        return 12.0
-
-    def close(self):
-        elm = self.elm327
-        if elm is not None:
-            elm.close()
-
-    def is_connected(self):
-        elm = self.elm327
-        if elm is not None:
-            return elm.is_connected()
-        return False
-
-intemp = inTemp()
 # touch = evdev.InputDevice('/dev/input/event4')
 # psi queue, image queue
 # async def run():
@@ -158,14 +63,14 @@ intemp = inTemp()
 
 # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
 def start():
-    elm = ELM327(portstr="/dev/ttyUSB0")
+    elm = ELM327()
     camera = None
     psi = 19
     ec = 0
     count = 0
-    dashcam = getCamera(int(os.path.realpath(
-            "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-        ).split("video")[-1]))
+    # dashcam = getCamera(int(os.path.realpath(
+    #         "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+    #     ).split("video")[-1]))
     index = int(os.path.realpath(
             "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
         ).split("video")[-1])
@@ -179,7 +84,9 @@ def start():
             camera = getCamera(index)
             # /dev/input/by-id/... (or uuid?)
             cmd = Popen("evtest /dev/input/event0",shell=True,stdout=PIPE,stderr=PIPE)
-            line = cmd.stdout.readline()
+            t = Thread(target=enqueue_output, args=(cmd.stdout, q))
+            t.daemon = True
+            t.start()
             res=run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
             volts = elm.volts()
             if res.stdout == b'up\n' and volts < 13.0:
@@ -190,11 +97,14 @@ def start():
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
                 while camera.isOpened():
-                    while(line != b''):
-                        if(b'POSITION_X' in line and b'value' in line):
-                            if int(line.decode().split('value')[-1]) > 1480:
-                                bounce(elm,camera)
-                        line = cmd.stdout.readline()
+                    while(True):
+                        try:  
+                            line = q.get_nowait()
+                            if(b'POSITION_X' in line and b'value' in line):
+                                if int(line.decode().split('value')[-1]) > 1480:
+                                    bounce(elm,camera)
+                        except Empty:
+                            break
                     if not wait:
                         psi = elm.psi()
                     else:
@@ -248,13 +158,13 @@ def onScreen(frame_buffer,image,psi):
     image_right = cv2.cvtColor(image,CVT3TO2B)
     image_left = image_right[8:488,:220]
     image_right = image_right[:480,-220:]
-    args = {"fontFace":cv2.FONT_HERSHEY_SIMPLEX,"fontScale":1,"color":(0xc4,0xe4),"thickness":2,"lineType":cv2.LINE_AA}
+    args = {"fontFace":cv2.FONT_HERSHEY_SIMPLEX,"fontScale":1,"color":(0xc5,0x9e,0x21),"thickness":2,"lineType":cv2.LINE_AA}
     pos = (4,38)
     text = f"{psi:.1f}"
     sidebar = cv2.putText(
                 cv2.putText(
                     cv2.putText(
-                            np.full((480,120),0x19ae,np.uint16),
+                            np.full((480,120),0xc4e4,np.uint16),
                         "PSI",(7,76),**args),
                     f"{int(intemp.temperature)}C",(4,190),**args),
             text,pos,**args)
@@ -266,7 +176,7 @@ def onScreen(frame_buffer,image,psi):
         frame_buffer.write(image[i])
         frame_buffer.write(image_right[i])
         if i == 160 or i == 320:
-            frame_buffer.write(np.full((120),0xc4e4,np.uint16))
+            frame_buffer.write(np.full((120),0x19ae,np.uint16))
         else:
             frame_buffer.write(sidebar[i])
     frame_buffer.seek(0,0)
