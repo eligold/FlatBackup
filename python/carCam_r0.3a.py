@@ -112,7 +112,6 @@ def start():
                     success, img = getUndist(camera)
                     onScreen(buf,img,psi) if success else errScreen(buf)
                     if count > 125:
-                        print(ec)
                         wait = False
                         count = 0
                     else: count += 1

@@ -16,6 +16,7 @@ class ELM327:
     obdd = OBDData()
     def __init__(self,portstr="/dev/ttyUSB0"):
         self.close()
+        self.carOn = False
         elm = obd.OBD(portstr)
         if elm.is_connected():
             voltage = elm.query(VOLT)
@@ -33,7 +34,7 @@ class ELM327:
             elm.start()
             self.elm327 = elm
         else:
-            elm = None
+            self.elm327 = None
 
     def psi(self):
         elm = self.elm327
