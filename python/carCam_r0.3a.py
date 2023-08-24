@@ -89,10 +89,10 @@ def start():
             t.start()
             res=run(['bash','-c','cat /sys/class/net/wlan0/operstate'],capture_output=True)
             volts = elm.volts()
-            if res.stdout == b'up\n' and volts < 13.0:
+            if res.stdout == b'up\n' and volts < 12.1:
                 #close(elm,camera)
                 pass#exit(0)
-            if volts > 13.0:
+            if volts > 12.1:
                 run(['bash','-c','ip link set wlan0 down'])
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
@@ -105,16 +105,8 @@ def start():
                                     bounce(elm,camera)
                         except Empty:
                             break
-                    if not wait:
-                        psi = elm.psi()
-                    else:
-                        psi = 19.1
                     success, img = getUndist(camera)
-                    onScreen(buf,img,psi) if success else errScreen(buf)
-                    if count > 125:
-                        wait = False
-                        count = 0
-                    else: count += 1
+                    onScreen(buf,img,elm) if success else errScreen(buf)
             sleep(0.19)
         except KeyboardInterrupt:
             bounce(elm,camera)
@@ -153,17 +145,19 @@ def getUndist(c):
                 SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
     return success, image
 
-def onScreen(frame_buffer,image,psi):
+def onScreen(frame_buffer,image,elm):
     image_right = cv2.cvtColor(image,CVT3TO2B)
     image_left = image_right[8:488,:220]
     image_right = image_right[:480,-220:]
     args = {"fontFace":cv2.FONT_HERSHEY_SIMPLEX,"fontScale":1,"color":(0xc5,0x9e,0x21),"thickness":2,"lineType":cv2.LINE_AA}
     pos = (4,38)
-    text = f"{psi:.1f}"
+    text = f"{elm.psi():.1f}"
     sidebar = cv2.putText(
                 cv2.putText(
                     cv2.putText(
-                            np.full((480,120),0xc4e4,np.uint16),
+                        cv2.putText(
+                                np.full((480,120),0xc4e4,np.uint16),
+                            f"{elm.volts()}V",(4,380),**args),
                         "PSI",(7,76),**args),
                     f"{int(intemp.temperature)}C",(4,190),**args),
             text,pos,**args)

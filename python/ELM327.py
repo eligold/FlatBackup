@@ -1,4 +1,4 @@
-from time import time
+from time import sleep
 import obd
 
 from OBDData import OBDData
@@ -17,21 +17,22 @@ class ELM327:
     def __init__(self,portstr="/dev/ttyUSB0"):
         self.close()
         self.carOn = False
-        elm = obd.OBD(portstr)
+        elm = obd.Async(portstr)
         if elm.is_connected():
+            elm.watch(VOLT)
+            elm.start()
+            sleep(0.019)
             voltage = elm.query(VOLT)
-            if not voltage.is_null() and voltage.value.magnitude > 13.0:
+            if not voltage.is_null() and voltage.value.magnitude > 12.1:
                 self.carOn = True
-            elm.close()
-            elm = obd.Async(portstr)
 
             if self.carOn:
+                elm.stop()
                 elm.watch(TEMP)
                 elm.watch(RPM)
                 elm.watch(MAF)
                 elm.watch(PRES)
-            elm.watch(VOLT)
-            elm.start()
+                elm.start()
             self.elm327 = elm
         else:
             self.elm327 = None
@@ -49,7 +50,7 @@ class ELM327:
                         atm = elm.query(PRES).value.to('psi'))
             return self.obdd.psi()
         else:
-            if self.volts() > 13:
+            if self.volts() > 12.1:
                 self.__init__()
                 return self.psi()
             return 19.0
