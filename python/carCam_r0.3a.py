@@ -65,16 +65,13 @@ q = Queue()
 def start():
     elm = ELM327()
     camera = None
-    psi = 19
     ec = 0
-    count = 0
     # dashcam = getCamera(int(os.path.realpath(
     #         "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     #     ).split("video")[-1]))
     index = int(os.path.realpath(
             "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
         ).split("video")[-1])
-    wait = True
     
     # asyncio.ensure_future(touch_input(elm,camera,touch))
     # loop = asyncio.get_event_loop()
@@ -157,12 +154,12 @@ def onScreen(frame_buffer,image,elm):
                     cv2.putText(
                         cv2.putText(
                                 np.full((480,120),0xc4e4,np.uint16),
-                            f"{elm.volts()}V",(4,380),**args),
+                                f"{elm.volts()}V",(38,335),color=(0xc5,0x9e,0x21),thickness=1,fontFace=cv2.FONT_HERSHEY_SIMPLEX,fontScale=0.5),
                         "PSI",(7,76),**args),
                     f"{int(intemp.temperature)}C",(4,190),**args),
             text,pos,**args)
     image = cv2.cvtColor(
-                cv2.resize(image[220:460,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4),
+                cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4),
             CVT3TO2B)
     for i in range(480):
         frame_buffer.write(image_left[i])
@@ -170,6 +167,8 @@ def onScreen(frame_buffer,image,elm):
         frame_buffer.write(image_right[i])
         if i == 160 or i == 320:
             frame_buffer.write(np.full((120),0x19ae,np.uint16))
+        elif i == 339 or i == 477:
+            frame_buffer.write(np.full((120),0xae19,np.uint16))
         else:
             frame_buffer.write(sidebar[i])
     frame_buffer.seek(0,0)
