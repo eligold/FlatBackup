@@ -1,4 +1,5 @@
 from obd import Unit
+
 class OBDData:
     # Gas constant R
     R = Unit.Quantity(1,Unit.R).to_base_units()

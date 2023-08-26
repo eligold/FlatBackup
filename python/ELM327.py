@@ -9,6 +9,7 @@ MAF = obd.commands.MAF
 PRES = obd.commands.BAROMETRIC_PRESSURE
 VOLT = obd.commands.ELM_VOLTAGE
 
+#TODO Define exception if not found
 class ELM327:
     wait = True
     carOn = False
