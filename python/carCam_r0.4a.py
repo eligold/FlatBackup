@@ -152,10 +152,9 @@ def putText(img, text="you forgot the text idiot", origin=(0,480),
     return cv2.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
 def onScreen(frame_buffer,image,elm):
-    image_right = cv2.cvtColor(image,CVT3TO2B)
-    image_left = image_right[8:488,:220]
-    image_right = image_right[:480,-220:]
-    final_image = cv2.hconcat(image_left,image,image_right)
+    #image_right = cv2.cvtColor(image,CVT3TO2B)
+    image_left = image[8:488,:220]
+    image_right = image[:480,-220:]
     sidebar = putText(  # better battery interface to come
                     np.full((480,120),0xc4e4,np.uint16),
                     f"{elm.volts()}V",(38,335),
@@ -164,9 +163,10 @@ def onScreen(frame_buffer,image,elm):
     sidebar = putText(sidebar,f"{elm.psi():.1f}",(4,38))
     sidebar = putText(sidebar,"PSI",(7,76))
     sidebar = putText(sidebar,f"{int(intemp.temperature)}C",(4,190))
-    image = cv2.cvtColor(
-                cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4),
-            CVT3TO2B)
+    #final_image = cv2.cvtColor(
+    final_image =  cv2.hconcat(cv2.hconcat(image_left,cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4)),image_right),
+           # CVT3TO2B)
+    print(final_image)
     for i in range(480):
         frame_buffer.write(final_image[i])
         if i == 160 or i == 320:
@@ -175,7 +175,7 @@ def onScreen(frame_buffer,image,elm):
             #frame_buffer.write(np.full((120),0xae19,np.uint16))
             for j in range(120):
                 if j < 55 or j > 85:
-                    frame_buffer.write(i*2<<8&(255-i*3/2))
+                    frame_buffer.write((480-i)*2<<8&(i-255+19))
                 else:
                     frame_buffer.write(0x00)
         else:
