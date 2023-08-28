@@ -216,13 +216,13 @@ def buildSidebar(elm):
     elif temp < 60:
         color = 0xc5ca # yellow
     # sidebar = putText(sidebar,f"{int(intemp.temperature)}C",(4,190))
-    sidebar = cv2.circle(sidebar,(60,290),17,(0xffff),2)
-    sidebar = cv2.circle(sidebar,(60,290),15,(0),2)
-    sidebar = cv2.circle(sidebar,(60,290),15,(color),-1)
-    sidebar = cv2.rectangle(sidebar,(48,178),(72,278),(0xffff),2)
-    sidebar = cv2.rectangle(sidebar,(50,180),(70,280),(0),2)
-    sidebar = cv2.rectangle(sidebar,(50,180),(70,280),(0x630c),-1)
-    sidebar = cv2.rectangle(sidebar,(50,280-temp),(70,290),(color),-1)
+    sidebar = cv2.circle(sidebar,(60,270),8,(0xffff),2)
+    sidebar = cv2.circle(sidebar,(60,270),7,(0),2)
+    sidebar = cv2.circle(sidebar,(60,270),7,(color),-1)
+    sidebar = cv2.rectangle(sidebar,(63,178),(67,278),(0xffff),2)
+    sidebar = cv2.rectangle(sidebar,(55,215),(65,265),(0),2)
+    sidebar = cv2.rectangle(sidebar,(55,215),(65,265),(0x630c),-1)
+    sidebar = cv2.rectangle(sidebar,(55,265-temp),(65,270),(color),-1)
     return sidebar
 
 def close(elm,camera):
