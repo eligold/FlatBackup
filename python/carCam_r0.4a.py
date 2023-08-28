@@ -199,13 +199,13 @@ def buildSidebar(elm):
     sidebar = putText(sidebar,f"{elm.psi():.1f}",(4,38))
     sidebar = putText(sidebar,"PSI",(7,76))
     # sidebar = putText(sidebar,f"{int(intemp.temperature)}C",(4,190))
-    sidebar = cv2.circle(sidebar,(60,290),17,(255,255,255),2)
-    sidebar = cv2.circle(sidebar,(60,290),15,(0,0,0),2)
-    sidebar = cv2.circle(sidebar,(60,290),15,(0,0,250),-1)
-    sidebar = cv2.rectangle(sidebar,(48,188),(72,292),(255,255,255),2)
-    sidebar = cv2.rectangle(sidebar,(50,190),(70,290),(0,0,0),2)
+    sidebar = cv2.circle(sidebar,(60,290),17,(0xffff),2)
+    sidebar = cv2.circle(sidebar,(60,290),15,(0),2)
+    sidebar = cv2.circle(sidebar,(60,290),15,(0x1f),-1)
+    sidebar = cv2.rectangle(sidebar,(48,178),(72,282),(0xffff),2)
+    sidebar = cv2.rectangle(sidebar,(50,180),(70,280),(0),2)
     sidebar = cv2.rectangle(sidebar,(50,180),(70,280),(190,190,190),-1)
-    sidebar = cv2.rectangle(sidebar,(50,280-intemp.temperature),(70,290),(0,0,250),-1)
+    sidebar = cv2.rectangle(sidebar,(50,280-intemp.temperature),(70,290),(0x1f),-1)
     return sidebar
 
 def close(elm,camera):
