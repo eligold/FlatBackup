@@ -173,12 +173,12 @@ def newOnScreen(frame_buffer,image,pos=(0,0)):
 def onScreen(frame_buffer,image,sidebar):
     for i in range(480):
         frame_buffer.write(image[i])
-        if i >= 339 and i <= 477:
+        if i > 338 and i < 478:
             for j in range(120):
-                if j < 55 or j > 85:
-                    frame_buffer.write(i*2&(i-255))
+                if j > 55 or j < 85:
+                    frame_buffer.write(np.uint16(i*2&(i-255-j)))
                 else:
-                    frame_buffer.write(0x00)
+                    frame_buffer.write(sidebar[i][j])
         else:
             frame_buffer.write(sidebar[i])
     frame_buffer.seek(0)
