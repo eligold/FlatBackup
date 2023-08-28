@@ -1,4 +1,4 @@
-from time import sleep
+from time import sleep, time
 import obd
 
 from OBDData import OBDData
@@ -14,9 +14,11 @@ class ELM327:
     wait = True
     carOn = False
     elm327 = None
+    checktime = None
     obdd = OBDData()
     def __init__(self,portstr="/dev/ttyUSB0"):
         self.close()
+        self.checktime = time()
         self.carOn = False
         elm = obd.Async(portstr)
         if elm.is_connected():
@@ -37,6 +39,7 @@ class ELM327:
             self.elm327 = elm
         else:
             self.elm327 = None
+            self.checktime = time() + 30
 
     def psi(self):
         elm = self.elm327
@@ -45,13 +48,17 @@ class ELM327:
             if rpmr.is_null() or rpmr.value == 0.0:
                 self.__init__()
                 return self.psi()
-            self.obdd.update(rpm = rpmr.value,
-                        iat = elm.query(TEMP).value.to('degK'),
-                        maf = elm.query(MAF).value,
-                        atm = elm.query(PRES).value.to('psi'))
+            try:
+                self.obdd.update(rpm = rpmr.value,
+                            iat = elm.query(TEMP).value.to('degK'),
+                            maf = elm.query(MAF).value,
+                            atm = elm.query(PRES).value.to('psi'))
+            except AttributeError:
+                self.__init__()
+                return self.psi()
             return self.obdd.psi()
         else:
-            if self.volts() > 12.1:
+            if self.volts() > 12.1 or time() > self.checktime:
                 self.__init__()
                 return self.psi()
             return 19.0
@@ -62,6 +69,9 @@ class ELM327:
             vr = elm.query(VOLT)
             if not vr.is_null():
                 return vr.value.magnitude
+        elif time() > self.checktime:
+            self.__init__()
+            return self.volts()
         return 12.0
 
     def close(self):

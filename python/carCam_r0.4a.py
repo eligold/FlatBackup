@@ -20,6 +20,7 @@ COLOR_GOOD = 0x871a
 COLOR_LOW = 0xc4e4
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
+COLOR_LAYM = 0xbfe4
 
 CVT3TO2B = cv2.COLOR_BGR2BGR565
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
@@ -193,10 +194,12 @@ def buildSidebar(elm):
                     color=(0xc5,0x9e,0x21),thickness=1,fontScale=0.5)
     sidebar = putText(sidebar,f"{elm.psi():.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
     sidebar = putText(sidebar,"PSI",(60,95))
-    temp = int(intemp.temperature)
+    temp = 19 # int(intemp.temperature)
     color = 0xf800 # red
     if temp < 20:
         color = 0xc55e # light blue
+    elif temp < 40:
+        color = COLOR_LAYM # 'frog' green
     elif temp < 60:
         color = 0xc5ca # yellow
     # sidebar = putText(sidebar,f"{int(intemp.temperature)}C",(4,190))
