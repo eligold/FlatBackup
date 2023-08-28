@@ -175,8 +175,8 @@ def onScreen(frame_buffer,image,sidebar):
         frame_buffer.write(image[i])
         if i > 338 and i < 478:
             for j in range(120):
-                if j > 55 or j < 85:
-                    frame_buffer.write(np.uint16(i*2&(i-255-j)))
+                if j > 55 and j < 85:
+                    frame_buffer.write(np.uint16(i*2&(i-255-j))) # cool pattern in fullscreen
                 else:
                     frame_buffer.write(sidebar[i][j])
         else:
@@ -198,7 +198,14 @@ def buildSidebar(elm):
                     color=(0xc5,0x9e,0x21),thickness=1,fontScale=0.5)
     sidebar = putText(sidebar,f"{elm.psi():.1f}",(4,38))
     sidebar = putText(sidebar,"PSI",(7,76))
-    sidebar = putText(sidebar,f"{int(intemp.temperature)}C",(4,190))
+    # sidebar = putText(sidebar,f"{int(intemp.temperature)}C",(4,190))
+    sidebar = cv2.circle(sidebar,(60,290),17,(255,255,255),2)
+    sidebar = cv2.circle(sidebar,(60,290),15,(0,0,0),2)
+    sidebar = cv2.circle(sidebar,(60,290),15,(0,0,250),-1)
+    sidebar = cv2.rectangle(sidebar,(48,188),(72,292),(255,255,255),2)
+    sidebar = cv2.rectangle(sidebar,(50,190),(70,290),(0,0,0),2)
+    sidebar = cv2.rectangle(sidebar,(50,180),(70,280),(190,190,190),-1)
+    sidebar = cv2.rectangle(sidebar,(50,280-intemp.temperature),(70,290),(0,0,250),-1)
     return sidebar
 
 def close(elm,camera):
