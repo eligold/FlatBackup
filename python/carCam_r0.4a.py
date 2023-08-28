@@ -15,7 +15,7 @@ DIM = (720, 576) # video dimensions
 SDIM = (960, 768)
 FDIM = (1040,480)
 
-COLOR_REC = 0x58
+COLOR_REC = 0xfa00 # 0x58
 COLOR_GOOD = 0x871a
 COLOR_LOW = 0xc4e4
 COLOR_BAD = 0x8248
@@ -173,12 +173,9 @@ def newOnScreen(frame_buffer,image,pos=(0,0)):
 def onScreen(frame_buffer,image,sidebar):
     for i in range(480):
         frame_buffer.write(image[i])
-        if i > 338 and i < 478:
+        if i > 320:
             for j in range(120):
-                if j > 55 and j < 85:
-                    frame_buffer.write(np.uint16(i*2&(i-255-j))) # cool pattern in fullscreen
-                else:
-                    frame_buffer.write(sidebar[i][j])
+                frame_buffer.write(np.uint16(i*2&(i-255-j)))
         else:
             frame_buffer.write(sidebar[i])
     frame_buffer.seek(0)
@@ -190,29 +187,26 @@ def combinePerspective(image):
     return final_image
 
 def buildSidebar(elm):
-    base = np.full((480,120),0xc4e4,np.uint16)
-    for i in range(480):
-        for j in range(120):
-            if i > 364:
-                base[i][j] = np.uint16(i*2&(i-255-j))
-            else:
-                base[i][j] = np.uint16(i*3&((i+j) if i < 120 else (i-j)))
-    cv2.imwrite("/root/bgd.png",base[-120:])
-    line = np.full((120),0x19ae,np.uint16)
-    base[160] = line
-    base[320] = line    # TODO better battery interface to come
-    sidebar = putText(base,f"{elm.volts()}V",(38,335),
+    base = np.full((480,120),0xc55e,np.uint16) # COLOR_LOW,np.uint16)
+    # TODO better battery interface to come
+    sidebar = putText(base,f"{elm.volts()}V",(38,319),
                     color=(0xc5,0x9e,0x21),thickness=1,fontScale=0.5)
-    sidebar = putText(sidebar,f"{elm.psi():.1f}",(4,38))
+    sidebar = putText(sidebar,f"{elm.psi():.1f}",(4,38),color=COLOR_NORMAL)
     sidebar = putText(sidebar,"PSI",(7,76))
+    temp = int(intemp.temperature)
+    color = 0xf800 # red
+    if temp < 20:
+        color = 0xc55e # light blue
+    elif temp < 60:
+        color = COLOR_LOW # yellow
     # sidebar = putText(sidebar,f"{int(intemp.temperature)}C",(4,190))
     sidebar = cv2.circle(sidebar,(60,290),17,(0xffff),2)
     sidebar = cv2.circle(sidebar,(60,290),15,(0),2)
-    sidebar = cv2.circle(sidebar,(60,290),15,(0xf800),-1)
+    sidebar = cv2.circle(sidebar,(60,290),15,(color),-1)
     sidebar = cv2.rectangle(sidebar,(48,178),(72,278),(0xffff),2)
     sidebar = cv2.rectangle(sidebar,(50,180),(70,280),(0),2)
     sidebar = cv2.rectangle(sidebar,(50,180),(70,280),(0x630c),-1)
-    sidebar = cv2.rectangle(sidebar,(50,280-int(intemp.temperature)),(70,290),(0xf800),-1)
+    sidebar = cv2.rectangle(sidebar,(50,280-temp),(70,290),(color),-1)
     return sidebar
 
 def close(elm,camera):
