@@ -187,18 +187,18 @@ def combinePerspective(image):
     return final_image
 
 def buildSidebar(elm):
-    base = np.full((480,120),0xc55e,np.uint16) # COLOR_LOW,np.uint16)
+    base = np.full((480,120),COLOR_LOW,np.uint16)
     # TODO better battery interface to come
-    sidebar = putText(base,f"{elm.volts()}V",(38,319),
+    sidebar = putText(base,f"{elm.volts()}V",(38,133),
                     color=(0xc5,0x9e,0x21),thickness=1,fontScale=0.5)
-    sidebar = putText(sidebar,f"{elm.psi():.1f}",(4,38),color=COLOR_NORMAL)
-    sidebar = putText(sidebar,"PSI",(7,76))
+    sidebar = putText(sidebar,f"{elm.psi():.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
+    sidebar = putText(sidebar,"PSI",(60,95))
     temp = int(intemp.temperature)
     color = 0xf800 # red
     if temp < 20:
         color = 0xc55e # light blue
     elif temp < 60:
-        color = COLOR_LOW # yellow
+        color = 0xc5ca # yellow
     # sidebar = putText(sidebar,f"{int(intemp.temperature)}C",(4,190))
     sidebar = cv2.circle(sidebar,(60,290),17,(0xffff),2)
     sidebar = cv2.circle(sidebar,(60,290),15,(0),2)
