@@ -191,6 +191,13 @@ def combinePerspective(image):
 
 def buildSidebar(elm):
     base = np.full((480,120),0xc4e4,np.uint16)
+    for i in range(480):
+        for j in range(120):
+            if i > 364:
+                base[i][j] = np.uint16(i*2&(i-255-j))
+            else:
+                base[i][j] = np.uint16(i*3&((i+j) if i < 120 else (i-j)))
+    cv2.imwrite("/root/bgd.png",base[-120:])
     line = np.full((120),0x19ae,np.uint16)
     base[160] = line
     base[320] = line    # TODO better battery interface to come
@@ -201,11 +208,11 @@ def buildSidebar(elm):
     # sidebar = putText(sidebar,f"{int(intemp.temperature)}C",(4,190))
     sidebar = cv2.circle(sidebar,(60,290),17,(0xffff),2)
     sidebar = cv2.circle(sidebar,(60,290),15,(0),2)
-    sidebar = cv2.circle(sidebar,(60,290),15,(0x1f),-1)
-    sidebar = cv2.rectangle(sidebar,(48,178),(72,282),(0xffff),2)
+    sidebar = cv2.circle(sidebar,(60,290),15,(0xf800),-1)
+    sidebar = cv2.rectangle(sidebar,(48,178),(72,278),(0xffff),2)
     sidebar = cv2.rectangle(sidebar,(50,180),(70,280),(0),2)
-    sidebar = cv2.rectangle(sidebar,(50,180),(70,280),(190,190,190),-1)
-    sidebar = cv2.rectangle(sidebar,(50,280-intemp.temperature),(70,290),(0x1f),-1)
+    sidebar = cv2.rectangle(sidebar,(50,180),(70,280),(0x630c),-1)
+    sidebar = cv2.rectangle(sidebar,(50,280-int(intemp.temperature)),(70,290),(0xf800),-1)
     return sidebar
 
 def close(elm,camera):
