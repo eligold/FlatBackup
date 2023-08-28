@@ -18,6 +18,7 @@ class ELM327:
     obdd = OBDData()
     def __init__(self,portstr="/dev/ttyUSB0"):
         self.close()
+        sleep(0.019)
         self.checktime = time()
         self.carOn = False
         elm = obd.Async(portstr)

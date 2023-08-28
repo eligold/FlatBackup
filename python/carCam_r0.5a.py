@@ -21,8 +21,8 @@ COLOR_LOW = 0xc4e4
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
-COLOR_OVERLAY = 0xad55
-COLOR_OVERLAY_MSB = 0xad6a
+#COLOR_OVERLAY = 0xad55
+COLOR_OVERLAY = 0xad6a # msb
 COLOR_OVERLAY_LSB = 0x56b5
 
 CVT3TO2B = cv2.COLOR_BGR2BGR565
@@ -39,7 +39,7 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 # calculate camera values to upscale and undistort. TODO upscale later vs now
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
-ALPHA = 0.76
+ALPHA = 0.57
 
 intemp = onboardTemp()
 
@@ -89,9 +89,9 @@ def start():
             t.start()
             res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
             volts = elm.volts()
-            if res.stdout == b'up\n' and volts < 12.1:
-                close(elm,camera)
-                exit(0)
+           # if res.stdout == b'up\n' and volts < 12.1:
+           #     close(elm,camera)
+           #     exit(0)
             if volts > 12.1:
                 run('ip link set wlan0 down',shell=True)
             success, img = getUndist(camera)
@@ -190,12 +190,14 @@ def combinePerspective(image,inlay=None,overlay=True): # False):
         if inlay is None else inlay
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
     if overlay: # prototype for boost graph
-        overlay_image = cv2.rectangle(combo,(32,13),(-32,-13),(COLOR_OVERLAY),-1)
-        overlay_image = cv2.rectangle(overlay_image,(13,32),(-13,-32),(COLOR_OVERLAY),-1)
+        h,w = combo.shape[:2]
+        overlay_image = combo.copy()
+        overlay_image = cv2.rectangle(overlay_image,(32,13),(w-32,h-13),(COLOR_OVERLAY),-1)
+        overlay_image = cv2.rectangle(overlay_image,(13,32),(w-13,h-32),(COLOR_OVERLAY),-1)
         overlay_image = cv2.circle(overlay_image,(32,32),19,(COLOR_OVERLAY),-1)
-        overlay_image = cv2.circle(overlay_image,(32,-32),19,(COLOR_OVERLAY),-1)
-        overlay_image = cv2.circle(overlay_image,(-32,-32),19,(COLOR_OVERLAY),-1)
-        overlay_image = cv2.circle(overlay_image,(-32,32),19,(COLOR_OVERLAY),-1)
+        overlay_image = cv2.circle(overlay_image,(32,h-32),19,(COLOR_OVERLAY),-1)
+        overlay_image = cv2.circle(overlay_image,(w-32,h-32),19,(COLOR_OVERLAY),-1)
+        overlay_image = cv2.circle(overlay_image,(w-32,32),19,(COLOR_OVERLAY),-1)
         cv2.addWeighted(overlay_image,ALPHA,combo,1-ALPHA,0,combo )
     final_image = cv2.cvtColor(combo,CVT3TO2B)
     return final_image
@@ -207,7 +209,7 @@ def buildSidebar(elm):
                     color=(0xc5,0x9e,0x21),thickness=1,fontScale=0.5)
     sidebar = putText(sidebar,f"{elm.psi():.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
     sidebar = putText(sidebar,"PSI",(60,95),color=(COLOR_BAD))
-    temp = int(intemp.temperature)
+    temp = int(intemp.temperature/2)
     color = 0xf800 # red
     if temp < 20:
         color = 0xc55e # light blue
@@ -219,10 +221,10 @@ def buildSidebar(elm):
     sidebar = cv2.circle(sidebar,(60,270),8,(0xffff),2)
     sidebar = cv2.circle(sidebar,(60,270),7,(0),2)
     sidebar = cv2.circle(sidebar,(60,270),7,(color),-1)
-    sidebar = cv2.rectangle(sidebar,(63,178),(67,278),(0xffff),2)
-    sidebar = cv2.rectangle(sidebar,(55,215),(65,265),(0),2)
-    sidebar = cv2.rectangle(sidebar,(55,215),(65,265),(0x630c),-1)
-    sidebar = cv2.rectangle(sidebar,(55,265-temp),(65,270),(color),-1)
+    sidebar = cv2.rectangle(sidebar,(55,213),(65,278),(0xffff),1)
+    sidebar = cv2.rectangle(sidebar,(57,215),(63,265),(0),1)
+    sidebar = cv2.rectangle(sidebar,(57,215),(63,265),(0x630c),-1)
+    sidebar = cv2.rectangle(sidebar,(57,265-temp),(65,270),(color),-1)
     return sidebar
 
 def close(elm,camera):
@@ -236,7 +238,10 @@ def bounce(elm,camera,ec=0):
 
 if __name__ == "__main__":
     run('echo 1 > /sys/class/leds/PWR/brightness',shell=True)
+    #try:
     start()
+    #except:
+    #    traceback.print_exc()
 
 ###############
 #  References #
