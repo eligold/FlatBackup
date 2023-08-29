@@ -227,11 +227,12 @@ def addOverlay(image):
     overlay_image = cv2.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
     overlay_image = cv2.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
     cv2.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
-    for q in graph_points:
+    for i in range(len(graph_points)):
         dot = np.ndarray([0xff,0,0],np.uint8)
+        q = graph_points[i]
         if not q.empty:
             for p in q:
-                image[q][p] = dot
+                image[i][p] = dot
 
 def makePointMap(queue,size=390):
     frame_list = queue.copy()
@@ -239,13 +240,13 @@ def makePointMap(queue,size=390):
     mapper = [Queue()] * (size + 45) # margin adds 1.5psi resolution
     for i in range(1000-length,length):
         try:
-            mapper[435-frame_list.pop()].append(i)
+            mapper[435-frame_list.pop()].put(i)
         except IndexError:
             pass
     return mapper
 
 def buildSidebar(elm):
-    pos = (95,230)
+    pos = (95,190)
     res = 50
     ofs = (3,5)
     base = np.full((480,120),COLOR_LOW,np.uint16)
