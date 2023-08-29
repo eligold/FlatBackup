@@ -203,11 +203,11 @@ def onScreen(frame_buffer,image,sidebar):
             frame_buffer.write(sidebar[i])
     frame_buffer.seek(0)
 
-def combinePerspective(image,inlay=None,overlay=False):
+def combinePerspective(image,inlay=None):
     middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4) \
         if inlay is None else inlay
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
-    if overlay: # prototype for boost graph
+    if show_graph: # prototype for boost graph
         addOverlay(combo)
         # make boost graph here +12psi to -1bar (390px, 30px per unit), 1040 data pts
     final_image = cv2.cvtColor(combo,CVT3TO2B)
@@ -243,7 +243,7 @@ def buildSidebar(elm):
     # TODO better battery interface to come
     sidebar = putText(base,f"{elm.volts()}V",(38,133),
                     color=(0xc5,0x9e,0x21),thickness=1,fontScale=0.5)
-    psi = add_psi(elm.psi()) if show_graph else elm.psi()
+    psi = add_psi(elm.psi(),psi_list) if show_graph else elm.psi()
     sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
     sidebar = putText(sidebar,"PSI",(60,95),color=(COLOR_BAD))
     temp = int(intemp.temperature/2)
@@ -257,7 +257,7 @@ def buildSidebar(elm):
     sidebar = cv2.circle(sidebar,(60,270),8,(0xffff),2)
     sidebar = cv2.circle(sidebar,(60,270),7,(0),2)
     sidebar = cv2.circle(sidebar,(60,270),7,(color),-1)
-    sidebar = cv2.rectangle(sidebar,(55,213),(65,278),(0xffff),1)
+    sidebar = cv2.rectangle(sidebar,(55,213),(65,267),(0xffff),1)
     sidebar = cv2.rectangle(sidebar,(57,215),(63,265),(0),1)
     sidebar = cv2.rectangle(sidebar,(57,215),(63,265),(0x630c),-1)
     sidebar = cv2.rectangle(sidebar,(57,265-temp),(63,270),(color),-1)
