@@ -4,12 +4,15 @@ import os, traceback, cv2, numpy as np
 from subprocess import run, Popen, PIPE
 from threading  import Thread
 from queue import Queue, Empty
+from collections import deque
 from time import sleep
+from obd import Unit
 from gpiozero import CPUTemperature as onboardTemp
-from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
-                          ABS_MT_POSITION_Y, EV_ABS)
-#import evdev
 from ELM327 import ELM327
+#import evdev
+# from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
+#                           ABS_MT_POSITION_Y, EV_ABS)
+
 
 DIM = (720, 576) # video dimensions
 SDIM = (960, 768)
@@ -21,9 +24,8 @@ COLOR_LOW = 0xc4e4
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
-#COLOR_OVERLAY = 0xad55
-COLOR_OVERLAY = 0xad6a # msb
-COLOR_OVERLAY_LSB = 0x56b5
+COLOR_OVERLAY = (199,199,190)
+ALPHA = 0.57
 
 CVT3TO2B = cv2.COLOR_BGR2BGR565
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
@@ -39,15 +41,25 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 # calculate camera values to upscale and undistort. TODO upscale later vs now
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
-ALPHA = 0.57
-
 intemp = onboardTemp()
+show_graph = False
+psi_list = deque()
+queue = Queue()
 
 def enqueue_output(out, queue):
     for line in iter(out.readline, b''):
         queue.put(line)
     out.close()
-q = Queue()
+
+def add_psi(psi,queue):
+    if psi < 0.0:
+        entry = int(Unit.Quantity(psi,'psi').to('bar').magnitude*10)
+    else:
+        entry = int(psi*30)
+    while(len(queue) > 1039):
+        queue.popLeft()
+    queue.append(entry)
+    return psi
 
 # touch = evdev.InputDevice('/dev/input/event4')
 # psi queue, image queue
@@ -74,6 +86,7 @@ def start():
     # asyncio.ensure_future(touch_input(elm,camera,touch))
     # loop = asyncio.get_event_loop()
     # loop.run_forever()
+    global show_graph
     elm = ELM327()
     camera = None
     ec = 0
@@ -84,7 +97,8 @@ def start():
             camera = getCamera(index)
             # /dev/input/by-id/... (or uuid?)
             cmd = Popen('evtest /dev/input/event0',shell=True,stdout=PIPE,stderr=PIPE)
-            t = Thread(target=enqueue_output, args=(cmd.stdout, q))
+            print(cmd.returncode)# if cmd.returncode != 0: # what does this evaluate to when it works?
+            t = Thread(target=enqueue_output, args=(cmd.stdout, queue))
             t.daemon = True
             t.start()
             res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
@@ -99,10 +113,14 @@ def start():
                 while camera.isOpened():
                     while(True):
                         try:  
-                            line = q.get_nowait()
+                            line = queue.get_nowait()
                             if(b'POSITION_X' in line and b'value' in line):
                                 if int(line.decode().split('value')[-1]) > 1480:
-                                    bounce(elm,camera)
+                                    line = queue.get_nowait()
+                                    if int(line.decode().split('value')[-1]) < 240:
+                                        show_graph = not show_graph
+                                    else:
+                                        bounce(elm,camera)
                         except Empty:
                             break
                     success, img = getUndist(camera)
@@ -185,29 +203,48 @@ def onScreen(frame_buffer,image,sidebar):
             frame_buffer.write(sidebar[i])
     frame_buffer.seek(0)
 
-def combinePerspective(image,inlay=None,overlay=True): # False):
+def combinePerspective(image,inlay=None,overlay=False):
     middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4) \
         if inlay is None else inlay
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
     if overlay: # prototype for boost graph
-        h,w = combo.shape[:2]
-        overlay_image = combo.copy()
-        overlay_image = cv2.rectangle(overlay_image,(32,13),(w-32,h-13),(COLOR_OVERLAY),-1)
-        overlay_image = cv2.rectangle(overlay_image,(13,32),(w-13,h-32),(COLOR_OVERLAY),-1)
-        overlay_image = cv2.circle(overlay_image,(32,32),19,(COLOR_OVERLAY),-1)
-        overlay_image = cv2.circle(overlay_image,(32,h-32),19,(COLOR_OVERLAY),-1)
-        overlay_image = cv2.circle(overlay_image,(w-32,h-32),19,(COLOR_OVERLAY),-1)
-        overlay_image = cv2.circle(overlay_image,(w-32,32),19,(COLOR_OVERLAY),-1)
-        cv2.addWeighted(overlay_image,ALPHA,combo,1-ALPHA,0,combo )
+        addOverlay(combo)
+        # make boost graph here +12psi to -1bar (390px, 30px per unit), 1040 data pts
     final_image = cv2.cvtColor(combo,CVT3TO2B)
     return final_image
+
+def addOverlay(image):
+    h,w = image.shape[:2]
+    offset,radius = 57,19
+    overlay_image = image.copy()
+    graph_points = makePointMap(psi_list)
+    overlay_image = cv2.rectangle(overlay_image,(offset,offset-radius),(w-offset,h-(offset-radius)),COLOR_OVERLAY,-1)
+    overlay_image = cv2.rectangle(overlay_image,(offset-radius,offset),(w-(offset-radius),h-offset),COLOR_OVERLAY,-1)
+    overlay_image = cv2.circle(overlay_image,(offset,offset),radius,COLOR_OVERLAY,-1)
+    overlay_image = cv2.circle(overlay_image,(offset,h-offset),radius,COLOR_OVERLAY,-1)
+    overlay_image = cv2.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
+    overlay_image = cv2.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
+    cv2.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
+    for q in graph_points:
+        if not q.empty:
+            for p in q:
+                image[q][p] = [255,0,0]
+
+def makePointMap(queue,size=390):
+    frame_list = queue.copy()
+    length = len(queue)
+    mapper = [Queue()] * (size + 45) # margin adds 1.5psi resolution
+    for i in range(1000-length,length):
+        mapper[435-frame_list.pop()].append(i)
+    return mapper
 
 def buildSidebar(elm):
     base = np.full((480,120),COLOR_LOW,np.uint16)
     # TODO better battery interface to come
     sidebar = putText(base,f"{elm.volts()}V",(38,133),
                     color=(0xc5,0x9e,0x21),thickness=1,fontScale=0.5)
-    sidebar = putText(sidebar,f"{elm.psi():.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
+    psi = add_psi(elm.psi()) if show_graph else elm.psi()
+    sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
     sidebar = putText(sidebar,"PSI",(60,95),color=(COLOR_BAD))
     temp = int(intemp.temperature/2)
     color = 0xf800 # red
@@ -217,14 +254,13 @@ def buildSidebar(elm):
         color = COLOR_LAYM # 'frog' green
     elif temp < 60:
         color = 0xc5ca # yellow
-    # sidebar = putText(sidebar,f"{int(intemp.temperature)}C",(4,190))
     sidebar = cv2.circle(sidebar,(60,270),8,(0xffff),2)
     sidebar = cv2.circle(sidebar,(60,270),7,(0),2)
     sidebar = cv2.circle(sidebar,(60,270),7,(color),-1)
     sidebar = cv2.rectangle(sidebar,(55,213),(65,278),(0xffff),1)
     sidebar = cv2.rectangle(sidebar,(57,215),(63,265),(0),1)
     sidebar = cv2.rectangle(sidebar,(57,215),(63,265),(0x630c),-1)
-    sidebar = cv2.rectangle(sidebar,(57,265-temp),(65,270),(color),-1)
+    sidebar = cv2.rectangle(sidebar,(57,265-temp),(63,270),(color),-1)
     return sidebar
 
 def close(elm,camera):
