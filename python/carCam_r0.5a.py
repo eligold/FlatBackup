@@ -210,7 +210,7 @@ def combinePerspective(image,inlay=None):
         if inlay is None else inlay
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
     if show_graph: # prototype for boost graph
-        addOverlay(combo)
+        combo = addOverlay(combo)
         # make boost graph here +12psi to -1bar (390px, 30px per unit), 1040 data pts
     final_image = cv2.cvtColor(combo,CVT3TO2B)
     return final_image
@@ -227,20 +227,21 @@ def addOverlay(image):
     overlay_image = cv2.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
     overlay_image = cv2.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
     cv2.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
+    dot = np.ndarray([0xff,0,0],np.uint8)
     for i in range(len(graph_points)):
-        dot = np.ndarray([0xff,0,0],np.uint8)
         q = graph_points[i]
         if not q.empty:
             for p in q:
                 image[i][p] = dot
+    return image
 
-def makePointMap(queue,size=390):
+def makePointMap(queue,size=390,margin=45):
     frame_list = queue.copy()
     length = len(queue)
-    mapper = [Queue()] * (size + 45) # margin adds 1.5psi resolution
-    for i in range(1000-length,length):
+    mapper = [Queue()] * (size + margin) # margin adds 1.5psi resolution
+    for i in range(1040-length,length):
         try:
-            mapper[435-frame_list.pop()].put(i)
+            mapper[size+margin-frame_list.pop()].put(i)
         except IndexError:
             pass
     return mapper
@@ -278,6 +279,7 @@ def close(elm,camera):
     camera.release()
 
 def bounce(elm,camera,ec=0):
+    print(psi_list)
     close(elm,camera)
     run(['bash','-c','ip link set wlan0 up'])
     exit(ec)
