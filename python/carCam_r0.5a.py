@@ -51,14 +51,14 @@ def enqueue_output(out, queue):
         queue.put(line)
     out.close()
 
-def add_psi(psi,queue):
+def add_psi(psi,deque):
     if psi < 0.0:
-        entry = int(Unit.Quantity(psi,'psi').to('bar').magnitude*10)
+        entry = int(Unit.Quantity(psi,'psi').to('bar').magnitude*30)
     else:
         entry = int(psi*30)
-    while(len(queue) > 1039):
-        queue.popLeft()
-    queue.append(entry)
+    while(len(deque) > 1039):
+        deque.popLeft()
+    deque.append(entry)
     return psi
 
 # touch = evdev.InputDevice('/dev/input/event4')
@@ -97,7 +97,9 @@ def start():
             camera = getCamera(index)
             # /dev/input/by-id/... (or uuid?)
             cmd = Popen('evtest /dev/input/event0',shell=True,stdout=PIPE,stderr=PIPE)
-            print(cmd.returncode)# if cmd.returncode != 0: # what does this evaluate to when it works?
+            if cmd.returncode != None:
+                sleep(0.019)
+                cmd = Popen('evtest /dev/input/event0',shell=True,stdout=PIPE,stderr=PIPE)
             t = Thread(target=enqueue_output, args=(cmd.stdout, queue))
             t.daemon = True
             t.start()
@@ -106,8 +108,8 @@ def start():
            # if res.stdout == b'up\n' and volts < 12.1:
            #     close(elm,camera)
            #     exit(0)
-            if volts > 12.1:
-                run('ip link set wlan0 down',shell=True)
+           # if volts > 12.1:
+           #     run('ip link set wlan0 down',shell=True)
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
                 while camera.isOpened():
@@ -215,7 +217,7 @@ def combinePerspective(image,inlay=None):
 
 def addOverlay(image):
     h,w = image.shape[:2]
-    offset,radius = 57,19
+    offset,radius = 38,19
     overlay_image = image.copy()
     graph_points = makePointMap(psi_list)
     overlay_image = cv2.rectangle(overlay_image,(offset,offset-radius),(w-offset,h-(offset-radius)),COLOR_OVERLAY,-1)
@@ -226,27 +228,34 @@ def addOverlay(image):
     overlay_image = cv2.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
     cv2.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
     for q in graph_points:
+        dot = np.ndarray([0xff,0,0],np.uint8)
         if not q.empty:
             for p in q:
-                image[q][p] = [255,0,0]
+                image[q][p] = dot
 
 def makePointMap(queue,size=390):
     frame_list = queue.copy()
     length = len(queue)
     mapper = [Queue()] * (size + 45) # margin adds 1.5psi resolution
     for i in range(1000-length,length):
-        mapper[435-frame_list.pop()].append(i)
+        try:
+            mapper[435-frame_list.pop()].append(i)
+        except IndexError:
+            pass
     return mapper
 
 def buildSidebar(elm):
+    pos = (95,230)
+    res = 50
+    ofs = (3,5)
     base = np.full((480,120),COLOR_LOW,np.uint16)
     # TODO better battery interface to come
-    sidebar = putText(base,f"{elm.volts()}V",(38,133),
+    sidebar = putText(base,f"{elm.volts()}V",(19,133),
                     color=(0xc5,0x9e,0x21),thickness=1,fontScale=0.5)
     psi = add_psi(elm.psi(),psi_list) if show_graph else elm.psi()
     sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
     sidebar = putText(sidebar,"PSI",(60,95),color=(COLOR_BAD))
-    temp = int(intemp.temperature/2)
+    temp = int(intemp.temperature*res/100)
     color = 0xf800 # red
     if temp < 20:
         color = 0xc55e # light blue
@@ -254,13 +263,13 @@ def buildSidebar(elm):
         color = COLOR_LAYM # 'frog' green
     elif temp < 60:
         color = 0xc5ca # yellow
-    sidebar = cv2.circle(sidebar,(60,270),8,(0xffff),2)
-    sidebar = cv2.circle(sidebar,(60,270),7,(0),2)
-    sidebar = cv2.circle(sidebar,(60,270),7,(color),-1)
-    sidebar = cv2.rectangle(sidebar,(55,213),(65,267),(0xffff),1)
-    sidebar = cv2.rectangle(sidebar,(57,215),(63,265),(0),1)
-    sidebar = cv2.rectangle(sidebar,(57,215),(63,265),(0x630c),-1)
-    sidebar = cv2.rectangle(sidebar,(57,265-temp),(63,270),(color),-1)
+    sidebar = cv2.circle(sidebar,pos,8,(0xffff),2)
+    sidebar = cv2.circle(sidebar,pos,7,(0),2)
+    sidebar = cv2.circle(sidebar,pos,7,(color),-1)
+    sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0]-2,pos[1]-ofs[1]-res-2),(pos[0]+ofs[0]+2,pos[1]-ofs[1]+2),(0xffff),1)
+    sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0],pos[1]-ofs[1]-res),(pos[0]+ofs[0],pos[1]-ofs[1]),(0),1)
+    sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0],pos[1]-ofs[1]-res),(pos[0]+ofs[0],pos[1]-ofs[1]),(0x630c),-1)
+    sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0],pos[1]-ofs[1]-temp),(pos[0]+ofs[0],pos[1]),(color),-1)
     return sidebar
 
 def close(elm,camera):
