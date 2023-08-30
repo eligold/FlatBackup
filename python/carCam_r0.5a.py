@@ -89,17 +89,16 @@ def start():
     global show_graph
     elm = ELM327()
     camera = None
-    ec = 0
     usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     index = int(os.path.realpath(usb_capture_id_path).split("video")[-1])
     while(True):
         try:
             camera = getCamera(index)
             # /dev/input/by-id/... (or uuid?)
-            cmd = Popen('evtest /dev/input/event0',shell=True,stdout=PIPE,stderr=PIPE)
-            if cmd.returncode != None:
-                sleep(0.019)
-                cmd = Popen('evtest /dev/input/event0',shell=True,stdout=PIPE,stderr=PIPE)
+            cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',shell=True,stdout=PIPE,stderr=PIPE)
+            #if cmd.returncode != None:
+            #    sleep(0.019)
+            #    cmd = Popen('evtest /dev/input/event0',shell=True,stdout=PIPE,stderr=PIPE)
             t = Thread(target=enqueue_output, args=(cmd.stdout, queue))
             t.daemon = True
             t.start()
@@ -133,12 +132,8 @@ def start():
         except KeyboardInterrupt:
             bounce(elm,camera)
         except Exception as e:
-            print(e)
-            ec += 1
-            if ec > 10:
-                ec = 0
-                raise e
             traceback.print_exc()
+            raise e
         finally:
             bounce(elm,camera,1)
 
@@ -227,21 +222,29 @@ def addOverlay(image):
     overlay_image = cv2.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
     overlay_image = cv2.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
     cv2.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
-    dot = np.ndarray([0xff,0,0],np.uint8)
+    dot = np.array([0xff,0,0],np.uint8)
     for i in range(len(graph_points)):
         q = graph_points[i]
-        if not q.empty:
-            for p in q:
-                image[i][p] = dot
+        if not q.empty():
+            try:
+                while(True):
+                    p = q.get_nowait()
+                    print(p)
+                    image[i-1][p] = dot
+                    image[i][p] = dot
+                    image[i+1][p] = dot
+            except Empty:
+                pass
     return image
 
 def makePointMap(queue,size=390,margin=45):
     frame_list = queue.copy()
     length = len(queue)
     mapper = [Queue()] * (size + margin) # margin adds 1.5psi resolution
-    for i in range(1040-length,length):
+    for i in range(1040-length,1040):
         try:
-            mapper[size+margin-frame_list.pop()].put(i)
+            num = frame_list.pop()
+            mapper[size+margin-num].put(i)
         except IndexError:
             pass
     return mapper
