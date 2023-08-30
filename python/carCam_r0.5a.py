@@ -219,7 +219,7 @@ def addOverlay(image):
             try:
                 while(True):
                     p = q.get_nowait()
-                    print(i,p)
+                    # print(i,p)
                     # image[i-1][p] = dot
                     image[i][p] = dot
                     # image[i+1][p] = dot
@@ -230,7 +230,9 @@ def addOverlay(image):
 def makePointMap(queue,size=390,margin=45):
     frame_list = queue.copy()
     length = len(queue)
-    mapper = [Queue()] * (size + margin) # margin adds 1.5psi resolution
+    mapper = [None] * (size + margin) # margin adds 1.5psi resolution
+    for n in range(len(mapper)):
+        mapper[n] = Queue()
     for i in range(1040-length,1040):
         try:
             num = frame_list.pop()
