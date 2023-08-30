@@ -59,7 +59,6 @@ def add_psi(psi,deque):
         entry = int(psi*30)
     while(len(deque) > 1039):
         deque.popLeft()
-    print(f'entry = {entry}')
     deque.append(entry)
     return psi
 
@@ -217,7 +216,6 @@ def addOverlay(image):
     for i in range(len(graph_points)):
         q = graph_points[i]
         if not q.empty():
-            print(q)
             try:
                 while(True):
                     p = q.get_nowait()
@@ -237,9 +235,9 @@ def makePointMap(queue,size=390,margin=45):
         try:
             num = frame_list.pop()
             print(f'in point map, i={i} num={num}')
-            mapper[size+margin-num].put(i)
+            mapper[size+15-num].put(i)
         except IndexError:
-            print(f"{size+margin-i} out of range!") # pass
+            print(f"{size+margin-num} out of range!") # pass
     return mapper
 
 def buildSidebar(elm):
@@ -248,7 +246,7 @@ def buildSidebar(elm):
     ofs = (3,5)
     # TODO better battery interface to come
     sidebar = putText(sidebar_base,f"{elm.volts()}V",(19,133),
-                    color=(0xc5,0x9e,0x21),thickness=1,fontScale=0.5)
+                    color=COLOR_NORMAL,thickness=1,fontScale=0.5)
     psi = add_psi(elm.psi(),psi_list) if show_graph else elm.psi()
     sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
     sidebar = putText(sidebar,"PSI",(60,95),color=COLOR_BAD)
@@ -274,7 +272,6 @@ def close(elm,camera):
     camera.release()
 
 def bounce(elm,camera,ec=0):
-    print(psi_list)
     close(elm,camera)
     run(['bash','-c','ip link set wlan0 up'])
     exit(ec)
