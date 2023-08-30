@@ -45,6 +45,7 @@ intemp = onboardTemp()
 show_graph = False
 psi_list = deque()
 queue = Queue()
+sidebar_base = cv2.cvtColor(cv2.imread("c255.24b.png"),CVT3TO2B)
 
 def enqueue_output(out, queue):
     for line in iter(out.readline, b''):
@@ -58,6 +59,7 @@ def add_psi(psi,deque):
         entry = int(psi*30)
     while(len(deque) > 1039):
         deque.popLeft()
+    print(f'entry = {entry}')
     deque.append(entry)
     return psi
 
@@ -94,11 +96,8 @@ def start():
     while(True):
         try:
             camera = getCamera(index)
-            # /dev/input/by-id/... (or uuid?)
-            cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',shell=True,stdout=PIPE,stderr=PIPE)
-            #if cmd.returncode != None:
-            #    sleep(0.019)
-            #    cmd = Popen('evtest /dev/input/event0',shell=True,stdout=PIPE,stderr=PIPE)
+            cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
+                        shell=True,stdout=PIPE,stderr=PIPE)
             t = Thread(target=enqueue_output, args=(cmd.stdout, queue))
             t.daemon = True
             t.start()
@@ -131,9 +130,8 @@ def start():
             sleep(0.19)
         except KeyboardInterrupt:
             bounce(elm,camera)
-        except Exception as e:
+        except:
             traceback.print_exc()
-            raise e
         finally:
             bounce(elm,camera,1)
 
@@ -174,30 +172,23 @@ def newOnScreen(frame_buffer,image,pos=(0,0)):
     h,w,d = image.shape
     if pos < (0,0) or d != 2:
         raise Exception(f"negative position!\n{pos}")
-    # trim too wide
-    if w + pos[0] > 1600:
+    if w + pos[0] > 1600:       # trim too wide
         image = image[:,:1600-pos[0]]
-    # vertical offset
-    if pos[1] > 0:
+        h,w,d = image.shape
+    if pos[1] > 0:              # vertical offset
         frame_buffer.seek(pos[1]*2*1600)
     for i in range(h):
-        # horizontal offset
-        if pos[0] > 0:
+        if pos[0] > 0:          # horizontal offset
             frame_buffer.seek(pos[0]*2,1)
         frame_buffer.write(image[i])
-        # if not full width seek end of line
-        if w + pos[0] < 1600:
+        if w + pos[0] < 1600:   # if not full width seek end of line
             frame_buffer.seek((1600-w-pos[0])*2,1)
     frame_buffer.seek(0)
 
 def onScreen(frame_buffer,image,sidebar):
     for i in range(480):
         frame_buffer.write(image[i])
-        if i > 320:
-            for j in range(120):
-                frame_buffer.write(np.uint16(i*2&(i-255-j)))
-        else:
-            frame_buffer.write(sidebar[i])
+        frame_buffer.write(sidebar[i])
     frame_buffer.seek(0)
 
 def combinePerspective(image,inlay=None):
@@ -206,10 +197,10 @@ def combinePerspective(image,inlay=None):
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
     if show_graph: # prototype for boost graph
         combo = addOverlay(combo)
-        # make boost graph here +12psi to -1bar (390px, 30px per unit), 1040 data pts
     final_image = cv2.cvtColor(combo,CVT3TO2B)
     return final_image
 
+# make boost graph here +12psi to -1bar (390px, 30px per unit), 1040 data pts
 def addOverlay(image):
     h,w = image.shape[:2]
     offset,radius = 38,19
@@ -222,17 +213,18 @@ def addOverlay(image):
     overlay_image = cv2.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
     overlay_image = cv2.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
     cv2.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
-    dot = np.array([0xff,0,0],np.uint8)
+    dot = (0xff,0,0)
     for i in range(len(graph_points)):
         q = graph_points[i]
         if not q.empty():
+            print(q)
             try:
                 while(True):
                     p = q.get_nowait()
-                    print(p)
-                    image[i-1][p] = dot
+                    print(i,p)
+                    # image[i-1][p] = dot
                     image[i][p] = dot
-                    image[i+1][p] = dot
+                    # image[i+1][p] = dot
             except Empty:
                 pass
     return image
@@ -244,22 +236,22 @@ def makePointMap(queue,size=390,margin=45):
     for i in range(1040-length,1040):
         try:
             num = frame_list.pop()
+            print(f'in point map, i={i} num={num}')
             mapper[size+margin-num].put(i)
         except IndexError:
-            pass
+            print(f"{size+margin-i} out of range!") # pass
     return mapper
 
 def buildSidebar(elm):
     pos = (95,190)
     res = 50
     ofs = (3,5)
-    base = np.full((480,120),COLOR_LOW,np.uint16)
     # TODO better battery interface to come
-    sidebar = putText(base,f"{elm.volts()}V",(19,133),
+    sidebar = putText(sidebar_base,f"{elm.volts()}V",(19,133),
                     color=(0xc5,0x9e,0x21),thickness=1,fontScale=0.5)
     psi = add_psi(elm.psi(),psi_list) if show_graph else elm.psi()
     sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
-    sidebar = putText(sidebar,"PSI",(60,95),color=(COLOR_BAD))
+    sidebar = putText(sidebar,"PSI",(60,95),color=COLOR_BAD)
     temp = int(intemp.temperature*res/100)
     color = 0xf800 # red
     if temp < 20:
@@ -268,10 +260,10 @@ def buildSidebar(elm):
         color = COLOR_LAYM # 'frog' green
     elif temp < 60:
         color = 0xc5ca # yellow
-    sidebar = cv2.circle(sidebar,pos,8,(0xffff),2)
-    sidebar = cv2.circle(sidebar,pos,7,(0),2)
-    sidebar = cv2.circle(sidebar,pos,7,(color),-1)
-    sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0]-2,pos[1]-ofs[1]-res-2),(pos[0]+ofs[0]+2,pos[1]-ofs[1]+2),(0xffff),1)
+    sidebar = cv2.circle(sidebar,pos,9,(0xffff),2)
+    sidebar = cv2.circle(sidebar,pos,8,(0),2)
+    sidebar = cv2.circle(sidebar,pos,8,(color),-1)
+    sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0]-2,pos[1]-ofs[1]-res-2),(pos[0]+ofs[0]+2,pos[1]-ofs[1]),(0xffff),1)
     sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0],pos[1]-ofs[1]-res),(pos[0]+ofs[0],pos[1]-ofs[1]),(0),1)
     sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0],pos[1]-ofs[1]-res),(pos[0]+ofs[0],pos[1]-ofs[1]),(0x630c),-1)
     sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0],pos[1]-ofs[1]-temp),(pos[0]+ofs[0],pos[1]),(color),-1)
