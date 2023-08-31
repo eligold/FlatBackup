@@ -45,7 +45,6 @@ intemp = onboardTemp()
 show_graph = False
 psi_list = deque()
 queue = Queue()
-sidebar_base = cv2.cvtColor(cv2.imread("c255.24b.png"),CVT3TO2B)
 
 def enqueue_output(out, queue):
     for line in iter(out.readline, b''):
@@ -187,7 +186,11 @@ def newOnScreen(frame_buffer,image,pos=(0,0)):
 def onScreen(frame_buffer,image,sidebar):
     for i in range(480):
         frame_buffer.write(image[i])
-        frame_buffer.write(sidebar[i])
+        if i > 320:
+            for j in range(120):
+                frame_buffer.write(np.uint16(i*2&(i-255-j)))
+        else:
+            frame_buffer.write(sidebar[i])
     frame_buffer.seek(0)
 
 def combinePerspective(image,inlay=None):
@@ -233,7 +236,7 @@ def makePointMap(queue,size=390,margin=45):
     mapper = [None] * (size + margin) # margin adds 1.5psi resolution
     for n in range(len(mapper)):
         mapper[n] = Queue()
-    for i in range(1040-length,1040):
+    for i in range(1040,1040-length,-1):
         try:
             num = frame_list.pop()
             print(f'in point map, i={i} num={num}')
@@ -246,7 +249,7 @@ def buildSidebar(elm):
     pos = (95,190)
     res = 50
     ofs = (3,5)
-    # TODO better battery interface to come
+    sidebar_base = np.full((480,120),COLOR_LOW,np.uint16)
     sidebar = putText(sidebar_base,f"{elm.volts()}V",(19,133),
                     color=COLOR_NORMAL,thickness=1,fontScale=0.5)
     psi = add_psi(elm.psi(),psi_list) if show_graph else elm.psi()
