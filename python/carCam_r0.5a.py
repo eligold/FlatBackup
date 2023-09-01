@@ -57,8 +57,8 @@ def enqueue_output(out, queue):
 def add_pressure(pressure,deque):
     entry = int(pressure*30)
     while(len(deque) >= 1479):
-        deque.popLeft() # pop()
-    deque.append(entry) # appendLeft(entry)
+        deque.pop()
+    deque.appendleft(entry)
     return pressure
 
 # touch = evdev.InputDevice('/dev/input/event4')
@@ -101,11 +101,11 @@ def start():
             t.start()
             res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
             volts = elm.volts()
-           # if res.stdout == b'up\n' and volts < 12.1:
-           #     close(elm,camera)
-           #     exit(0)
-           # if volts > 12.1:
-           #     run('ip link set wlan0 down',shell=True)
+            if res.stdout == b'up\n' and volts < 12.1:
+                close(elm,camera)
+                exit(0)
+            if volts > 12.1:
+                run('ip link set wlan0 down',shell=True)
             success, img = getUndist(camera)
             with open('/dev/fb0','rb+') as buf:
                 while camera.isOpened():
@@ -216,10 +216,10 @@ def addOverlay(image):
     overlay_image = cv2.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
     overlay_image = cv2.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
     cv2.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
-    image[25:455,44] = BLACK
-    image[435,25:1455] = BLACK
-    image[165,40:44] = BLACK
-    image = putText(image,"10",(30,165),fontScale=0.76)
+    image[25:455,44:46] = BLACK
+    image[435:437,25:1456] = BLACK
+    image[165:167,38:45] = BLACK
+    image = putText(image,"10",(25,163),color=BLACK,fontScale=0.38,thickness=1)
     for i in range(len(graph_points)):
         q = graph_points[i]
         if not q.empty():
@@ -238,7 +238,7 @@ def makePointMap(queue):
     mapper = [None] * FDIM[1] # margin adds 1.5psi resolution
     for n in range(len(mapper)):
         mapper[n] = Queue()
-    for i in range(IMAGE_WIDTH,IMAGE_WIDTH-length,-1): # range(IMAGE_WIDTH-length,IMAGE_WIDTH)
+    for i in range(IMAGE_WIDTH-length,IMAGE_WIDTH):
         try:
             num = frame_list.pop()
             mapper[FDIM[1]-45-num].put(i)
@@ -283,7 +283,7 @@ def bounce(elm,camera,ec=0):
     exit(ec)
 
 if __name__ == "__main__":
-    run('echo 1 > /sys/class/leds/PWR/brightness',shell=True)
+    run('echo 0 > /sys/class/leds/PWR/brightness',shell=True)
     #try:
     start()
     #except:
