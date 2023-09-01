@@ -13,10 +13,10 @@ from ELM327 import ELM327
 # from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
 #                           ABS_MT_POSITION_Y, EV_ABS)
 
-
-DIM = (720, 576) # video dimensions
-SDIM = (960, 768)
+DIM = (720,576) # video dimensions
+SDIM = (960,768)
 FDIM = (1040,480)
+IMAGE_WIDTH = 1480
 
 COLOR_REC = 0xfa00 # 0x58
 COLOR_GOOD = 0x871a
@@ -25,6 +25,9 @@ COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
 COLOR_OVERLAY = (199,199,190)
+DOT = (255,0,0)
+SHADOW = (199,38,38)
+BLACK = (0,0,0)
 ALPHA = 0.57
 
 CVT3TO2B = cv2.COLOR_BGR2BGR565
@@ -51,15 +54,12 @@ def enqueue_output(out, queue):
         queue.put(line)
     out.close()
 
-def add_psi(psi,deque):
-    if psi < 0.0:
-        entry = int(Unit.Quantity(psi,'psi').to('bar').magnitude*30)
-    else:
-        entry = int(psi*30)
-    while(len(deque) > 1039):
-        deque.popLeft()
-    deque.append(entry)
-    return psi
+def add_pressure(pressure,deque):
+    entry = int(pressure*30)
+    while(len(deque) > 1479):
+        deque.popLeft() # pop()
+    deque.append(entry) # appendLeft(entry)
+    return pressure
 
 # touch = evdev.InputDevice('/dev/input/event4')
 # psi queue, image queue
@@ -205,7 +205,8 @@ def combinePerspective(image,inlay=None):
 # make boost graph here +12psi to -1bar (390px, 30px per unit), 1040 data pts
 def addOverlay(image):
     h,w = image.shape[:2]
-    offset,radius = 38,19
+    radius = 19
+    offset = radius * 2
     overlay_image = image.copy()
     graph_points = makePointMap(psi_list)
     overlay_image = cv2.rectangle(overlay_image,(offset,offset-radius),(w-offset,h-(offset-radius)),COLOR_OVERLAY,-1)
@@ -215,34 +216,34 @@ def addOverlay(image):
     overlay_image = cv2.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
     overlay_image = cv2.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
     cv2.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
-    dot = (0xff,0,0)
+    image[25:455,44] = BLACK
+    image[435,25:1455] = BLACK
+    image[165,40:44] = BLACK
+    image = putText(image,"10",(30,165),fontScale=0.76)
     for i in range(len(graph_points)):
         q = graph_points[i]
         if not q.empty():
             try:
                 while(True):
                     p = q.get_nowait()
-                    # print(i,p)
-                    # image[i-1][p] = dot
-                    image[i][p] = dot
-                    # image[i+1][p] = dot
+                    image[i][p] = DOT
+                    image[i+1][p] = SHADOW
             except Empty:
                 pass
     return image
 
-def makePointMap(queue,size=390,margin=45):
+def makePointMap(queue):
     frame_list = queue.copy()
     length = len(queue)
-    mapper = [None] * (size + margin) # margin adds 1.5psi resolution
+    mapper = [None] * FDIM[1] # margin adds 1.5psi resolution
     for n in range(len(mapper)):
         mapper[n] = Queue()
-    for i in range(1040,1040-length,-1):
+    for i in range(IMAGE_WIDTH,IMAGE_WIDTH-length,-1): # range(IMAGE_WIDTH-length,IMAGE_WIDTH)
         try:
             num = frame_list.pop()
-            print(f'in point map, i={i} num={num}')
-            mapper[size+15-num].put(i)
+            mapper[FDIM[1]-45-num].put(i)
         except IndexError:
-            print(f"{size+margin-num} out of range!") # pass
+            pass
     return mapper
 
 def buildSidebar(elm):
@@ -252,15 +253,15 @@ def buildSidebar(elm):
     sidebar_base = np.full((480,120),COLOR_LOW,np.uint16)
     sidebar = putText(sidebar_base,f"{elm.volts()}V",(19,133),
                     color=COLOR_NORMAL,thickness=1,fontScale=0.5)
-    psi = add_psi(elm.psi(),psi_list) if show_graph else elm.psi()
+    psi = add_pressure(elm.psi(),psi_list)
     sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
-    sidebar = putText(sidebar,"PSI",(60,95),color=COLOR_BAD)
+    sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
     temp = int(intemp.temperature*res/100)
     color = 0xf800 # red
     if temp < 20:
         color = 0xc55e # light blue
     elif temp < 40:
-        color = COLOR_LAYM # 'frog' green
+        color = COLOR_LAYM # 'frog' green ;)
     elif temp < 60:
         color = 0xc5ca # yellow
     sidebar = cv2.circle(sidebar,pos,9,(0xffff),2)

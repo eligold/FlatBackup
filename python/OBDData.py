@@ -32,4 +32,8 @@ class OBDData:
         self._recalc()
 
     def psi(self):
-        return (self.intake_abs_pressure - self.atmospheric_pressure).magnitude
+        negative = self.intake_abs_pressure < self.atmospheric_pressure
+        result = self.intake_abs_pressure - self.atmospheric_pressure
+        if negative:
+            result = result.to('bar')
+        return result.magnitude
