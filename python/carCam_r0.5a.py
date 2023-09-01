@@ -56,7 +56,7 @@ def enqueue_output(out, queue):
 
 def add_pressure(pressure,deque):
     entry = int(pressure*30)
-    while(len(deque) > 1479):
+    while(len(deque) >= 1479):
         deque.popLeft() # pop()
     deque.append(entry) # appendLeft(entry)
     return pressure
@@ -113,7 +113,7 @@ def start():
                         try:  
                             line = queue.get_nowait()
                             if(b'POSITION_X' in line and b'value' in line):
-                                if int(line.decode().split('value')[-1]) > 1480:
+                                if int(line.decode().split('value')[-1]) > IMAGE_WIDTH:
                                     line = queue.get_nowait()
                                     if int(line.decode().split('value')[-1]) < 240:
                                         show_graph = not show_graph
