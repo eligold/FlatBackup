@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-import asyncio#, aiofiles, 
-import os, traceback, cv2, numpy as np
+import os, traceback, cv2, numpy as np #, asyncio, aiofiles
 from subprocess import run, Popen, PIPE
 from threading  import Thread
 from queue import Queue, Empty
@@ -12,7 +11,6 @@ from ELM327 import ELM327
 #import evdev
 # from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
 #                           ABS_MT_POSITION_Y, EV_ABS)
-
 IMAGE_WIDTH = 1480
 IMAGE_HEIGHT = 480
 PSI_BUFFER_DEPTH = 740
@@ -20,7 +18,6 @@ PPPSI = 30          # pixels per PSI and negative Bar
 DIM = (720,576) # video dimensions
 SDIM = (960,768)
 FDIM = (1040,IMAGE_HEIGHT)
-
 
 COLOR_REC = 0xfa00 # 0x58
 COLOR_GOOD = 0x871a
@@ -75,80 +72,62 @@ def add_pressure(pressure,deque):
     deque.appendleft(entry)
     return pressure
 
-# touch = evdev.InputDevice('/dev/input/event4')
-# psi queue, image queue
-# async def run():
-#     async for img in getImage():
-#         # push to queue
-#         outImage(latestPSI())
-#     async with aiofiles.open('/dev/fb0','rb+') as buf:
-#         pass
-
-# async def touch_input(elm,camera,touch=touch):
-#     async for event in touch.async_read_loop():
-#         #if event.type == EV_ABS:
-#         if event.code == ABS_MT_POSITION_X:
-#             if event.value > 1479:
-#                 bounce(elm,camera)
-#                 exit(0)
-
-# /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
-def start():
+def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
     # dashcam_id_path = \
     #     "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     # dashcam = getCamera(int(os.path.realpath(dashcam_id_path).split("video")[-1]))
-    # asyncio.ensure_future(touch_input(elm,camera,touch))
-    # loop = asyncio.get_event_loop()
-    # loop.run_forever()
     global show_graph
-    counter = 0
     elm = ELM327()
     camera = None
     usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     index = int(os.path.realpath(usb_capture_id_path).split("video")[-1])
-    while(True):
-        try:
-            camera = getCamera(index)
-            cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
-                        shell=True,stdout=PIPE,stderr=PIPE)
-            t = Thread(target=enqueue_output, args=(cmd.stdout, queue))
-            t.daemon = True
-            t.start()
-            res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
-            volts = elm.volts()
-            if res.stdout == b'up\n' and volts < 12.1:
-                #close(elm,camera)
-                pass#exit(0)
-            if volts > 12.1:
-                run('ip link set wlan0 down',shell=True)
-            success, img = getUndist(camera)
-            with open('/dev/fb0','rb+') as buf:
-                while camera.isOpened():
-                    while(True):
-                        try:  
-                            line = queue.get_nowait()
-                            if(b'POSITION_X' in line and b'value' in line):
-                                if int(line.decode().split('value')[-1]) > IMAGE_WIDTH:
-                                    line = queue.get_nowait()
-                                    if int(line.decode().split('value')[-1]) < 240:
-                                        show_graph = not show_graph
-                                    else:
-                                        bounce(elm,camera)
-                        except Empty:
-                            break
-                    success, img = getUndist(camera)
-                    mainImage = combinePerspective(img)
-                    counter += 1
-                    if counter % 5 == 0:
-                        sidebar = buildSidebar(elm)
-                    onScreen(buf,mainImage,sidebar) if success else errScreen(buf)
-            sleep(0.19)
-        except KeyboardInterrupt:
-            bounce(elm,camera)
-        except:
-            traceback.print_exc()
-        finally:
-            bounce(elm,camera,1)
+    try:
+        camera = getCamera(index)
+        cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
+                    shell=True,stdout=PIPE,stderr=PIPE)
+        t = Thread(target=enqueue_output, args=(cmd.stdout, queue))
+        t.daemon = True
+        t.start()
+        res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
+        volts = elm.volts()
+        if res.stdout == b'up\n' and volts < 12.1:
+            #close(elm,camera)
+            pass#exit(0)
+        if volts > 12.1:
+            run('ip link set wlan0 down',shell=True)
+        success, img = getUndist(camera)
+        with open('/dev/fb0','rb+') as buf:
+            while camera.isOpened():
+                while(True):
+                    try:  
+                        line = queue.get_nowait()
+                        if(b'POSITION_X' in line and b'value' in line):
+                            if int(line.decode().split('value')[-1]) > IMAGE_WIDTH:
+                                line = queue.get_nowait()
+                                if int(line.decode().split('value')[-1]) < 240:
+                                    show_graph = not show_graph
+                                else:
+                                    bounce(elm,camera)
+                    except Empty:
+                        break
+                success, img = getUndist(camera)
+                sidebar = buildSidebar(elm)
+                if success:
+                    if show_graph:
+                        onScreen(buf,combinePerspective(img),sidebar)
+                    else:
+                        onScreen(buf,
+                                    cv2.resize(img[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4),
+                                    sidebar,img[8:488,:220],img[:480,-220:])
+                else:
+                    errScreen(buf)
+        sleep(0.19)
+    except KeyboardInterrupt:
+        bounce(elm,camera)
+    except:
+        traceback.print_exc()
+    finally:
+        bounce(elm,camera,1)
 
 def errScreen(frame_buffer):
     font_face = cv2.FONT_HERSHEY_SIMPLEX
@@ -200,10 +179,15 @@ def newOnScreen(frame_buffer,image,pos=(0,0)):
             frame_buffer.seek((1600-w-pos[0])*2,1)
     frame_buffer.seek(0)
 
-def onScreen(frame_buffer,image,sidebar,make_design=False):
+def onScreen(frame_buffer,image,sidebar,left=None,right=None):
     for i in range(480):
-        frame_buffer.write(image[i])
-        if make_design and i > 320:
+        if left is not None and right is not None:
+            frame_buffer.write(left[i])
+            frame_buffer.write(image[i])
+            frame_buffer.write(right[i])
+        else:
+            frame_buffer.write(image[i])
+        if i > 320:
             for j in range(120):
                 frame_buffer.write(np.uint16(i*2&(i-255-j)))
         else:
@@ -219,7 +203,7 @@ def combinePerspective(image,inlay=None):
     final_image = cv2.cvtColor(combo,CVT3TO2B)
     return final_image
 
-# make boost graph here +12psi to -1bar (390px, 30px per unit), 1040 data pts
+# make boost graph here ~+15psi to ~-1.5bar
 def addOverlay(image):
     h,w = image.shape[:2]
     radius = 19
@@ -268,24 +252,41 @@ def buildSidebar(elm):
                                     (pos[0]+ofs[0],pos[1]),(color),-1)
     return sidebar
 
-def close(elm,camera):
+def bounce(elm,camera,ec=0,wifi=True):
     elm.close()
     camera.release()
-
-def bounce(elm,camera,ec=0):
-    close(elm,camera)
-    run(['bash','-c','ip link set wlan0 up'])
+    if wifi:
+        run(['bash','-c','ip link set wlan0 up'])
     exit(ec)
 
 if __name__ == "__main__":
     run('echo 0 > /sys/class/leds/PWR/brightness',shell=True)
-    #try:
-    start()
-    #except:
-    #    traceback.print_exc()
+    begin()
 
 ###############
 #  References #
 ###############
 # [1] https://towardsdatascience.com/circular-queue-or-ring-buffer-92c7b0193326
 # [2] https://www.first-sensor.com/cms/upload/appnotes/AN_Massflow_E_11153.pdf
+
+
+# touch = evdev.InputDevice('/dev/input/event4')
+# psi queue, image queue
+# async def run():
+#     async for img in getImage():
+#         # push to queue
+#         outImage(latestPSI())
+#     async with aiofiles.open('/dev/fb0','rb+') as buf:
+#         pass
+# async def touch_input(elm,camera,touch=touch):
+#     async for event in touch.async_read_loop():
+#         #if event.type == EV_ABS:
+#         if event.code == ABS_MT_POSITION_X:
+#             if event.value > 1479:
+#                 bounce(elm,camera)
+#                 exit(0)
+# def main(): # async?
+#     ...
+#     asyncio.ensure_future(touch_input(elm,camera,touch))
+#     loop = asyncio.get_event_loop()
+#     loop.run_forever()
