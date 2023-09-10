@@ -15,6 +15,7 @@ from ELM327 import ELM327
 
 IMAGE_WIDTH = 1480
 IMAGE_HEIGHT = 480
+PSI_BUFFER_DEPTH = 740
 PPPSI = 30          # pixels per PSI and negative Bar
 DIM = (720,576) # video dimensions
 SDIM = (960,768)
@@ -69,7 +70,7 @@ def enqueue_output(out, queue):
 
 def add_pressure(pressure,deque):
     entry = int(pressure*PPPSI)
-    while(len(deque)>=1479):
+    while(len(deque)>=PSI_BUFFER_DEPTH-1):
         deque.pop()
     deque.appendleft(entry)
     return pressure
@@ -100,6 +101,7 @@ def start():
     # loop = asyncio.get_event_loop()
     # loop.run_forever()
     global show_graph
+    counter = 0
     elm = ELM327()
     camera = None
     usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
@@ -115,8 +117,8 @@ def start():
             res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
             volts = elm.volts()
             if res.stdout == b'up\n' and volts < 12.1:
-                close(elm,camera)
-                exit(0)
+                #close(elm,camera)
+                pass#exit(0)
             if volts > 12.1:
                 run('ip link set wlan0 down',shell=True)
             success, img = getUndist(camera)
@@ -136,7 +138,9 @@ def start():
                             break
                     success, img = getUndist(camera)
                     mainImage = combinePerspective(img)
-                    sidebar = buildSidebar(elm)
+                    counter += 1
+                    if counter % 5 == 0:
+                        sidebar = buildSidebar(elm)
                     onScreen(buf,mainImage,sidebar) if success else errScreen(buf)
             sleep(0.19)
         except KeyboardInterrupt:
@@ -196,10 +200,10 @@ def newOnScreen(frame_buffer,image,pos=(0,0)):
             frame_buffer.seek((1600-w-pos[0])*2,1)
     frame_buffer.seek(0)
 
-def onScreen(frame_buffer,image,sidebar):
+def onScreen(frame_buffer,image,sidebar,make_design=False):
     for i in range(480):
         frame_buffer.write(image[i])
-        if i > 320:
+        if make_design and i > 320:
             for j in range(120):
                 frame_buffer.write(np.uint16(i*2&(i-255-j)))
         else:
@@ -210,7 +214,7 @@ def combinePerspective(image,inlay=None):
     middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4) \
         if inlay is None else inlay
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
-    if show_graph: # prototype for boost graph
+    if show_graph:
         combo = addOverlay(combo)
     final_image = cv2.cvtColor(combo,CVT3TO2B)
     return final_image
@@ -233,9 +237,10 @@ def addOverlay(image):
     image[405:407,25:1456] = BLACK
     image[135:137,38:45] = BLACK
     image = putText(image,"10",(25,133),color=BLACK,fontScale=0.38,thickness=1)
-    for x in range(IMAGE_WIDTH-len(psi_list),IMAGE_WIDTH):
+    for x in range(PSI_BUFFER_DEPTH-len(psi_list),PSI_BUFFER_DEPTH):
         try:
-            y = FDIM[1] - 2*PPPSI - 15 - graph_list.pop()
+            x = x * 2
+            y = FDIM[1] - 2 * PPPSI - 15 - graph_list.pop()
             image[y:y+2,x:x+2] = DOT
             image[y+2,x:x+3] = SHADOW
             image[y:y+3,x+2] = SHADOW
