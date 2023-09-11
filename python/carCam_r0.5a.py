@@ -27,7 +27,7 @@ COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
 COLOR_OVERLAY = (199,199,190)
 DOT = (255,0,0)
-SHADOW = (199,38,38)
+SHADOW = (133,38,38)
 BLACK = (0,0,0)
 ALPHA = 0.57
 
@@ -206,14 +206,16 @@ def combinePerspective(image,inlay=None):
     return final_image
 
 # make boost graph here ~+15psi to ~-1.5bar
+# add each point to new deque and increment position by one when reading current deque
 def addOverlay(image):
     h,w = image.shape[:2]
-    radius = 19
-    offset = radius * 2
+    radius,offset = 19,38
     overlay_image = image.copy()
     graph_list = psi_list.copy()
-    overlay_image = cv2.rectangle(overlay_image,(offset,offset-radius),(w-offset,h-(offset-radius)),COLOR_OVERLAY,-1)
-    overlay_image = cv2.rectangle(overlay_image,(offset-radius,offset),(w-(offset-radius),h-offset),COLOR_OVERLAY,-1)
+    overlay_image[20:461,39:1442] = COLOR_OVERLAY
+    # overlay_image = cv2.rectangle(overlay_image,(offset,offset-radius),(w-offset,h-(offset-radius)),COLOR_OVERLAY,-1)
+    overlay_image[39:442,20:1461] = COLOR_OVERLAY
+    # overlay_image = cv2.rectangle(overlay_image,(offset-radius,offset),(w-(offset-radius),h-offset),COLOR_OVERLAY,-1)
     overlay_image = cv2.circle(overlay_image,(offset,offset),radius,COLOR_OVERLAY,-1)
     overlay_image = cv2.circle(overlay_image,(offset,h-offset),radius,COLOR_OVERLAY,-1)
     overlay_image = cv2.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
@@ -276,9 +278,9 @@ if __name__ == "__main__":
 ###############
 # [1] https://towardsdatascience.com/circular-queue-or-ring-buffer-92c7b0193326
 # [2] https://www.first-sensor.com/cms/upload/appnotes/AN_Massflow_E_11153.pdf
+# [3] https://github.com/tmckay1/pi_bluetooth_auto_connect
 
-
-# touch = evdev.InputDevice('/dev/input/event4')
+# touch = evdev.InputDevice('/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00')
 # psi queue, image queue
 # async def run():
 #     async for img in getImage():
