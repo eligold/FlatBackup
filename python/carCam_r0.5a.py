@@ -50,9 +50,9 @@ show_graph = False
 psi_list = deque()
 queue = Queue()
 
-pos = (95,190)
 res = 50
 ofs = (3,5)
+pos = (95,190)
 sidebar_base = np.full((480,120),COLOR_LOW,np.uint16)
 sidebar_base = cv2.circle(sidebar_base,pos,9,(0xffff),2)
 sidebar_base = cv2.circle(sidebar_base,pos,8,(0),2)
@@ -116,9 +116,11 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
                     if show_graph:
                         onScreen(buf,combinePerspective(img),sidebar)
                     else:
-                        onScreen(buf,
-                                    cv2.resize(img[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4),
-                                    sidebar,img[8:488,:220],img[:480,-220:])
+                        middle = cv2.resize(
+                                    img[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4)
+                        img = cv2.cvtColor(img,CVT3TO2B)
+                        onScreen(buf,cv2.cvtColor(middle,CVT3TO2B),sidebar,
+                                 img[8:488,:220],img[:480,-220:])
                 else:
                     errScreen(buf)
         sleep(0.19)
@@ -239,17 +241,23 @@ def buildSidebar(elm):
     psi = add_pressure(elm.psi(),psi_list)
     sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
     sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
-    temp = int(intemp.temperature*res/100)
+    temp = int(intemp.temperature/2)#*res/100)
     color = 0xf800 # red
     if temp < 20:
         color = 0xc55e # light blue
-    elif temp < 40:
-        color = COLOR_LAYM # 'frog' green ;)
+    # elif temp < 40:
+    #    color = COLOR_LAYM # 'frog' green ;)
     elif temp < 60:
         color = 0xc5ca # yellow
-    sidebar = cv2.circle(sidebar,pos,8,(color),-1)
-    sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0],pos[1]-ofs[1]-temp),
-                                    (pos[0]+ofs[0],pos[1]),(color),-1)
+    # sidebar = cv2.circle(sidebar,pos,8,(color),-1)
+    # sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0],pos[1]-ofs[1]-temp),
+    #                                 (pos[0]+ofs[0],pos[1]),(color),-1)
+    sidebar[185-temp:191,90:101] = color
+    sidebar[88:104,188:194] = color
+    sidebar[89:103,186:196] = color
+    sidebar[90:102,185:197] = color
+    sidebar[91:101,184:198] = color
+    sidebar[93:99,183:199] = color
     return sidebar
 
 def bounce(elm,camera,ec=0,wifi=True):
