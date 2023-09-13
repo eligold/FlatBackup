@@ -99,7 +99,7 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
             pass#exit(0)
         if volts > 12.1:
             run('ip link set wlan0 down',shell=True)
-        getUndist(camera)
+        # getUndist(camera)
         sidebar_thread = Thread(target=sidebar_builder,args=(elm,sidebar_queue))
         sidebar_thread.daemon = True
         sidebar_thread.start()
@@ -182,7 +182,8 @@ def newOnScreen(frame_buffer,image,pos=(0,0)):
     frame_buffer.seek(0)
 
 def onScreen(frame_buffer,queue):
-    for image,sidebar in queue:
+    while(True):
+        image,sidebar = queue.get()
         for i in range(480):
             frame_buffer.write(image[i])
             if i > 320:
@@ -193,7 +194,8 @@ def onScreen(frame_buffer,queue):
         frame_buffer.seek(0)
 
 def do_the_thing(image_queue=raw_image_queue,sidebar_queue=sidebar_queue,output_queue=output_queue,sidebar=sidebar):
-    for image in image_queue:
+    while(True):
+        image = image_queue.get()
         try:  
             sidebar = sidebar_queue.get_nowait()
         except Empty:
