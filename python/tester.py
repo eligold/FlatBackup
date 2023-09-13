@@ -80,56 +80,42 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
     # dashcam_id_path = \
     #     "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     # dashcam = getCamera(int(os.path.realpath(dashcam_id_path).split("video")[-1]))
-    global show_graph
-    elm = ELM327()
-    camera = None
-    usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
-    index = int(os.path.realpath(usb_capture_id_path).split("video")[-1])
     try:
-        camera = getCamera(index)
         cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
                     shell=True,stdout=PIPE,stderr=PIPE)
         touch_thread = Thread(target=enqueue_output, args=(cmd.stdout, queue))
         touch_thread.daemon = True
         touch_thread.start()
-        res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
-        volts = elm.volts()
-        if res.stdout == b'up\n' and volts < 12.1:
+        # res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
+        # volts = elm.volts()
+        # if res.stdout == b'up\n' and volts < 12.1:
             #close(elm,camera)
-            pass#exit(0)
-        if volts > 12.1:
-            run('ip link set wlan0 down',shell=True)
+            #exit(0)
+        # if volts > 12.1:
+        #    run('ip link set wlan0 down',shell=True)
         # getUndist(camera)
-        sidebar_thread = Thread(target=sidebar_builder,args=(elm,sidebar_queue))
-        sidebar_thread.daemon = True
-        sidebar_thread.start()
-        with open('/dev/fb0','rb+') as buf:
-            if camera.isOpened():
-                camera_thread = Thread(target=do_the_thing)
-                camera_thread.daemon = True
-                camera_thread.start()
-                output_thread = Thread(target=onScreen,args=(buf,output_queue))
-                output_thread.daemon = True
-                output_thread.start()
-                while(True):
-                    try:  
+        for f in [sidebar_builder,getUndist,do_the_thing,onScreen]:
+            t = Thread(target=f)
+            t.daemon = True
+            t.start()
+        while(True):
+            try:  
+                line = queue.get_nowait()
+                if(b'POSITION_X' in line and b'value' in line):
+                    if int(line.decode().split('value')[-1]) > IMAGE_WIDTH:
                         line = queue.get_nowait()
-                        if(b'POSITION_X' in line and b'value' in line):
-                            if int(line.decode().split('value')[-1]) > IMAGE_WIDTH:
-                                line = queue.get_nowait()
-                                if int(line.decode().split('value')[-1]) < 240:
-                                    show_graph = not show_graph
-                                else:
-                                    bounce(elm,camera)
-                    except Empty:
-                        break
-        sleep(0.19)
+                        if int(line.decode().split('value')[-1]) < 240:
+                            show_graph = not show_graph
+                        else:
+                            raise KeyboardInterrupt("touch input")
+            except Empty:
+                sleep(0.019)
     except KeyboardInterrupt:
-        bounce(elm,camera)
+        exit()
     except:
         traceback.print_exc()
     finally:
-        bounce(elm,camera,1)
+        exit(1)
 
 # def errScreen(frame_buffer):
 #     font_face = cv2.FONT_HERSHEY_SIMPLEX
@@ -148,20 +134,23 @@ def getCamera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera.set(BRIGHTNESS,25)
     return camera
 
-def getUndist(camera,queue): # -> [bool, cv2.UMat or None]:
-    success, image = camera.read()
-    if success:
-        undist = cv2.remap(image,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
-        image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
-    queue.put((success, image))
+def getUndist(camera,queue=raw_image_queue): # -> [bool, cv2.UMat or None]:
+    usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
+    index = int(os.path.realpath(usb_capture_id_path).split("video")[-1])
+    camera = getCamera(index)
+    if camera.isOpened():
+        try:
+            success, image = camera.read()
+            if success:
+                undist = cv2.remap(image,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
+                image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
+            queue.put((success, image))
+        finally:
+            camera.release()
 
 def putText(img, text="you forgot the text idiot", origin=(0,480), #bottom left
-            color=(0xc5,0x9e,0x21),
-            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=1,
-            thickness=2,
-            lineType=cv2.LINE_AA
-        ):
+            color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+            fontScale=1,thickness=2,lineType=cv2.LINE_AA):
     return cv2.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
 def newOnScreen(frame_buffer,image,pos=(0,0)):
@@ -181,23 +170,25 @@ def newOnScreen(frame_buffer,image,pos=(0,0)):
             frame_buffer.seek((1600-w-pos[0])*2,1)
     frame_buffer.seek(0)
 
-def onScreen(frame_buffer,queue):
-    while(True):
-        image,sidebar = queue.get()
-        for i in range(480):
-            frame_buffer.write(image[i])
-            if i > 320:
-                for j in range(120):
-                    frame_buffer.write(np.uint16(i*2&(i-255-j)))
-            else:
-                frame_buffer.write(sidebar[i])
-        frame_buffer.seek(0)
+def onScreen(frame_buffer,queue=output_queue):
+    with open('/dev/fb0','rb+') as buf:
+        while(True):
+            image,sidebar = queue.get()
+            for i in range(480):
+                frame_buffer.write(image[i])
+                if i > 320:
+                    for j in range(120):
+                        frame_buffer.write(np.uint16(i*2&(i-255-j)))
+                else:
+                    frame_buffer.write(sidebar[i])
+            frame_buffer.seek(0)
 
 def do_the_thing(image_queue=raw_image_queue,sidebar_queue=sidebar_queue,output_queue=output_queue,sidebar=sidebar):
     while(True):
-        image = image_queue.get()
+        success, image = image_queue.get()
         try:  
-            sidebar = sidebar_queue.get_nowait()
+            if success:
+                sidebar = sidebar_queue.get_nowait()
         except Empty:
             pass
         output_queue.put((combinePerspective(image),sidebar))
@@ -242,38 +233,40 @@ def addOverlay(image):
             pass
     return image
 
-def sidebar_builder(elm,queue):
-    while(True):
-        sidebar = sidebar_base.copy()
-        sidebar = putText(sidebar,f"{elm.volts()}V",(19,133),
-                        color=COLOR_NORMAL,thickness=1,fontScale=0.5)
-        psi = add_pressure(elm.psi(),psi_list)
-        sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
-        sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
-        temp = int(intemp.temperature/2)#*res/100)
-        color = 0xf800 # red
-        if temp < 20:
-            color = 0xc55e # light blue
-        # elif temp < 40:
-        #    color = COLOR_LAYM # 'frog' green ;)
-        elif temp < 60:
-            color = 0xc5ca # yellow
-        sidebar = cv2.circle(sidebar,pos,8,(color),-1)
-        sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0],pos[1]-ofs[1]-temp),
-                                        (pos[0]+ofs[0],pos[1]),(color),-1)
-        # sidebar[185-temp:191,90:101] = color
-        # sidebar[88:104,188:194] = color
-        # sidebar[89:103,186:196] = color
-        # sidebar[90:102,185:197] = color
-        # sidebar[91:101,184:198] = color
-        # sidebar[93:99,183:199] = color
-        queue.put(sidebar)
+def sidebar_builder(queue=sidebar_queue):
+    elm = ELM327()
+    try:
+        while(True):
+            sidebar = sidebar_base.copy()
+            sidebar = putText(sidebar,f"{elm.volts()}V",(19,133),
+                            color=COLOR_NORMAL,thickness=1,fontScale=0.5)
+            psi = add_pressure(elm.psi(),psi_list)
+            sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
+            sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
+            temp = int(intemp.temperature/2)#*res/100)
+            color = 0xf800 # red
+            if temp < 20:
+                color = 0xc55e # light blue
+            # elif temp < 40:
+            #    color = COLOR_LAYM # 'frog' green ;)
+            elif temp < 60:
+                color = 0xc5ca # yellow
+            sidebar = cv2.circle(sidebar,pos,8,(color),-1)
+            sidebar = cv2.rectangle(sidebar,(pos[0]-ofs[0],pos[1]-ofs[1]-temp),
+                                            (pos[0]+ofs[0],pos[1]),(color),-1)
+            # sidebar[185-temp:191,90:101] = color
+            # sidebar[88:104,188:194] = color
+            # sidebar[89:103,186:196] = color
+            # sidebar[90:102,185:197] = color
+            # sidebar[91:101,184:198] = color
+            # sidebar[93:99,183:199] = color
+            queue.put(sidebar)
+    finally:
+        elm.close()
 
-def bounce(elm,camera,ec=0,wifi=True):
-    elm.close()
+def bounce(camera,ec=0,wifi=True):
     camera.release()
-    if wifi:
-        run(['bash','-c','ip link set wlan0 up'])
+    
     exit(ec)
 
 if __name__ == "__main__":
