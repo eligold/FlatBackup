@@ -21,22 +21,11 @@ class ELM327:
         sleep(0.019)
         self.checktime = time()
         self.carOn = False
-        elm = obd.Async(portstr)
+        elm = obd.OBD(portstr)
         if elm.is_connected():
-            elm.watch(VOLT)
-            elm.start()
-            sleep(0.019)
             voltage = elm.query(VOLT)
             if not voltage.is_null() and voltage.value.magnitude > 12.1:
                 self.carOn = True
-
-            if self.carOn:
-                elm.stop()
-                elm.watch(TEMP)
-                elm.watch(RPM)
-                elm.watch(MAF)
-                elm.watch(PRES)
-                elm.start()
             self.elm327 = elm
         else:
             self.elm327 = None
