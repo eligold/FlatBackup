@@ -114,15 +114,8 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
     except:
         traceback.print_exc()
 
-# def errScreen(frame_buffer):
-#     font_face = cv2.FONT_HERSHEY_SIMPLEX
-#     scale = 1
-#     image = cv2.putText(
 #                 np.full((480,1600),COLOR_BAD,np.uint16),
-#             "No Signal!",(500,200), font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
-#     for i in range(480):
-#         frame_buffer.write(image[i])
-#     frame_buffer.seek(0)
+#             "No Signal!",(500,200), font_face, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
 def getCamera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
@@ -131,14 +124,14 @@ def getCamera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera.set(BRIGHTNESS,25)
     return camera
 
-def getUndist(queue=raw_image_queue): # -> [bool, cv2.UMat or None]:
+def getUndist(queue=raw_image_queue):
     usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     usb_capture_real_path = os.path.realpath(usb_capture_id_path)
     logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
     index = int(usb_capture_real_path.split("video")[-1])
     camera = getCamera(index)
-    if camera.isOpened():
-        try:
+    try:
+        while camera.isOpened():
             success, image = camera.read()
             if success:
                 logger.info("begin undistortion")
@@ -146,9 +139,9 @@ def getUndist(queue=raw_image_queue): # -> [bool, cv2.UMat or None]:
                 image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
                 logger.info("end undistortion")
             queue.put((success, image))
-        finally:
-            logger.info("release camera resource")
-            camera.release()
+    finally:
+        logger.info("release camera resource")
+        camera.release()
 
 def putText(img, text="you forgot the text idiot", origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
