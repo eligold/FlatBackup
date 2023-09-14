@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-import os, traceback, cv2, numpy as np #, asyncio, aiofiles
+import os, sys, traceback, cv2, logging, numpy as np #, asyncio, aiofiles
 from subprocess import run, Popen, PIPE
 from threading  import Thread
 from queue import Queue, Empty
 from collections import deque
-from time import sleep, perf_counter
-from obd import Unit
+from time import sleep
 from gpiozero import CPUTemperature as onboardTemp
 from ELM327 import ELM327
 #import evdev
@@ -95,7 +94,7 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
         #    run('ip link set wlan0 down',shell=True)
         # getUndist(camera)
         for f in [sidebar_builder,getUndist,do_the_thing,onScreen]:
-            t = Thread(target=f)
+            t = Thread(target=f,name=f.__name__)
             t.daemon = True
             t.start()
         while(True):
@@ -111,11 +110,9 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
             except Empty:
                 sleep(0.019)
     except KeyboardInterrupt:
-        exit()
+        print("leaving on purpose")
     except:
         traceback.print_exc()
-    finally:
-        exit(1)
 
 # def errScreen(frame_buffer):
 #     font_face = cv2.FONT_HERSHEY_SIMPLEX
@@ -134,18 +131,23 @@ def getCamera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera.set(BRIGHTNESS,25)
     return camera
 
-def getUndist(camera,queue=raw_image_queue): # -> [bool, cv2.UMat or None]:
+def getUndist(queue=raw_image_queue): # -> [bool, cv2.UMat or None]:
     usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
-    index = int(os.path.realpath(usb_capture_id_path).split("video")[-1])
+    usb_capture_real_path = os.path.realpath(usb_capture_id_path)
+    logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
+    index = int(usb_capture_real_path.split("video")[-1])
     camera = getCamera(index)
     if camera.isOpened():
         try:
             success, image = camera.read()
             if success:
+                logger.info("begin undistortion")
                 undist = cv2.remap(image,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
                 image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
+                logger.info("end undistortion")
             queue.put((success, image))
         finally:
+            logger.info("release camera resource")
             camera.release()
 
 def putText(img, text="you forgot the text idiot", origin=(0,480), #bottom left
@@ -153,25 +155,8 @@ def putText(img, text="you forgot the text idiot", origin=(0,480), #bottom left
             fontScale=1,thickness=2,lineType=cv2.LINE_AA):
     return cv2.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
-def newOnScreen(frame_buffer,image,pos=(0,0)):
-    h,w,d = image.shape
-    if pos < (0,0) or d != 2:
-        raise Exception(f"negative position!\n{pos}")
-    if w + pos[0] > 1600:       # trim too wide
-        image = image[:,:1600-pos[0]]
-        h,w,d = image.shape
-    if pos[1] > 0:              # vertical offset
-        frame_buffer.seek(pos[1]*2*1600)
-    for i in range(h):
-        if pos[0] > 0:          # horizontal offset
-            frame_buffer.seek(pos[0]*2,1)
-        frame_buffer.write(image[i])
-        if w + pos[0] < 1600:   # if not full width seek end of line
-            frame_buffer.seek((1600-w-pos[0])*2,1)
-    frame_buffer.seek(0)
-
-def onScreen(frame_buffer,queue=output_queue):
-    with open('/dev/fb0','rb+') as buf:
+def onScreen(queue=output_queue):
+    with open('/dev/fb0','rb+') as frame_buffer:
         while(True):
             image,sidebar = queue.get()
             for i in range(480):
@@ -185,17 +170,21 @@ def onScreen(frame_buffer,queue=output_queue):
 
 def do_the_thing(image_queue=raw_image_queue,sidebar_queue=sidebar_queue,output_queue=output_queue,sidebar=sidebar):
     while(True):
-        success, image = image_queue.get()
+        success, image = image_queue.get(timeout=0.04)
         try:  
-            if success:
-                sidebar = sidebar_queue.get_nowait()
+            sidebar = sidebar_queue.get_nowait()
+            logger.info(f"new pressure from ELM")
         except Empty:
             pass
-        output_queue.put((combinePerspective(image),sidebar))
+        if success:
+            image = combinePerspective(image)
+        else:
+            logging.error("no image from camera")
+        output_queue.put(image,sidebar)
 
 def combinePerspective(image,inlay=None):
     middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4) \
-        if inlay is None else inlay
+            if inlay is None else inlay
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
     if show_graph:
         combo = addOverlay(combo)
@@ -241,6 +230,7 @@ def sidebar_builder(queue=sidebar_queue):
             sidebar = putText(sidebar,f"{elm.volts()}V",(19,133),
                             color=COLOR_NORMAL,thickness=1,fontScale=0.5)
             psi = add_pressure(elm.psi(),psi_list)
+            logging.info(f"pressure: {psi}")
             sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
             sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
             temp = int(intemp.temperature/2)#*res/100)
@@ -264,14 +254,17 @@ def sidebar_builder(queue=sidebar_queue):
     finally:
         elm.close()
 
-def bounce(camera,ec=0,wifi=True):
-    camera.release()
-    
-    exit(ec)
-
 if __name__ == "__main__":
+    handler = logging.StreamHandler(stream=sys.stdout)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter('[%(levelname)s] [%(threadName)s] %(message)s'))
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    run('echo none > /sys/class/leds/PWR/trigger',shell=True)
     run('echo 0 > /sys/class/leds/PWR/brightness',shell=True)
     begin()
+    # run(['bash','-c','ip link set wlan0 up'])
 
 ###############
 #  References #
