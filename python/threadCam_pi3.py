@@ -84,6 +84,8 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
         print("deuces")
     except:
         traceback.print_exc()
+    finally:
+        logger.warn(f"{raw_image_queue.qsize()}\t{undistort_queue.qsize()}\t{output_queue.qsize()}")
 
 def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
@@ -102,11 +104,14 @@ def get_image(queue=raw_image_queue):
     try:
         while camera.isOpened():
             success, image = camera.read()
-            try:
-                while(True):
-                    queue.pop()
-            except Empty:
-                queue.put((success, image))
+            #try:
+            #    while(True):
+            #        queue.get()
+            #except Empty:
+            if success:
+                logger.info(image.shape)
+            queue.put((success, image))
+            sleep(0.038)
     finally:
         logger.warn("release camera resource")
         camera.release()
@@ -116,6 +121,7 @@ def on_screen(queue=output_queue):
         while(True):
             try:
                 image = queue.get()
+                logger.info("pulled image")
                 for i in range(480):
                     frame_buffer.write(image[i])
                     if i > 320:
@@ -123,20 +129,21 @@ def on_screen(queue=output_queue):
                             frame_buffer.write(np.uint16(i*2&(i-255-j)))
                     else:
                         frame_buffer.write(sidebar[i])
+                    frame_buffer.seek(0)
             except Empty:
                 logger.warn("no image to display")
-            frame_buffer.seek(0)
+                frame_buffer.seek(0)
 
 def undistort_shop(image_queue=raw_image_queue,output_queue=undistort_queue):
     while(True):
         image = no_signal_frame
         success = False
         try:
-            success, image = image_queue.get()
+            success, image = image_queue.get() # timeout=0.04)
             if success:
                 image = undistort(image)
         except Empty:
-            pass
+            logger.error("no image from camera!")
         output_queue.put((success,image))
 
 def view_shop(image_queue=undistort_queue,output_queue=output_queue):
@@ -144,17 +151,18 @@ def view_shop(image_queue=undistort_queue,output_queue=output_queue):
         image = no_signal_frame
         success = False
         try:
-            success, image = image_queue.get(timeout=0.04)
+            success, image = image_queue.get()#timeout=0.04)
             if success:
                 image = build_reverse_view(image)
         except Empty:
-            logging.error("no image from camera")
+            logging.error("no image from undistort shop")
         output_queue.put(image)
         
 
 def undistort(img):
     undist = cv2.remap(img,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
     image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
+    logger.info("made it here")
     return image
 
 def build_reverse_view(image):
