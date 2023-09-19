@@ -9,7 +9,6 @@ from time import sleep
 #                           ABS_MT_POSITION_Y, EV_ABS)
 IMAGE_WIDTH = 1480
 IMAGE_HEIGHT = 480
-
 DIM = (720,576) # video dimensions
 SDIM = (960,768)
 FDIM = (1040,IMAGE_HEIGHT)
@@ -38,7 +37,8 @@ mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv
 queue = Queue()
 raw_image_queue = Queue()
 output_queue = Queue()
-sidebar = np.full((480,120),COLOR_LOW,np.uint16)
+sidebar = np.full((IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
+no_signal_frame = np.full((IMAGE_HEIGHT,IMAGE_WIDTH),COLOR_BAD,np.uint16)
 
 def enqueue_output(out, queue):
     for line in iter(out.readline, b''):
@@ -60,7 +60,7 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
             raise KeyboardInterrupt
         else:
            run('ip link set wlan0 down',shell=True)
-        for f in [getUndist,do_the_thing,onScreen]:
+        for f in [get_image,undistort,on_screen]:
             t = Thread(target=f,name=f.__name__)
             t.daemon = True
             t.start()
@@ -85,34 +85,29 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
 #                 np.full((480,1600),COLOR_BAD,np.uint16),
 #             "No Signal!",(500,200), font_face, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
-def getCamera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
+def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
     camera.set(WIDTH,720)
     camera.set(HEIGHT,576)
     camera.set(BRIGHTNESS,25)
     return camera
 
-def getUndist(queue=raw_image_queue):
+def get_image(queue=raw_image_queue):
     usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     usb_capture_real_path = os.path.realpath(usb_capture_id_path)
     logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
     index = int(usb_capture_real_path.split("video")[-1])
-    camera = getCamera(index)
+    camera = get_camera(index)
     camera.read()
     try:
         while camera.isOpened():
             success, image = camera.read()
-            if success:
-                logger.info("begin undistortion")
-                undist = cv2.remap(image,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
-                image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
-                logger.info("end undistortion")
             queue.put((success, image))
     finally:
-        logger.info("release camera resource")
+        logger.warn("release camera resource")
         camera.release()
 
-def onScreen(queue=output_queue):
+def on_screen(queue=output_queue):
     with open('/dev/fb0','rb+') as frame_buffer:
         while(True):
             try:
@@ -128,19 +123,21 @@ def onScreen(queue=output_queue):
                 logger.info("no image to display")
             frame_buffer.seek(0)
 
-def do_the_thing(image_queue=raw_image_queue,output_queue=output_queue):
+def undistort(image_queue=raw_image_queue,output_queue=output_queue):
     while(True):
+        image = no_signal_frame
         try:
             success, image = image_queue.get(timeout=0.04)
             if success:
-                image = combinePerspective(image)
-                output_queue.put(image)
+                image = build_reverse_view(image)
         except Empty:
             logging.error("no image from camera")
+        output_queue.put(image)
 
-def combinePerspective(image,inlay=None):
-    middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4) \
-            if inlay is None else inlay
+def build_reverse_view(img):
+    undist = cv2.remap(img,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
+    image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
+    middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4)
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
     final_image = cv2.cvtColor(combo,CVT3TO2B)
     return final_image
