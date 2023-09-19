@@ -25,6 +25,8 @@ fi
 if [ -d "$HOME/.local/bin" ] ; then
     PATH="$HOME/.local/bin:$PATH"
 fi
+alias got="git"
+alias shutdown="sudo shutdown -h now"
 set PS1=""
 setterm -cursor off
 clear
