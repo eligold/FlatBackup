@@ -9,8 +9,7 @@ from time import sleep
 #                           ABS_MT_POSITION_Y, EV_ABS)
 IMAGE_WIDTH = 1480
 IMAGE_HEIGHT = 480
-PSI_BUFFER_DEPTH = 740
-PPPSI = 30          # pixels per PSI and negative Bar
+
 DIM = (720,576) # video dimensions
 SDIM = (960,768)
 FDIM = (1040,IMAGE_HEIGHT)
@@ -21,11 +20,6 @@ COLOR_LOW = 0xc4e4
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
-COLOR_OVERLAY = (199,199,190)
-DOT = (255,0,0)
-SHADOW = (133,38,38)
-BLACK = (0,0,0)
-ALPHA = 0.57
 
 CVT3TO2B = cv2.COLOR_BGR2BGR565
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
@@ -61,20 +55,18 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
         touch_thread = Thread(target=enqueue_output, args=(cmd.stdout, queue))
         touch_thread.daemon = True
         touch_thread.start()
-        # res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
-        # if res.stdout == b'up\n':
-            #close(camera)
-            #exit(0)
-        # else:
-        #    run('ip link set wlan0 down',shell=True)
-        # getUndist(camera)
+        res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
+        if res.stdout == b'up\n':
+            raise KeyboardInterrupt
+        else:
+           run('ip link set wlan0 down',shell=True)
         for f in [getUndist,do_the_thing,onScreen]:
             t = Thread(target=f,name=f.__name__)
             t.daemon = True
             t.start()
             logger.info(f"started thread {f.__name__}")
         while(True):
-            try:  
+            try:
                 line = queue.get_nowait()
                 if(b'POSITION_X' in line and b'value' in line):
                     if int(line.decode().split('value')[-1]) > IMAGE_WIDTH:
