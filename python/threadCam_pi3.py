@@ -36,9 +36,12 @@ new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 queue = Queue()
 raw_image_queue = Queue()
+undistort_queue = Queue()
 output_queue = Queue()
 sidebar = np.full((IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
-no_signal_frame = np.full((IMAGE_HEIGHT,IMAGE_WIDTH),COLOR_BAD,np.uint16)
+no_signal_frame = cv2.putText(
+    np.full((IMAGE_HEIGHT,IMAGE_WIDTH),COLOR_BAD,np.uint16),
+    "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
 def enqueue_output(out, queue):
     for line in iter(out.readline, b''):
@@ -57,10 +60,10 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
         touch_thread.start()
         res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
         if res.stdout == b'up\n':
-            raise KeyboardInterrupt
+            pass # raise KeyboardInterrupt
         else:
            run('ip link set wlan0 down',shell=True)
-        for f in [get_image,undistort,on_screen]:
+        for f in [undistort_shop,view_shop,on_screen,get_image]:
             t = Thread(target=f,name=f.__name__)
             t.daemon = True
             t.start()
@@ -78,12 +81,9 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
             except Empty:
                 sleep(0.019)
     except KeyboardInterrupt:
-        print("leaving on purpose")
+        print("deuces")
     except:
         traceback.print_exc()
-
-#                 np.full((480,1600),COLOR_BAD,np.uint16),
-#             "No Signal!",(500,200), font_face, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
 def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
@@ -102,7 +102,11 @@ def get_image(queue=raw_image_queue):
     try:
         while camera.isOpened():
             success, image = camera.read()
-            queue.put((success, image))
+            try:
+                while(True):
+                    queue.pop()
+            except Empty:
+                queue.put((success, image))
     finally:
         logger.warn("release camera resource")
         camera.release()
@@ -120,12 +124,25 @@ def on_screen(queue=output_queue):
                     else:
                         frame_buffer.write(sidebar[i])
             except Empty:
-                logger.info("no image to display")
+                logger.warn("no image to display")
             frame_buffer.seek(0)
 
-def undistort(image_queue=raw_image_queue,output_queue=output_queue):
+def undistort_shop(image_queue=raw_image_queue,output_queue=undistort_queue):
     while(True):
         image = no_signal_frame
+        success = False
+        try:
+            success, image = image_queue.get()
+            if success:
+                image = undistort(image)
+        except Empty:
+            pass
+        output_queue.put((success,image))
+
+def view_shop(image_queue=undistort_queue,output_queue=output_queue):
+    while(True):
+        image = no_signal_frame
+        success = False
         try:
             success, image = image_queue.get(timeout=0.04)
             if success:
@@ -133,10 +150,14 @@ def undistort(image_queue=raw_image_queue,output_queue=output_queue):
         except Empty:
             logging.error("no image from camera")
         output_queue.put(image)
+        
 
-def build_reverse_view(img):
+def undistort(img):
     undist = cv2.remap(img,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
     image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
+    return image
+
+def build_reverse_view(image):
     middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4)
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
     final_image = cv2.cvtColor(combo,CVT3TO2B)
