@@ -2,7 +2,7 @@
 import os, sys, traceback, cv2, logging, numpy as np #, asyncio, aiofiles
 from subprocess import run, Popen, PIPE
 from threading  import Thread
-from queue import Queue, Empty
+from queue import Queue, Empty, Full
 from time import sleep
 #import evdev
 # from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
@@ -35,10 +35,13 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 queue = Queue()
-raw_image_queue = Queue()
+raw_image_queue = Queue(1)
 undistort_queue = Queue()
 output_queue = Queue()
 sidebar = np.full((IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
+for i in range(320,480):
+    for j in range(120):
+        sidebar[i][j] = np.uint16(i*2&(i-255-j))
 no_signal_frame = cv2.putText(
     np.full((IMAGE_HEIGHT,IMAGE_WIDTH),COLOR_BAD,np.uint16),
     "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
@@ -94,7 +97,7 @@ def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera.set(BRIGHTNESS,25)
     return camera
 
-def get_image(queue=raw_image_queue):
+def get_image(raw_image_queue=raw_image_queue):
     usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     usb_capture_real_path = os.path.realpath(usb_capture_id_path)
     logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
@@ -104,42 +107,37 @@ def get_image(queue=raw_image_queue):
     try:
         while camera.isOpened():
             success, image = camera.read()
-            #try:
-            #    while(True):
-            #        queue.get()
-            #except Empty:
-            if success:
-                logger.info(image.shape)
-            queue.put((success, image))
-            sleep(0.038)
+            try:
+                raw_image_queue.put((success, image))
+            except Full:
+                pass
     finally:
-        logger.warn("release camera resource")
+        logger.warning("release camera resource")
         camera.release()
 
-def on_screen(queue=output_queue):
+def on_screen(output_queue=output_queue):
     with open('/dev/fb0','rb+') as frame_buffer:
         while(True):
             try:
-                image = queue.get()
-                logger.info("pulled image")
+                image = output_queue.get_nowait()
+               # logger.info("pulled image")
                 for i in range(480):
                     frame_buffer.write(image[i])
-                    if i > 320:
-                        for j in range(120):
-                            frame_buffer.write(np.uint16(i*2&(i-255-j)))
-                    else:
-                        frame_buffer.write(sidebar[i])
-                    frame_buffer.seek(0)
-            except Empty:
-                logger.warn("no image to display")
+                    # if i > 320:
+                    #     for j in range(120):
+                    #         frame_buffer.write(np.uint16(i*2&(i-255-j)))
+                    # else:
+                    frame_buffer.write(sidebar[i])
                 frame_buffer.seek(0)
+            except Empty:
+                logger.warning("no image to display")
 
 def undistort_shop(image_queue=raw_image_queue,output_queue=undistort_queue):
     while(True):
         image = no_signal_frame
         success = False
         try:
-            success, image = image_queue.get() # timeout=0.04)
+            success, image = image_queue.get_nowait() # timeout=0.04)
             if success:
                 image = undistort(image)
         except Empty:
@@ -151,7 +149,7 @@ def view_shop(image_queue=undistort_queue,output_queue=output_queue):
         image = no_signal_frame
         success = False
         try:
-            success, image = image_queue.get()#timeout=0.04)
+            success, image = image_queue.get_nowait()#timeout=0.04)
             if success:
                 image = build_reverse_view(image)
         except Empty:
