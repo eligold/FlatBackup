@@ -4,7 +4,6 @@ from subprocess import run, Popen, PIPE
 from threading  import Thread
 from queue import Queue, Empty, Full
 from time import sleep
-from icecream import ic
 #import evdev
 # from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
 #                           ABS_MT_POSITION_Y, EV_ABS)
@@ -87,7 +86,7 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
     except:
         traceback.print_exc()
     finally:
-        logger.warn(f"{raw_image_queue.qsize()}\t{undistort_queue.qsize()}\t{output_queue.qsize()}")
+        logger.warning(f"image queue size: {output_queue.qsize()}")
 
 def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
@@ -129,7 +128,6 @@ def on_screen(output_queue=output_queue):
 def undistort(img):
     undist = cv2.remap(img,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
     image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
-    logger.info("made it here")
     return image
 
 def build_reverse_view(image):
