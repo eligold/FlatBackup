@@ -2,9 +2,8 @@
 import os, sys, traceback, cv2, logging, numpy as np #, asyncio, aiofiles
 from subprocess import run, Popen, PIPE
 from threading  import Thread
-from queue import Queue, Empty, Full
-from time import sleep
-from icecream import ic
+from queue import Queue, Empty
+from time import sleep, perf_counter
 from ELM327 import ELM327
 #import evdev
 # from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
@@ -22,12 +21,6 @@ COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
 
-CVT3TO2B = cv2.COLOR_BGR2BGR565
-WIDTH = cv2.CAP_PROP_FRAME_WIDTH
-HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
-BRIGHTNESS = cv2.CAP_PROP_BRIGHTNESS
-CONTRAST = cv2.CAP_PROP_CONTRAST
-
 # below values are specific to my backup camera run thru
 # my knock-off easy-cap calibrated with my phone screen. 
 # YMMV
@@ -39,18 +32,15 @@ mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv
 touch_queue = Queue()
 display_queue = Queue()
 sidebar_queue = Queue()
+
 sidebar_base = np.full((IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
 for i in range(480): #(320,480):
     for j in range(120):
         sidebar_base[i][j] = np.uint16(i*2&(i-255-j))
+
 no_signal_frame = cv2.putText(
     np.full((IMAGE_HEIGHT,IMAGE_WIDTH),COLOR_BAD,np.uint16),
     "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
-
-def enqueue_output(out, queue):
-    for line in iter(out.readline, b''):
-        queue.put(line)
-    out.close()
 
 def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
     # dashcam_id_path = \
@@ -62,14 +52,14 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
             pass # raise KeyboardInterrupt
         else:
            run('ip link set wlan0 down',shell=True)
-        for f in [get_image,on_screen]:
+        for f in [get_image,on_screen,sidebar_builder]:
             t = Thread(target=f,name=f.__name__)
             t.daemon = True
             t.start()
             logger.info(f"started thread {f.__name__}")
         cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
                     shell=True,stdout=PIPE,stderr=PIPE)
-        touch_thread = Thread(target=enqueue_output, args=(cmd.stdout, touch_queue))
+        touch_thread = Thread(target=enqueue_output, args=(cmd.stdout))
         touch_thread.daemon = True
         touch_thread.start()
         while(True):
@@ -87,16 +77,15 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
     except:
         traceback.print_exc()
     finally:
-        logger.warning(f"image queue size: {output_queue.qsize()}")
+        logger.warn(f"sidebars: {sidebar_queue.qsize()}\timages ready to display: {display_queue.qsize()}")
+        run('ip link set wlan0 down',shell=True)
 
-def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
-    camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
-    camera.set(WIDTH,720)
-    camera.set(HEIGHT,576)
-    camera.set(BRIGHTNESS,25)
-    return camera
+def enqueue_output(out):
+    for line in iter(out.readline, b''):
+        touch_queue.put(line)
+    out.close()
 
-def get_image(output_queue=display_queue):
+def get_image():
     usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     usb_capture_real_path = os.path.realpath(usb_capture_id_path)
     logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
@@ -105,10 +94,14 @@ def get_image(output_queue=display_queue):
     camera.read()
     try:
         while camera.isOpened():
+            t = perf_counter()
             success, image = camera.read()
             if success:
-                undist_image = undistort(image)
-                output_queue.put(undist_image)
+                display_queue.put(undistort(image))
+                e_t = perf_counter()
+                logger.info(f"time to receive image from camera and undistort: {e_t-t:.2f}ms")
+            else:
+                logger.error("bad UVC read!")
     finally:
         logger.warning("release camera resource")
         camera.release()
@@ -117,19 +110,43 @@ def on_screen():
     sidebar = sidebar_base
     with open('/dev/fb0','rb+') as frame_buffer:
         while(True):
+            t = perf_counter()
             try:
-                image = display_queue.get(timeout=0.04)
+                final_image = build_reverse_view(display_queue.get(timeout=0.04))
+                for i in range(480):
+                    frame_buffer.write(final_image[i])
+                    frame_buffer.write(sidebar[i])
+                frame_buffer.seek(0)
+                e_t = perf_counter()
+                logger.info(f"time to build and display panel image: {e_t-t:.2f}ms")
             except Empty:
                 logger.warning("no image to display")
-            final_image = build_reverse_view(image)
-            for i in range(480):
-                frame_buffer.write(final_image[i])
-                frame_buffer.write(sidebar[i])
-            frame_buffer.seek(0)
             try:
                 sidebar = sidebar_queue.get_nowait()
             except Empty:
                 pass
+
+def sidebar_builder():
+    while(True):
+        try:
+            elm = ELM327()
+            while(True):
+                sidebar = sidebar_base.copy()
+                psi = elm.psi()
+                logging.info(f"pressure: {psi}")
+                sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
+                sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
+                sidebar_queue.put(sidebar)
+        finally:
+            elm.close()
+            sleep(5)
+
+def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
+    camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
+    camera.set(cv2.CAP_PROP_FRAME_WIDTH,720)
+    camera.set(cv2.CAP_PROP_FRAME_HEIGHT,576)
+    camera.set(cv2.CAP_PROP_BRIGHTNESS,25)
+    return camera
 
 def undistort(img):
     undist = cv2.remap(img,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
@@ -139,17 +156,7 @@ def undistort(img):
 def build_reverse_view(image):
     middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4)
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
-    return cv2.cvtColor(combo,CVT3TO2B)
-
-def sidebar_builder():
-    elm = ELM327()
-    while(True):
-        sidebar = sidebar_base.copy()
-        psi = elm.psi()
-        logging.info(f"pressure: {psi}")
-        sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
-        sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
-        sidebar_queue.put(sidebar)
+    return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
 
 def putText(img, text="you forgot the text idiot", origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
@@ -166,4 +173,3 @@ if __name__ == "__main__":
     run('echo none > /sys/class/leds/PWR/trigger',shell=True)
     run('echo 0 > /sys/class/leds/PWR/brightness',shell=True)
     begin()
-    # run(['bash','-c','ip link set wlan0 up'])
