@@ -5,6 +5,7 @@ from threading  import Thread
 from queue import Queue, Empty, Full
 from time import sleep
 from icecream import ic
+from ELM327 import ELM327
 #import evdev
 # from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
 #                           ABS_MT_POSITION_Y, EV_ABS)
@@ -36,11 +37,12 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 touch_queue = Queue()
-output_queue = Queue()
-sidebar = np.full((IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
+display_queue = Queue()
+sidebar_queue = Queue()
+sidebar_base = np.full((IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
 for i in range(480): #(320,480):
     for j in range(120):
-        sidebar[i][j] = np.uint16(i*2&(i-255-j))
+        sidebar_base[i][j] = np.uint16(i*2&(i-255-j))
 no_signal_frame = cv2.putText(
     np.full((IMAGE_HEIGHT,IMAGE_WIDTH),COLOR_BAD,np.uint16),
     "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
@@ -76,9 +78,7 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
                 if(b'POSITION_X' in line and b'value' in line):
                     if int(line.decode().split('value')[-1]) > IMAGE_WIDTH:
                         line = touch_queue.get_nowait()
-                        if int(line.decode().split('value')[-1]) < 240:
-                            show_graph = not show_graph
-                        else:
+                        if int(line.decode().split('value')[-1]) > 239:
                             raise KeyboardInterrupt("touch input")
             except Empty:
                 sleep(0.019)
@@ -87,7 +87,7 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
     except:
         traceback.print_exc()
     finally:
-        logger.warn(f"{raw_image_queue.qsize()}\t{undistort_queue.qsize()}\t{output_queue.qsize()}")
+        logger.warn(f"{raw_image_queue.qsize()}\t{undistort_queue.qsize()}\t{display_queue.qsize()}")
 
 def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
@@ -96,7 +96,7 @@ def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera.set(BRIGHTNESS,25)
     return camera
 
-def get_image(output_queue=output_queue):
+def get_image(output_queue=display_queue):
     usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     usb_capture_real_path = os.path.realpath(usb_capture_id_path)
     logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
@@ -113,11 +113,12 @@ def get_image(output_queue=output_queue):
         logger.warning("release camera resource")
         camera.release()
 
-def on_screen(output_queue=output_queue):
+def on_screen():
+    sidebar = sidebar_base
     with open('/dev/fb0','rb+') as frame_buffer:
         while(True):
             try:
-                image = output_queue.get()
+                image = display_queue.get(timeout=0.04)
             except Empty:
                 logger.warning("no image to display")
             final_image = build_reverse_view(image)
@@ -125,18 +126,35 @@ def on_screen(output_queue=output_queue):
                 frame_buffer.write(final_image[i])
                 frame_buffer.write(sidebar[i])
             frame_buffer.seek(0)
+            try:
+                sidebar = sidebar_queue.get_nowait()
+            except Empty:
+                pass
 
 def undistort(img):
     undist = cv2.remap(img,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
     image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
-    logger.info("made it here")
     return image
 
 def build_reverse_view(image):
     middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4)
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
-    final_image = cv2.cvtColor(combo,CVT3TO2B)
-    return final_image
+    return cv2.cvtColor(combo,CVT3TO2B)
+
+def sidebar_builder():
+    elm = ELM327()
+    while(True):
+        sidebar = sidebar_base.copy()
+        psi = elm.psi()
+        logging.info(f"pressure: {psi}")
+        sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
+        sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
+        sidebar_queue.put(sidebar)
+
+def putText(img, text="you forgot the text idiot", origin=(0,480), #bottom left
+            color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+            fontScale=1,thickness=2,lineType=cv2.LINE_AA):
+    return cv2.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
 if __name__ == "__main__":
     handler = logging.StreamHandler(stream=sys.stdout)
