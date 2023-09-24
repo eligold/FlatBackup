@@ -87,7 +87,7 @@ def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
     except:
         traceback.print_exc()
     finally:
-        logger.warn(f"{raw_image_queue.qsize()}\t{undistort_queue.qsize()}\t{display_queue.qsize()}")
+        logger.warning(f"image queue size: {output_queue.qsize()}")
 
 def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
