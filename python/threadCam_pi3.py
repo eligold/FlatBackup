@@ -46,11 +46,13 @@ no_signal_frame = cv2.putText(
     "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
 def begin():
+    wifi = True
     try:
         res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
         if res.stdout == b'up\n':
-            pass # raise KeyboardInterrupt
+            logger.info(res.stdout) # raise KeyboardInterrupt
         else:
+           wifi = False
            run('ip link set wlan0 down',shell=True)
         for f in [get_image,on_screen,sidebar_builder]:
             t = Thread(target=f,name=f.__name__)
@@ -59,7 +61,7 @@ def begin():
             logger.info(f"started thread {f.__name__}")
         cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
                     shell=True,stdout=PIPE,stderr=PIPE)
-        touch_thread = Thread(target=enqueue_output, args=(cmd.stdout))
+        touch_thread = Thread(target=enqueue_output, args=(cmd.stdout,touch_queue))
         touch_thread.daemon = True
         touch_thread.start()
         while(True):
@@ -67,7 +69,9 @@ def begin():
                 line = touch_queue.get_nowait()
                 if(b'POSITION_X' in line and b'value' in line):
                     if int(line.decode().split('value')[-1]) > IMAGE_WIDTH:
+                        logger.info(line)
                         line = touch_queue.get_nowait()
+                        logger.info(line)
                         if int(line.decode().split('value')[-1]) > 239:
                             raise KeyboardInterrupt("touch input")
             except Empty:
@@ -78,9 +82,10 @@ def begin():
         traceback.print_exc()
     finally:
         logger.warn(f"sidebars: {sidebar_queue.qsize()}\timages ready to display: {display_queue.qsize()}")
-        run('ip link set wlan0 down',shell=True)
+        if not wifi:
+            run('ip link set wlan0 up',shell=True)
 
-def enqueue_output(out):
+def enqueue_output(out,touch_queue):
     for line in iter(out.readline, b''):
         touch_queue.put(line)
     out.close()
@@ -133,8 +138,7 @@ def sidebar_builder():
             while(True):
                 sidebar = sidebar_base.copy()
                 psi = elm.psi()
-                logging.info(f"pressure: {psi}")
-                sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
+                sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_LOW,fontScale=1.19,thickness=3)
                 sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
                 sidebar_queue.put(sidebar)
         except Exception as e:
@@ -142,7 +146,7 @@ def sidebar_builder():
             logger.error(e.with_traceback)
         finally:
             elm.close()
-            sleep(5)
+            sleep(3)
 
 def dash_entry():
     t = Thread(target=dash_cam)
