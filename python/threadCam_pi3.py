@@ -3,7 +3,7 @@ import os, sys, traceback, cv2, logging, numpy as np #, asyncio, aiofiles
 from subprocess import run, Popen, PIPE
 from threading  import Thread
 from queue import Queue, Empty
-from time import sleep, perf_counter
+from time import sleep, perf_counter, time, ctime,localtime
 from ELM327 import ELM327
 #import evdev
 # from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
@@ -42,10 +42,7 @@ no_signal_frame = cv2.putText(
     np.full((IMAGE_HEIGHT,IMAGE_WIDTH),COLOR_BAD,np.uint16),
     "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
-def begin(): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
-    # dashcam_id_path = \
-    #     "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    # dashcam = getCamera(int(os.path.realpath(dashcam_id_path).split("video")[-1]))
+def begin():
     try:
         res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
         if res.stdout == b'up\n':
@@ -137,9 +134,26 @@ def sidebar_builder():
                 sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
                 sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
                 sidebar_queue.put(sidebar)
+        except Exception:
+            pass
         finally:
             elm.close()
             sleep(5)
+
+def dash_cam():
+    # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
+    dashcam_id_path = \
+        "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+    dashcam = get_camera(int(os.path.realpath(dashcam_id_path).split("video")[-1]))
+    stop_time = int(time()) + 1800
+    try:
+        while(dashcam.isOpened()):
+            out = cv2.VideoWriter(f"/media/usb/dashcam-{stop_time}")
+            while(time()<stop_time):
+                pass
+    except Exception:
+        traceback.print_exc()
+
 
 def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
@@ -164,7 +178,7 @@ def putText(img, text="you forgot the text idiot", origin=(0,480), #bottom left
     return cv2.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
 if __name__ == "__main__":
-    handler = logging.StreamHandler(stream=sys.stdout)
+    handler = logging.FileHandler("runtime-carCam.log")
     handler.setLevel(logging.INFO)
     handler.setFormatter(logging.Formatter('[%(levelname)s] [%(threadName)s] %(message)s'))
     logger = logging.getLogger()
