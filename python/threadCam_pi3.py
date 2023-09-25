@@ -20,6 +20,9 @@ COLOR_LOW = 0xc4e4
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
+WIDTH = cv2.CAP_PROP_FRAME_WIDTH
+HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
+FPS = cv2.CAP_PROP_FRAMES
 
 # below values are specific to my backup camera run thru
 # my knock-off easy-cap calibrated with my phone screen. 
@@ -134,8 +137,9 @@ def sidebar_builder():
                 sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
                 sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
                 sidebar_queue.put(sidebar)
-        except Exception:
-            pass
+        except Exception as e:
+            traceback.print_exc()
+            logger.error(e.with_traceback)
         finally:
             elm.close()
             sleep(5)
@@ -145,20 +149,27 @@ def dash_cam():
     dashcam_id_path = \
         "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     dashcam = get_camera(int(os.path.realpath(dashcam_id_path).split("video")[-1]))
-    stop_time = int(time()) + 1800
+    size = (int(dashcam.get(WIDTH)), int(dashcam.get(HEIGHT)))
+    fps = dashcam.get(FPS)
     try:
         while(dashcam.isOpened()):
-            out = cv2.VideoWriter(f"/media/usb/dashcam-{stop_time}")
+            stop_time = int(time()) + 1800
+            out = cv2.VideoWriter(f"/media/usb/dashcam-{stop_time}.mkv",cv2.VideoWriter_fourcc(*'HEVC'),fps,size)
             while(time()<stop_time):
-                pass
+                success, frame = dashcam.read()
+                if success:
+                    out.write(frame)
+                else:
+                    logger.error("missing frame from dashcam!")
+                   # out.write(ERROR_FRAME)
     except Exception:
         traceback.print_exc()
 
 
 def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
-    camera.set(cv2.CAP_PROP_FRAME_WIDTH,720)
-    camera.set(cv2.CAP_PROP_FRAME_HEIGHT,576)
+    camera.set(WIDTH,720)
+    camera.set(HEIGHT,576)
     camera.set(cv2.CAP_PROP_BRIGHTNESS,25)
     return camera
 
