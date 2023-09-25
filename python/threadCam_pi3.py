@@ -22,7 +22,7 @@ COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
-FPS = cv2.CAP_PROP_FRAMES
+FPS = cv2.CAP_PROP_FPS
 
 # below values are specific to my backup camera run thru
 # my knock-off easy-cap calibrated with my phone screen. 
@@ -144,27 +144,35 @@ def sidebar_builder():
             elm.close()
             sleep(5)
 
-def dash_cam():
-    # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
-    dashcam_id_path = \
-        "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    dashcam = get_camera(int(os.path.realpath(dashcam_id_path).split("video")[-1]))
-    size = (int(dashcam.get(WIDTH)), int(dashcam.get(HEIGHT)))
-    fps = dashcam.get(FPS)
-    try:
-        while(dashcam.isOpened()):
-            stop_time = int(time()) + 1800
-            out = cv2.VideoWriter(f"/media/usb/dashcam-{stop_time}.mkv",cv2.VideoWriter_fourcc(*'HEVC'),fps,size)
-            while(time()<stop_time):
-                success, frame = dashcam.read()
-                if success:
-                    out.write(frame)
-                else:
-                    logger.error("missing frame from dashcam!")
-                   # out.write(ERROR_FRAME)
-    except Exception:
-        traceback.print_exc()
+def dash_entry():
+    t = Thread(target=dash_cam)
+    t.daemon = True
+    t.start()
 
+def dash_cam():
+    while(True): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
+        dashcam_id_path = \
+                "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+        dashcam = get_camera(int(os.path.realpath(dashcam_id_path).split("video")[-1]))
+        size = (int(dashcam.get(WIDTH)), int(dashcam.get(HEIGHT)))
+        fps = dashcam.get(FPS)
+        out = cv2.VideoWriter("/tmp/tmp.tmp")
+        try:
+            while(dashcam.isOpened()):
+                out.release()
+                stop_time = int(time()) + 1800
+                out = cv2.VideoWriter(f"/media/usb/dashcam-{stop_time}.mkv",cv2.VideoWriter_fourcc(*'HEVC'),fps,size)
+                while(time()<stop_time):
+                    success, frame = dashcam.read()
+                    if success:
+                        out.write(cv2.cvtColor(frame,cv2.COLOR_BGR2HSV))
+                    else:
+                        logger.error("missing frame from dashcam!") # out.write(ERROR_FRAME)
+        except Exception:
+            traceback.print_exc()
+        finally:
+            dashcam.release()
+            out.release()
 
 def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
