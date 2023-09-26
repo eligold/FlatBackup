@@ -2,3 +2,4 @@
 python-old
 .vscode/
 __pycache__
+*.log
