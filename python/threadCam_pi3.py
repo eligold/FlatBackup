@@ -2,8 +2,8 @@
 import os, sys, traceback, cv2, logging, numpy as np #, asyncio, aiofiles
 from subprocess import run, Popen, PIPE
 from threading  import Thread
-from queue import Queue, Empty
-from time import sleep, perf_counter, time, ctime,localtime
+from queue import Queue, Empty, Full
+from time import sleep, time, localtime
 from ELM327 import ELM327
 #import evdev
 # from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
@@ -34,10 +34,10 @@ new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 touch_queue = Queue()
 display_queue = Queue()
-sidebar_queue = Queue()
+sidebar_queue = Queue(2)
 
 sidebar_base = np.full((IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
-for i in range(480): #(320,480):
+for i in range(160,480): #(320,480):
     for j in range(120):
         sidebar_base[i][j] = np.uint16(i*2&(i-255-j))
 
@@ -50,7 +50,7 @@ def begin():
     try:
         res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
         if res.stdout == b'up\n':
-            logger.info(res.stdout) # raise KeyboardInterrupt
+            pass # raise KeyboardInterrupt
         else:
            wifi = False
            run('ip link set wlan0 down',shell=True)
@@ -59,77 +59,89 @@ def begin():
             t.daemon = True
             t.start()
             logger.info(f"started thread {f.__name__}")
-        cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
-                    shell=True,stdout=PIPE,stderr=PIPE)
-        touch_thread = Thread(target=enqueue_output, args=(cmd.stdout,touch_queue))
-        touch_thread.daemon = True
-        touch_thread.start()
         while(True):
             try:
-                line = touch_queue.get_nowait()
-                if(b'POSITION_X' in line and b'value' in line):
-                    if int(line.decode().split('value')[-1]) > IMAGE_WIDTH:
-                        logger.info(line)
+                cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
+                            shell=True,stdout=PIPE,stderr=PIPE)
+                touch_thread = Thread(target=enqueue_output, args=cmd.stdout)
+                touch_thread.daemon = True
+                touch_thread.start()
+                while(True):
+                    try:
                         line = touch_queue.get_nowait()
-                        logger.info(line)
-                        if int(line.decode().split('value')[-1]) > 239:
-                            raise KeyboardInterrupt("touch input")
-            except Empty:
-                sleep(0.019)
-    except KeyboardInterrupt:
+                        if(b'POSITION_X' in line and b'value' in line):
+                            x = int(line.decode().split('value')[-1])
+                            if x > IMAGE_WIDTH:
+                                logger.info(line)
+                                line = touch_queue.get_nowait()
+                                logger.info(line)
+                                y = int(line.decode().split('value')[-1])
+                                if y > 239:
+                                    raise KeyboardInterrupt(f"touch input, x,y: {x},{y}")
+                    except Empty:
+                        sleep(0.019)
+            except Exception as e:
+                logger.error(e.with_traceback())
+    except KeyboardInterrupt as ki:
+        logger.warning(ki.with_traceback())
         print("deuces")
-    except:
+    except Exception as e:
+        logger.error(e.with_traceback())
         traceback.print_exc()
     finally:
-        logger.warn(f"sidebars: {sidebar_queue.qsize()}\timages ready to display: {display_queue.qsize()}")
+        logger.warning(f"sidebars: {sidebar_queue.qsize()}\timages ready to display: {display_queue.qsize()}")
         if not wifi:
             run('ip link set wlan0 up',shell=True)
 
-def enqueue_output(out,touch_queue):
+def enqueue_output(out):
     for line in iter(out.readline, b''):
         touch_queue.put(line)
     out.close()
 
 def get_image():
-    usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
-    usb_capture_real_path = os.path.realpath(usb_capture_id_path)
-    logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
-    index = int(usb_capture_real_path.split("video")[-1])
-    camera = get_camera(index)
-    camera.read()
-    try:
-        while camera.isOpened():
-            t = perf_counter()
-            success, image = camera.read()
-            if success:
-                display_queue.put(undistort(image))
-                e_t = perf_counter()
-                logger.info(f"time to receive image from camera and undistort: {e_t-t:.2f}ms")
+    while(True):
+        try:
+            usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
+            usb_capture_real_path = os.path.realpath(usb_capture_id_path)
+            if usb_capture_id_path == usb_capture_real_path:
+                logger.error("camera not found!\twaiting...")
+                sleep(3)
             else:
-                logger.error("bad UVC read!")
-    finally:
-        logger.warning("release camera resource")
-        camera.release()
+                logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
+                index = int(usb_capture_real_path.split("video")[-1])
+                camera = get_camera(index)
+                camera.read()
+                try:
+                    while camera.isOpened():
+                        success, image = camera.read()
+                        if success:
+                            display_queue.put(undistort(image))
+                        else:
+                            logger.error("bad UVC read!")
+                finally:
+                    logger.warning("release camera resource")
+                    camera.release()
+            
+        except Exception as e:
+            logger.error(e.with_traceback())
 
 def on_screen():
-    sidebar = sidebar_base
-    with open('/dev/fb0','rb+') as frame_buffer:
-        while(True):
-            t = perf_counter()
-            try:
-                final_image = build_reverse_view(display_queue.get(timeout=0.04))
-                for i in range(480):
-                    frame_buffer.write(final_image[i])
-                    frame_buffer.write(sidebar[i])
-                frame_buffer.seek(0)
-                e_t = perf_counter()
-                logger.info(f"time to build and display panel image: {e_t-t:.2f}ms")
-            except Empty:
-                logger.warning("no image to display")
-            try:
-                sidebar = sidebar_queue.get_nowait()
-            except Empty:
-                pass
+    while(True):
+        sidebar = sidebar_base
+        with open('/dev/fb0','rb+') as frame_buffer:
+            while(True):
+                try:
+                    final_image = build_reverse_view(display_queue.get(timeout=0.04))
+                    for i in range(480):
+                        frame_buffer.write(final_image[i])
+                        frame_buffer.write(sidebar[i])
+                    frame_buffer.seek(0)
+                except Empty:
+                    sleep(0.019)
+                try:
+                    sidebar = sidebar_queue.get_nowait()
+                except Empty:
+                    pass
 
 def sidebar_builder():
     while(True):
@@ -140,10 +152,14 @@ def sidebar_builder():
                 psi = elm.psi()
                 sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_LOW,fontScale=1.19,thickness=3)
                 sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
-                sidebar_queue.put(sidebar)
+                try:
+                    sidebar_queue.put(sidebar)
+                except Full:
+                    sidebar_queue.get()
+                    sidebar_queue.put(sidebar)
         except Exception as e:
             traceback.print_exc()
-            logger.error(e.with_traceback)
+            logger.error(e.with_traceback())
         finally:
             elm.close()
             sleep(3)
@@ -157,20 +173,24 @@ def dash_cam():
     while(True): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
         dashcam_id_path = \
                 "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-        dashcam = get_camera(int(os.path.realpath(dashcam_id_path).split("video")[-1]))
+        dashcam = get_camera(int(os.path.realpath(dashcam_id_path).split("video")[-1]),
+                             width=2592,height=1944)
         size = (int(dashcam.get(WIDTH)), int(dashcam.get(HEIGHT)))
+        logger.info(f"dashcam resolution: {size}")
         fps = dashcam.get(FPS)
         out = cv2.VideoWriter("/tmp/tmp.tmp")
         try:
             while(dashcam.isOpened()):
                 out.release()
                 stop_time = int(time()) + 1800
-                out = cv2.VideoWriter(f"/media/usb/dashcam-{stop_time}.mkv",cv2.VideoWriter_fourcc(*'HEVC'),fps,size)
+                out = cv2.VideoWriter(f"/media/dashcam-{stop_time}.mkv",
+                                      cv2.VideoWriter_fourcc(*'HVC1'),fps,size)
                 while(time()<stop_time):
                     success, frame = dashcam.read()
                     if success:
                         out.write(cv2.cvtColor(frame,cv2.COLOR_BGR2HSV))
                     else:
+                        out.write(putText(np.full((1944,2592),COLOR_BAD,np.uint16),"No Signal!",(1200,972)))
                         logger.error("missing frame from dashcam!") # out.write(ERROR_FRAME)
         except Exception:
             traceback.print_exc()
@@ -178,10 +198,10 @@ def dash_cam():
             dashcam.release()
             out.release()
 
-def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
+def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2,width=720,height=576) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
-    camera.set(WIDTH,720)
-    camera.set(HEIGHT,576)
+    camera.set(WIDTH,width)
+    camera.set(HEIGHT,height)
     camera.set(cv2.CAP_PROP_BRIGHTNESS,25)
     return camera
 
