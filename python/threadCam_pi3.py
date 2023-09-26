@@ -50,7 +50,7 @@ def begin():
     try:
         res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
         if res.stdout == b'up\n':
-            pass # raise KeyboardInterrupt
+            pass # raise KeyboardInterrupt("wifi connected")
         else:
            wifi = False
            run('ip link set wlan0 down',shell=True)
@@ -63,7 +63,7 @@ def begin():
             try:
                 cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
                             shell=True,stdout=PIPE,stderr=PIPE)
-                touch_thread = Thread(target=enqueue_output, args=cmd.stdout)
+                touch_thread = Thread(target=enqueue_output, args=(cmd.stdout,))
                 touch_thread.daemon = True
                 touch_thread.start()
                 while(True):
@@ -81,12 +81,12 @@ def begin():
                     except Empty:
                         sleep(0.019)
             except Exception as e:
-                logger.error(e.with_traceback())
+                logger.error(e.with_traceback(traceback))
     except KeyboardInterrupt as ki:
-        logger.warning(ki.with_traceback())
+        logger.warning(ki.with_traceback(traceback))
         print("deuces")
     except Exception as e:
-        logger.error(e.with_traceback())
+        logger.error(e.with_traceback(traceback))
         traceback.print_exc()
     finally:
         logger.warning(f"sidebars: {sidebar_queue.qsize()}\timages ready to display: {display_queue.qsize()}")
@@ -123,25 +123,28 @@ def get_image():
                     camera.release()
             
         except Exception as e:
-            logger.error(e.with_traceback())
+            logger.error(e.with_traceback(traceback))
 
 def on_screen():
     while(True):
         sidebar = sidebar_base
-        with open('/dev/fb0','rb+') as frame_buffer:
-            while(True):
-                try:
-                    final_image = build_reverse_view(display_queue.get(timeout=0.04))
-                    for i in range(480):
-                        frame_buffer.write(final_image[i])
-                        frame_buffer.write(sidebar[i])
-                    frame_buffer.seek(0)
-                except Empty:
-                    sleep(0.019)
-                try:
-                    sidebar = sidebar_queue.get_nowait()
-                except Empty:
-                    pass
+        try:
+            with open('/dev/fb0','rb+') as frame_buffer:
+                while(True):
+                    try:
+                        final_image = build_reverse_view(display_queue.get(timeout=0.04))
+                        for i in range(480):
+                            frame_buffer.write(final_image[i])
+                            frame_buffer.write(sidebar[i])
+                        frame_buffer.seek(0)
+                    except Empty:
+                        sleep(0.019)
+                    try:
+                        sidebar = sidebar_queue.get_nowait()
+                    except Empty:
+                        pass
+        except Exception as e:
+            logger.error(e.with_traceback(traceback))
 
 def sidebar_builder():
     while(True):
@@ -150,7 +153,7 @@ def sidebar_builder():
             while(True):
                 sidebar = sidebar_base.copy()
                 psi = elm.psi()
-                sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_LOW,fontScale=1.19,thickness=3)
+                sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
                 sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
                 try:
                     sidebar_queue.put(sidebar)
@@ -159,7 +162,7 @@ def sidebar_builder():
                     sidebar_queue.put(sidebar)
         except Exception as e:
             traceback.print_exc()
-            logger.error(e.with_traceback())
+            logger.error(e.with_traceback(traceback))
         finally:
             elm.close()
             sleep(3)
@@ -178,20 +181,21 @@ def dash_cam():
         size = (int(dashcam.get(WIDTH)), int(dashcam.get(HEIGHT)))
         logger.info(f"dashcam resolution: {size}")
         fps = dashcam.get(FPS)
-        out = cv2.VideoWriter("/tmp/tmp.tmp")
+        fourcc = cv2.VideoWriter_fourcc(*'H265') # HVC1')
+        out = cv2.VideoWriter("/tmp/tmp.avi",fourcc,fps,(640,480))
         try:
             while(dashcam.isOpened()):
                 out.release()
                 stop_time = int(time()) + 1800
-                out = cv2.VideoWriter(f"/media/dashcam-{stop_time}.mkv",
-                                      cv2.VideoWriter_fourcc(*'HVC1'),fps,size)
+                out = cv2.VideoWriter(f"/media/dashcam-{stop_time}.avi",fourcc,fps,size)
                 while(time()<stop_time):
                     success, frame = dashcam.read()
                     if success:
                         out.write(cv2.cvtColor(frame,cv2.COLOR_BGR2HSV))
                     else:
-                        out.write(putText(np.full((1944,2592),COLOR_BAD,np.uint16),"No Signal!",(1200,972)))
-                        logger.error("missing frame from dashcam!") # out.write(ERROR_FRAME)
+                       # out.write(putText(np.full((1944,2592),COLOR_BAD,np.uint16),
+                       #                   "No Signal!",(1200,972),COLOR_NORMAL))
+                        logger.warning("missing frame from dashcam!")
         except Exception:
             traceback.print_exc()
         finally:
@@ -229,4 +233,5 @@ if __name__ == "__main__":
     logger.addHandler(handler)
     run('echo none > /sys/class/leds/PWR/trigger',shell=True)
     run('echo 0 > /sys/class/leds/PWR/brightness',shell=True)
+   # dash_entry()
     begin()
