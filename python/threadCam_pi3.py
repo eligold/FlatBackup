@@ -54,7 +54,7 @@ def begin():
         else:
            wifi = False
            run('ip link set wlan0 down',shell=True)
-        for f in [get_image,on_screen,sidebar_builder]:
+        for f in [dash_cam,get_image,on_screen,sidebar_builder]:
             t = Thread(target=f,name=f.__name__)
             t.daemon = True
             t.start()
@@ -72,9 +72,7 @@ def begin():
                         if(b'POSITION_X' in line and b'value' in line):
                             x = int(line.decode().split('value')[-1])
                             if x > IMAGE_WIDTH:
-                                logger.info(line)
                                 line = touch_queue.get_nowait()
-                                logger.info(line)
                                 y = int(line.decode().split('value')[-1])
                                 if y > 239:
                                     raise KeyboardInterrupt(f"touch input, x,y: {x},{y}")
@@ -181,13 +179,13 @@ def dash_cam():
         size = (int(dashcam.get(WIDTH)), int(dashcam.get(HEIGHT)))
         logger.info(f"dashcam resolution: {size}")
         fps = dashcam.get(FPS)
-        fourcc = cv2.VideoWriter_fourcc(*'H265') # HVC1')
-        out = cv2.VideoWriter("/tmp/tmp.avi",fourcc,fps,(640,480))
+        fourcc = cv2.VideoWriter_fourcc(*'H264')
+        out = cv2.VideoWriter("/tmp/tmp.mkv",fourcc,fps,(640,480))
         try:
             while(dashcam.isOpened()):
                 out.release()
                 stop_time = int(time()) + 1800
-                out = cv2.VideoWriter(f"/media/dashcam-{stop_time}.avi",fourcc,fps,size)
+                out = cv2.VideoWriter(f"/media/dashcam-{stop_time}.mkv",fourcc,fps,size)
                 while(time()<stop_time):
                     success, frame = dashcam.read()
                     if success:
