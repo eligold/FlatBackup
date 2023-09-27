@@ -16,11 +16,12 @@ class ELM327:
     elm327 = None
     checktime = None
     obdd = OBDData()
-    def __init__(self,portstr="/dev/ttyUSB0"):
+    def __init__(self,portstr="/dev/serial/by-path/platform-3f980000.usb-usb-0:1.1.3:1.0-port0"):
         self.close()
         sleep(0.019)
         self.checktime = time()
         self.carOn = False
+        
         elm = obd.OBD(portstr)
         if elm.is_connected():
             voltage = elm.query(VOLT)
