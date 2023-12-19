@@ -147,7 +147,7 @@ def on_screen():
 def sidebar_builder():
     while(True):
         try:
-            elm = ELM327("/dev/serial/by-path/platform-fd500000.pcie-pci-0000:01:00.0-usb-0:1.2:1.0-port0")
+            elm = ELM327("/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0")
             while(True):
                 sidebar = sidebar_base.copy()
                 psi = elm.psi()
