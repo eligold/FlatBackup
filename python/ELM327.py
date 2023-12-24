@@ -6,7 +6,7 @@ from OBDData import OBDData
 TEMP = obd.commands.INTAKE_TEMP
 RPM = obd.commands.RPM
 MAF = obd.commands.MAF
-PRES = obd.commands.BAROMETRIC_PRESSURE
+BPS = obd.commands.BAROMETRIC_PRESSURE
 VOLT = obd.commands.ELM_VOLTAGE
 
 #TODO Define exception if not found
@@ -49,7 +49,7 @@ class ELM327:
                 self.obdd.update(rpm = rpmr.value,
                             iat = elm.query(TEMP).value.to('degK'),
                             maf = elm.query(MAF).value,
-                            atm = elm.query(PRES).value.to('psi'))
+                            atm = elm.query(BPS).value.to('psi'))
             except AttributeError:
                 self.__init__()
                 return self.psi()

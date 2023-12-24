@@ -24,11 +24,11 @@ class OBDData:
         # this doesn't fail because _unit analysis_
         self.intake_abs_pressure = iap.to('psi')
 
-    def update(self,iat,rpm,maf,atm):
+    def update(self,iat,rpm,maf,bps):
         self.intake_air_temp=iat
         self.rpm=rpm
         self.mass_air_flow=maf
-        self.atmospheric_pressure=atm
+        self.atmospheric_pressure=bps
         self._recalc()
 
     def psi(self):
