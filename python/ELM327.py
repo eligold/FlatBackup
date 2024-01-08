@@ -17,7 +17,7 @@ class ELM327:
     checktime = None
     obdd = OBDData()
     logger = logging.getLogger()
-    def __init__(self,portstr="/dev/serial/by-path/platform-3f980000.usb-usb-0:1.1.3:1.0-port0"):
+    def __init__(self,portstr="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"):
         logger = self.logger
         self.close()
         sleep(0.019)

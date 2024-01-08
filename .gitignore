@@ -1,5 +1,6 @@
 .DS_Store
 python-old
 .vscode/
+assets/img
 __pycache__
 *.log
