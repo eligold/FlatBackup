@@ -23,6 +23,7 @@ COLOR_LAYM = 0xbfe4
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
 FPS = cv2.CAP_PROP_FPS
+FORMAT = cv2.CAP_PROP_FOURCC
 
 # below values are specific to my backup camera run thru
 # my knock-off easy-cap calibrated with my phone screen. 
@@ -32,6 +33,8 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 # calculate camera values to upscale and undistort. TODO upscale later vs now
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
+fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+
 touch_queue = Queue()
 display_queue = Queue()
 processing_queue = Queue()
@@ -103,7 +106,7 @@ def enqueue_output(out):
     out.close()
 
 def get_image(usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0",
-              width=720,height=576,processing_queue=processing_queue):
+              width=720,height=576,mpeg=False,processing_queue=processing_queue):
     while(True):
         try:
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
@@ -113,7 +116,7 @@ def get_image(usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-vide
             else:
                 logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
                 index = int(usb_capture_real_path.split("video")[-1])
-                camera = get_camera(index,width,height)
+                camera = get_camera(index,width,height,mpeg)
                 size = (int(camera.get(WIDTH)), int(camera.get(HEIGHT)))
                 fps = (int(camera.get(FPS)))
                 logger.info(f"camera resolution: {size[0]}x{size[1]}\t@ {fps}FPS")
@@ -184,34 +187,40 @@ def dash_cam():
         dashcam_id_path = \
                 "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
         width, height = size = (2592, 1944)
+        fps = 15.0
+        timeout = 1/fps
         threadname = 'dashcam-input'
-        Thread(target=get_image,name=threadname,args=(dashcam_id_path,width,height,dash_queue),daemon=True).start()
+        Thread(target=get_image,name=threadname,args=(dashcam_id_path,width,height,True,dash_queue),daemon=True).start()
         logger.info(f"started thread {threadname}")
-        fps = 15 # ???
-        fourcc = cv2.VideoWriter_fourcc(*'H264')
-        out = cv2.VideoWriter("/tmp/tmp.mkv",fourcc,fps,(640,480))
         try:
             while(True):
-                out.release()
                 stop_time = int(time()) + 1800
-                out = cv2.VideoWriter(f"/media/usb/dashcam-{time()}.mkv",fourcc,fps,size)
+                out = cv2.VideoWriter(f"/media/usb/dashcam-{stop_time}.avi",fourcc,fps,size)
                 while(time()<stop_time):
                     try:
-                        frame = dash_queue.get_nowait()
+                        frame = dash_queue.get(timeout=timeout)
                         out.write(frame)
                     except Empty:
-                        sleep(0.038)
                         logger.warning("missing frame from dashcam!")
+                out.release()
         except Exception:
             traceback.print_exc()
         finally:
             out.release()
 
-def get_camera(camIndex:int,width:int,height:int,apiPreference=cv2.CAP_V4L2) -> cv2.VideoCapture:
+def get_camera(
+        camIndex:int,
+        width:int|float,
+        height:int|float,
+        mpeg:bool=False,
+        apiPreference=cv2.CAP_V4L2,
+        brightness:int|float=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
+    if mpeg:
+        camera.set(FORMAT,fourcc)
     camera.set(WIDTH,width)
     camera.set(HEIGHT,height)
-    camera.set(cv2.CAP_PROP_BRIGHTNESS,25)
+    camera.set(cv2.CAP_PROP_BRIGHTNESS,brightness)
     return camera
 
 def undistort(img):
