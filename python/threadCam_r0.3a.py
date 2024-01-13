@@ -3,16 +3,14 @@ import os, sys, traceback, cv2, logging, numpy as np #, asyncio, aiofiles
 from subprocess import run, Popen, PIPE
 from threading  import Thread
 from queue import Queue, Empty, Full
-from time import sleep, time, localtime
+from time import sleep, time, ctime, perf_counter_ns
 from ELM327 import ELM327
-#import evdev
-# from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
-#                           ABS_MT_POSITION_Y, EV_ABS)
-IMAGE_WIDTH = 1480
-IMAGE_HEIGHT = 480
+
+FINAL_IMAGE_WIDTH = 1480
+FINAL_IMAGE_HEIGHT = 480
 DIM = (720,576) # video dimensions
 SDIM = (960,768)
-FDIM = (1040,IMAGE_HEIGHT)
+FDIM = (1040,FINAL_IMAGE_HEIGHT)
 
 COLOR_REC = 0xfa00 # 0x58
 COLOR_GOOD = 0x871a
@@ -20,10 +18,11 @@ COLOR_LOW = 0xc4e4
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
+FPS = cv2.CAP_PROP_FPS
+CUBIC = cv2.INTER_CUBIC
+FORMAT = cv2.CAP_PROP_FOURCC
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
-FPS = cv2.CAP_PROP_FPS
-FORMAT = cv2.CAP_PROP_FOURCC
 
 # below values are specific to my backup camera run thru
 # my knock-off easy-cap calibrated with my phone screen. 
@@ -41,13 +40,13 @@ processing_queue = Queue()
 sidebar_queue = Queue(2)
 dash_queue = Queue()
 
-sidebar_base = np.full((IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
+sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
 for i in range(160,480):
     for j in range(120):
         sidebar_base[i][j] = np.uint16(i*2&(i-255-j))
 
 no_signal_frame = cv2.putText(
-    np.full((IMAGE_HEIGHT,IMAGE_WIDTH),COLOR_BAD,np.uint16),
+    np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH),COLOR_BAD,np.uint16),
     "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
 def begin():
@@ -59,54 +58,51 @@ def begin():
         else:
            wifi = True
            run('ip link set wlan0 down',shell=True)
-        for f in [dash_cam,get_image,on_screen,sidebar_builder]:
+        for f in [enqueue_touch_output,get_image,on_screen,sidebar_builder,dash_cam]:
             Thread(target=f,name=f.__name__,daemon=True).start()
             logger.info(f"started thread {f.__name__}")
         while(True):
-            try:
-                cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
-                            shell=True,stdout=PIPE,stderr=PIPE)
-                touch_thread = Thread(target=enqueue_output,name='touch input',args=(cmd.stdout,))
-                touch_thread.daemon = True
-                touch_thread.start()
-                while(True):
-                    try:
-                        line = touch_queue.get_nowait()
-                        if(b'POSITION_X' in line and b'value' in line):
-                            x = int(line.decode().split('value')[-1])
-                            if x > IMAGE_WIDTH:
-                                line = touch_queue.get_nowait()
-                                y = int(line.decode().split('value')[-1])
-                                if y > 239:
-                                    raise KeyboardInterrupt(f"touch input, x,y: {x},{y}")
-                    except Empty:
-                        pass
-                    try:
-                        image = processing_queue.get_nowait()
-                        image = undistort(image)
-                        display_queue.put(build_reverse_view(image))
-                    except Empty:
-                        sleep(0.019)
-            except Exception as e:
-                logger.error(traceback.format_tb(e.__traceback__))
-    except KeyboardInterrupt as ki:
-        logger.warning((traceback.format_tb(ki.__traceback__)))
-        print("deuces")
+            pipeline_output()
+            touchscreen()
     except Exception as e:
         logger.error(traceback.format_tb(e.__traceback__))
-        # traceback.print_exc()
     finally:
         logger.warning(f"sidebars: {sidebar_queue.qsize()}\timages ready to display: {display_queue.qsize()}")
+        logger.warning(f"processing: {processing_queue.qsize()}\tdash camera: {dash_queue.qsize()}")
         if wifi:
             run('ip link set wlan0 up',shell=True)
 
-def enqueue_output(out):
-    for line in iter(out.readline, b''):
-        touch_queue.put(line)
-    out.close()
+def pipeline_output():
+    try:
+        image = processing_queue.get_nowait()
+        image = undistort(image)
+        display_queue.put(build_reverse_view(image))
+    except Empty:
+        pass
+
+def touchscreen():
+    try:
+        line = touch_queue.get_nowait()
+        if(b'POSITION_X' in line and b'value' in line):
+            x = int(line.decode().split('value')[-1])
+            if x > FINAL_IMAGE_WIDTH:
+                line = touch_queue.get_nowait()
+                y = int(line.decode().split('value')[-1])
+                if y > 239:
+                    raise KeyboardInterrupt(f"touch input, x,y: {x},{y}")
+    except Empty:
+        pass
+
+def enqueue_touch_output():
+    while True:
+        cmd = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
+        out = Popen(cmd,shell=True,stdout=PIPE,stderr=PIPE).stdout
+        for line in iter(out.readline, b''):
+            touch_queue.put(line)
+        out.close()
 
 def get_image(usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0",
-              width=720,height=576,mpeg=False,processing_queue=processing_queue):
+              width=720,height=576,processing_queue=processing_queue,mjpg=False):
     while(True):
         try:
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
@@ -116,7 +112,7 @@ def get_image(usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-vide
             else:
                 logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
                 index = int(usb_capture_real_path.split("video")[-1])
-                camera = get_camera(index,width,height,mpeg)
+                camera = get_camera(index,width,height,mjpg)
                 size = (int(camera.get(WIDTH)), int(camera.get(HEIGHT)))
                 fps = (int(camera.get(FPS)))
                 logger.info(f"camera resolution: {size[0]}x{size[1]}\t@ {fps}FPS")
@@ -133,7 +129,7 @@ def get_image(usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-vide
                     camera.release()
             
         except Exception as e:
-            logger.error(e.with_traceback(traceback))
+            logger.error(traceback.format_tb(e.__traceback__))
 
 def on_screen():
     while(True):
@@ -142,19 +138,19 @@ def on_screen():
             with open('/dev/fb0','rb+') as frame_buffer:
                 while(True):
                     try:
+                        sidebar = sidebar_queue.get_nowait()
+                    except Empty:
+                        pass
+                    try:
                         final_image = display_queue.get(timeout=0.04)
                         for i in range(480):
                             frame_buffer.write(final_image[i])
                             frame_buffer.write(sidebar[i])
                         frame_buffer.seek(0)
                     except Empty:
-                        sleep(0.019)
-                    try:
-                        sidebar = sidebar_queue.get_nowait()
-                    except Empty:
-                        pass
+                        logger.warning("no frame from processing thread")
         except Exception as e:
-            logger.error(e.with_traceback(traceback))
+            logger.error(traceback.format_tb(e.__traceback__))
 
 def sidebar_builder():
     while(True):
@@ -177,11 +173,6 @@ def sidebar_builder():
             elm.close()
             sleep(3)
 
-def dash_entry():
-    t = Thread(target=dash_cam)
-    t.daemon = True
-    t.start()
-
 def dash_cam():
     while(True): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
         dashcam_id_path = \
@@ -190,33 +181,34 @@ def dash_cam():
         fps = 15.0
         timeout = 1/fps
         threadname = 'dashcam-input'
-        Thread(target=get_image,name=threadname,args=(dashcam_id_path,width,height,True,dash_queue),daemon=True).start()
+        Thread(target=get_image,name=threadname,args=(dashcam_id_path,width,height,dash_queue,True),daemon=True).start()
         logger.info(f"started thread {threadname}")
+        firstframe = None
         try:
             while(True):
                 stop_time = int(time()) + 1800
-                out = cv2.VideoWriter(f"/media/usb/dashcam-{stop_time}.avi",fourcc,fps,size)
+                out = cv2.VideoWriter(f"/media/usb/dashcam-{ctime()}.avi",fourcc,fps,size)
+                if firstframe is not None:
+                    out.write(firstframe)
+                    firstframe = None
                 while(time()<stop_time):
                     try:
                         frame = dash_queue.get(timeout=timeout)
                         out.write(frame)
                     except Empty:
                         logger.warning("missing frame from dashcam!")
+                    except:
+                        firstframe = frame
+                        break
                 out.release()
         except Exception:
             traceback.print_exc()
         finally:
             out.release()
 
-def get_camera(
-        camIndex:int,
-        width:int|float,
-        height:int|float,
-        mpeg:bool=False,
-        apiPreference=cv2.CAP_V4L2,
-        brightness:int|float=25) -> cv2.VideoCapture:
+def get_camera(camIndex:int,width,height,mjpg:bool=False,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
-    if mpeg:
+    if mjpg:
         camera.set(FORMAT,fourcc)
     camera.set(WIDTH,width)
     camera.set(HEIGHT,height)
@@ -224,16 +216,16 @@ def get_camera(
     return camera
 
 def undistort(img):
-    undist = cv2.remap(img,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
-    image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
+    undist = cv2.remap(img,mapx,mapy,interpolation=CUBIC)
+    image = cv2.resize(undist,SDIM,interpolation=CUBIC)[64:556]
     return image
 
 def build_reverse_view(image):
-    middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4)
+    middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=CUBIC)
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
     return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
 
-def putText(img, text="you forgot the text idiot", origin=(0,480), #bottom left
+def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
             fontScale=1,thickness=2,lineType=cv2.LINE_AA):
     return cv2.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
