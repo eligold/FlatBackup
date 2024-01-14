@@ -49,7 +49,7 @@ class ELM327:
                 self.obdd.update(rpm = rpmr.value,
                             iat = elm.query(TEMP).value.to('degK'),
                             maf = elm.query(MAF).value,
-                            atm = elm.query(BPS).value.to('psi'))
+                            bps = elm.query(BPS).value.to('psi'))
             except AttributeError:
                 self.__init__()
                 return self.psi()

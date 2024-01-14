@@ -82,7 +82,7 @@ A recently purchased [Clearmounts phone adapter](https://www.audiphoneholder.com
 
 1. convert code to C++
 1. implement backup battery with smart charging and custom BMS
-1. smoothing upscale with ML
+1. smoothing upscale with ML using coral TPU
 1. ML object detection support to minimize power and storage use in sentry mode
 1. Bluetooth audio endpoint with autoconnect
 1. Apple CarPlay
@@ -91,6 +91,20 @@ A recently purchased [Clearmounts phone adapter](https://www.audiphoneholder.com
 ## Contribution Guidelines
 
 This project is wildly application specific but I welcome any feedback or suggestions you might have! If you were inspired to build your own similar system or would like some guidance to replicate this specific solution I would love hear from you as well!
+
+__SETUP__
+
+```
+sudo su -
+dphys-swapfile swapoff
+systemctl disable dphys-swapfile.service
+raspi-config -> 
+```
+add this line to `/etc/fstab`:
+```
+LABEL=[label] /[mount/location/] [fs type] nofail      0       0
+```
+
 
 
 ####  References
