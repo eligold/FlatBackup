@@ -29,7 +29,7 @@ HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
 # YMMV
 K = np.array([[309.41085232860985, 0.0, 355.4094868125207], [0.0, 329.90981352161924, 292.2015284112677], [0.0, 0.0, 1.0]])
 D = np.array([[0.013301372417500422], [0.03857464918863361], [0.004117306147228716], [-0.008896442339724364]])
-# calculate camera values to upscale and undistort. TODO upscale later vs now
+# calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 fourcc = cv2.VideoWriter_fourcc(*'MJPG')
@@ -56,35 +56,28 @@ def begin():
         else:
            wifi = True
            run('ip link set wlan0 down',shell=True)
-        for f in [touch_screen,get_image,sidebar_builder,dash_cam]:
+        for f in [touch_screen,get_image,sidebar_builder]:#,dash_cam]:
             Thread(target=f,name=f.__name__,daemon=True).start()
             logger.info(f"started thread {f.__name__}")
         while(True):
-            try:
-                sidebar = sidebar_base
-                with open('/dev/fb0','rb+') as frame_buffer:
-                    while(True):
-                        try:
-                            image = display_queue.get(timeout=0.04)
-                            image = build_reverse_view(undistort(image))
-                            for i in range(480):
-                                frame_buffer.write(image[i])
-                                frame_buffer.write(sidebar[i])
-                            frame_buffer.seek(0)
-                        except Empty:
-                            logger.warning("no frame from camera thread")
-                        try:
-                            sidebar = sidebar_queue.get_nowait()
-                        except Empty:
-                            pass
-            except KeyboardInterrupt as kb:
-                logger.warn("keyboard interrupt from inside main thread")
-                raise kb
-            except Exception as e:
-                logger.error(traceback.format_tb(e.__traceback__))
+            sidebar = sidebar_base
+            with open('/dev/fb0','rb+') as frame_buffer:
+                while(True):
+                    try:
+                        image = display_queue.get(timeout=0.04)
+                        image = build_reverse_view(undistort(image))
+                        for i in range(480):
+                            frame_buffer.write(image[i])
+                            frame_buffer.write(sidebar[i])
+                        frame_buffer.seek(0)
+                    except Empty:
+                        logger.warning("no frame from camera thread")
+                    try:
+                        sidebar = sidebar_queue.get_nowait()
+                    except Empty:
+                        pass
     except Exception as e:
         logger.error(traceback.format_tb(e.__traceback__))
-        raise e
     finally:
         logger.warning(f"sidebars: {sidebar_queue.qsize()}\timages ready to display: {display_queue.qsize()}")
         logger.warning(f"dash camera: {dash_queue.qsize()}")
@@ -104,8 +97,8 @@ def touch_screen():
                     if x >= FINAL_IMAGE_WIDTH:
                         y = int(line.decode().split('value')[-1])
                         if y > 239:
-                            message = f"touch input, x,y: {x},{y}"
-                            raise KeyboardInterrupt(message)
+                            logger.warning(f"touch input, x,y: {x},{y}")
+                            exit(0)
                     else:
                         x = None
         finally:
@@ -137,7 +130,6 @@ def get_image(usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-vide
                 finally:
                     logger.warning("release camera resource")
                     camera.release()
-            
         except Exception as e:
             logger.error(traceback.format_tb(e.__traceback__))
 
@@ -160,7 +152,7 @@ def sidebar_builder():
             logger.error(traceback.format_tb(e.__traceback__))
         finally:
             elm.close()
-            sleep(3)
+        sleep(3)
 
 def dash_cam():
     while(True): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
@@ -228,5 +220,4 @@ if __name__ == "__main__":
     logger.addHandler(handler)
     run('echo none > /sys/class/leds/PWR/trigger',shell=True)
     run('echo 0 > /sys/class/leds/PWR/brightness',shell=True)
-   # dash_entry()
     begin()
