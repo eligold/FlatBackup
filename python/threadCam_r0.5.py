@@ -155,8 +155,8 @@ def dash_cam():
         width, height = 2592, 1944
         output = f"/media/usb/{time()}_mjpeg.mkv"
         dashcam_path = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-        cmd = f"ffmpeg -f v4l2 -framerate {fps} -video_size {width}x{height} -input_format mjpeg \
-                -i {dashcam_path} -n -fs 2000 -c:v copy {output}"
+        cmd = f"ffmpeg -n -f v4l2 -r {fps} -s {width}x{height} -input_format mjpeg \
+                -i {dashcam_path} -fs 2000 -c:v copy {output}"
         try:
             res = Popen(cmd,shell=True,stdout=PIPE,stderr=PIPE)
             for line in iter(res.stdout.readline(),b''):
