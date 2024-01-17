@@ -5,6 +5,7 @@ from threading  import Thread
 from queue import Queue, Empty, Full, SimpleQueue
 from time import sleep, time
 from ELM327 import ELM327
+from v4l2py import Device, VideoCapture
 
 FINAL_IMAGE_WIDTH = 1480
 FINAL_IMAGE_HEIGHT = 480
@@ -35,7 +36,7 @@ display_queue = SimpleQueue()
 sidebar_queue = Queue(2)
 
 sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
-for i in range(160,480):
+for i in range(160,FINAL_IMAGE_HEIGHT):
     for j in range(120):
         sidebar_base[i][j] = np.uint16(i*2&(i-255-j))
 
@@ -52,7 +53,7 @@ def begin():
         else:
            wifi = True
            run('ip link set wlan0 down',shell=True)
-        for f in [touch_screen,get_image,sidebar_builder]:#,dash_cam]:
+        for f in [touch_screen,get_image,sidebar_builder,dash_cam]:
             Thread(target=f,name=f.__name__,daemon=True).start()
             logger.info(f"started thread {f.__name__}")
         while(True):
@@ -148,15 +149,38 @@ def sidebar_builder():
         finally:
             elm.close()
         sleep(2)
-
 def dash_cam():
+    dash_cam_v4l2()
+
+def dash_cam_v4l2():
+    fps = 15
+    width, height = 2592, 1944
+    runtime = fps * 60 * 30#minutes
+    while(True):
+        try:
+            output = cv2.VideoWriter(f"dashcam_{time()}",cv2.VideoWriter_fourcc(*'MJPG'),fps,(width,height))
+            index = int(os.path.realpath("/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0").split("video")[-1])
+            with Device.from_id(index) as cam:
+                capture = VideoCapture(cam)
+                capture.set_format(width,height,"MJPG")
+                for i, frame in enumerate(cam):
+                    if i < runtime: # 30m at 15 FPS
+                        output.write(cv2.imdecode(np.frombuffer(frame.data),cv2.IMREAD_COLOR))
+                    else:
+                        cam.close()
+        except Exception as e:
+            traceback.print_exc()
+            logger.error(traceback.format_tb(e.__traceback__))
+        finally:
+            output.release()
+
+def dash_cam_ffmpeg():
     while(True):
         fps = 15
         width, height = 2592, 1944
-        output = f"/media/usb/{time()}_mjpeg.mkv"
+        output = f"/media/usb/{time()}_mjpeg.mp4"
         dashcam_path = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-        cmd = f"ffmpeg -n -f v4l2 -r {fps} -s {width}x{height} -input_format mjpeg \
-                -i {dashcam_path} -fs 2000 -c:v copy {output}"
+        cmd = f"ffmpeg -n -f v4l2 -input_format mjpeg -s {width}x{height} -r {fps} -i {dashcam_path} -fs 2000 -map 0:v -c copy {output}"
         try:
             res = Popen(cmd,shell=True,stdout=PIPE,stderr=PIPE)
             for line in iter(res.stdout.readline(),b''):
