@@ -44,11 +44,14 @@ no_signal_frame = cv2.putText(
     np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH),COLOR_BAD,np.uint16),
     "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
+kbint = False
+
 def begin():
+    global kbint
     wifi = False
     try:
-        res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
-        if res.stdout == b'up\n':
+        sp = run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
+        if sp.stdout == b'up\n':
             pass # raise KeyboardInterrupt("wifi connected")
         else:
            wifi = True
@@ -75,7 +78,10 @@ def begin():
                         pass
     except Exception as e:
         logger.error(traceback.format_tb(e.__traceback__))
+    except KeyboardInterrupt as kbi:
+        logger.info(traceback.format_tb(kbi.__traceback__))
     finally:
+        kbint = True
         logger.warning(f"sidebars: {sidebar_queue.qsize()}\timages ready to display: {display_queue.qsize()}")
         if wifi:
             run('ip link set wlan0 up',shell=True)
@@ -84,7 +90,8 @@ def touch_screen():
     cmd = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
     while True:
         try:
-            out = Popen(cmd,shell=True,stdout=PIPE,stderr=PIPE).stdout
+            sp = Popen(cmd,shell=True,stdout=PIPE,stderr=PIPE)
+            out = sp.stdout
             x = None
             for line in iter(out.readline, b''):
                 if(b'POSITION_X' in line and b'value' in line):
@@ -93,16 +100,22 @@ def touch_screen():
                     if x >= FINAL_IMAGE_WIDTH:
                         y = int(line.decode().split('value')[-1])
                         if y > 239:
-                            logger.warning(f"touch input, x,y: {x},{y}")
-                            exit(0)
+                            logger.warning(f"exit;\ttouch input (x->,y\/): {x},{y}")
+                            kbint = True
                     else:
                         x = None
+                elif kbint: break
+        except Exception as e:
+            logger.error(traceback.format_tb(e.__traceback__))
         finally:
             out.close()
+            sp.terminate()
+        if kbint: break
+    logger.info("leaving")
 
 def get_image(usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0",
               width=720,height=576,display_queue=display_queue):
-    while(True):
+    while True:
         try:
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
             if usb_capture_id_path == usb_capture_real_path:
@@ -121,6 +134,7 @@ def get_image(usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-vide
                         success, image = camera.read()
                         if success:
                             display_queue.put(image)
+                        elif kbint: break
                         else:
                             logger.error("bad UVC read!")
                 finally:
@@ -128,9 +142,11 @@ def get_image(usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-vide
                     camera.release()
         except Exception as e:
             logger.error(traceback.format_tb(e.__traceback__))
+        if kbint: break
+    logger.info("leaving")
 
 def sidebar_builder():
-    while(True):
+    while True:
         try:
             elm = ELM327()
             while(True):
@@ -143,22 +159,49 @@ def sidebar_builder():
                 except Full:
                     sidebar_queue.get()
                     sidebar_queue.put(sidebar)
+                if kbint: break
         except Exception as e:
             traceback.print_exc()
             logger.error(traceback.format_tb(e.__traceback__))
         finally:
             elm.close()
+        if kbint: break
         sleep(2)
+    logger.info("leaving")
+
 def dash_cam():
     dash_cam_v4l2()
+
 
 def dash_cam_v4l2():
     fps = 15
     width, height = 2592, 1944
-    runtime = fps * 60 * 30#minutes
-    while(True):
+    runtime = fps * 60 * 30
+    while True:
         try:
-            output = cv2.VideoWriter(f"dashcam_{time()}",cv2.VideoWriter_fourcc(*'MJPG'),fps,(width,height))
+            camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+            run(f"v4l2-ctl -d {camPath} -v width={width},height={height},pixelformat=MJPG",shell=True)
+            cmd = f"v4l2-ctl -d /dev/video{camPath} --stream-mmap=3 --stream-count={runtime} --stream-to=/media/usb/dashcam_{time()}.mjpeg"
+            sp = Popen(cmd,shell=True,capture_output=True)
+            while (sp.returncode is None):
+                if (kbint):
+                    sp.terminate()
+                sleep(0.1)
+        except Exception as e:
+            logger.error(traceback.format_tb(e.__traceback__))
+        finally:
+            if sp.returncode is None:
+                sp.kill()
+        if kbint: break
+    logger.info("leaving")
+
+def dash_cam_v4l2py():
+    fps = 15
+    width, height = 2592, 1944
+    runtime = fps * 60 * 30#minutes
+    while True:
+        try:
+            output = cv2.VideoWriter(f"dashcam_{time()}.mkv",cv2.VideoWriter_fourcc(*'MJPG'),fps,(width,height))
             index = int(os.path.realpath("/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0").split("video")[-1])
             with Device.from_id(index) as cam:
                 capture = VideoCapture(cam)
@@ -175,12 +218,13 @@ def dash_cam_v4l2():
             output.release()
 
 def dash_cam_ffmpeg():
-    while(True):
+    while True:
         fps = 15
         width, height = 2592, 1944
-        output = f"/media/usb/{time()}_mjpeg.mp4"
+        output = f"/media/usb/{time()}_mjpeg.mkv"
         dashcam_path = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
         cmd = f"ffmpeg -n -f v4l2 -input_format mjpeg -s {width}x{height} -r {fps} -i {dashcam_path} -fs 2000 -map 0:v -c copy {output}"
+        cmd = f"ffmpeg -n -f v4l2 -input_format mjpeg -s {width}x{height} -r {fps} -i {dashcam_path} -fs 2000 -c:v copy {output}"
         try:
             res = Popen(cmd,shell=True,stdout=PIPE,stderr=PIPE)
             for line in iter(res.stdout.readline(),b''):
