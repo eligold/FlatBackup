@@ -50,6 +50,12 @@ def onScreen2(f):
             buf.write(f[i])
             buf.write(f2[i])
 
+def saveImage(f):
+    o = f.copy()
+    f = cv.remap(f, mapx, mapy, interpolation=cv.INTER_CUBIC)
+    final = cv.cvtColor(cv.hconcat(0,f),cv.COLOR_BGR2BGR565)
+    cv.imwrite("sidebyside.png",final)
+
 def runDual():
     try:
         c = init()
@@ -65,7 +71,8 @@ def run(t = (600,480)):
     try:
         c = init()
         c.read()
-        while(c.isOpened()): onScreen(cv.resize(c.read()[1],t))
+        saveImage(c.read()[1])
+        #while(c.isOpened()): onScreen(cv.resize(c.read()[1],t))
     finally:
         c.release()
 

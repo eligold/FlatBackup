@@ -87,6 +87,7 @@ def begin():
             run('ip link set wlan0 up',shell=True)
 
 def touch_screen():
+    global kbint
     cmd = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
     while True:
         try:
@@ -170,23 +171,19 @@ def sidebar_builder():
     logger.info("leaving")
 
 def dash_cam():
-    dash_cam_v4l2()
-
-
-def dash_cam_v4l2():
     fps = 15
     width, height = 2592, 1944
     runtime = fps * 60 * 30
+    camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     while True:
         try:
-            camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-            run(f"v4l2-ctl -d {camPath} -v width={width},height={height},pixelformat=MJPG",shell=True)
-            cmd = f"v4l2-ctl -d /dev/video{camPath} --stream-mmap=3 --stream-count={runtime} --stream-to=/media/usb/dashcam_{time()}.mjpeg"
+            run(f"v4l2-ctl -d {camPath} -v width={width},height={height},pixelformat=MJPG",shell=True,check=True)
+            cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to=/media/usb/dashcam_{time()}.mjpeg"
             sp = Popen(cmd,shell=True,capture_output=True)
             while (sp.returncode is None):
-                if (kbint):
+                if kbint:
                     sp.terminate()
-                sleep(0.1)
+                sleep(0.01)
         except Exception as e:
             logger.error(traceback.format_tb(e.__traceback__))
         finally:
@@ -194,50 +191,6 @@ def dash_cam_v4l2():
                 sp.kill()
         if kbint: break
     logger.info("leaving")
-
-def dash_cam_v4l2py():
-    fps = 15
-    width, height = 2592, 1944
-    runtime = fps * 60 * 30#minutes
-    while True:
-        try:
-            output = cv2.VideoWriter(f"dashcam_{time()}.mkv",cv2.VideoWriter_fourcc(*'MJPG'),fps,(width,height))
-            index = int(os.path.realpath("/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0").split("video")[-1])
-            with Device.from_id(index) as cam:
-                capture = VideoCapture(cam)
-                capture.set_format(width,height,"MJPG")
-                for i, frame in enumerate(cam):
-                    if i < runtime: # 30m at 15 FPS
-                        output.write(cv2.imdecode(np.frombuffer(frame.data),cv2.IMREAD_COLOR))
-                    else:
-                        cam.close()
-        except Exception as e:
-            traceback.print_exc()
-            logger.error(traceback.format_tb(e.__traceback__))
-        finally:
-            output.release()
-
-def dash_cam_ffmpeg():
-    while True:
-        fps = 15
-        width, height = 2592, 1944
-        output = f"/media/usb/{time()}_mjpeg.mkv"
-        dashcam_path = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-        cmd = f"ffmpeg -n -f v4l2 -input_format mjpeg -s {width}x{height} -r {fps} -i {dashcam_path} -fs 2000 -map 0:v -c copy {output}"
-        cmd = f"ffmpeg -n -f v4l2 -input_format mjpeg -s {width}x{height} -r {fps} -i {dashcam_path} -fs 2000 -c:v copy {output}"
-        try:
-            res = Popen(cmd,shell=True,stdout=PIPE,stderr=PIPE)
-            for line in iter(res.stdout.readline(),b''):
-                logger.info(line.decode())
-            while res.returncode is None:
-                sleep(0.19)
-            if res.returncode > 0:
-                logger.error(res.stderr.read().decode())
-        except Exception as e:
-            logger.error(traceback.format_tb(e.__traceback__))
-        finally:
-            if res.returncode is None:
-                res.kill()
 
 def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)

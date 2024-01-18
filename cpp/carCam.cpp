@@ -1,6 +1,5 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
-#include <OBD.h>
 #include <stdio.h> // standard input / output functions
 #include <string.h> // string function definitions
 #include <unistd.h> // UNIX standard function definitions
@@ -75,19 +74,28 @@ int open_port(void) {
 
 void elm327() {
     while (running) {
-        obd.connect("/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0");
-        if (obd.isConnected()) {
+        obd.connect("/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"); // nah
+        long rpm, iat, maf, bps, mph;
+        float bps_f, maf_f, psi_f;
+
+        if (obd.isConnected()) { // nah
+
             Mat sidebar = sidebar_base.clone()
-            long rpm = obd.getRPM();
-            // printf("010C\r"); // or some shit also divide by 4 for whatever reason
-            long iat; // = obd.get("");//TODO HEEREEE
-            printf("010F\r");
-            scanf("%f",iat);
-            float maf;
-            // printf("010C\r"); // or some shit
-            // scanf("%f",maf);
-            float bps; // "0133\r"
-            float mph; // "010D\r"
+            printf("010C\r"); // RPM code
+            scanf("%ld")
+            rpm = rpm & 0xFFFFFFFF / 4;     // divide by 4 for whatever reason
+            printf("010F\r");               // IAT code
+            scanf("%ld",iat);
+            iat = iat & 0xFFFF - 40;        // magic 40 degrees
+            printf("0110\r");               // MAF code
+            scanf("%ld",maf);
+            maf_f = maf & 0xFFFF / 100.0f;  // g/s
+            printf("0133\r");               // BPS code
+            scanf("%ld",bps);
+            bps = bps & 0xFF; // kPa
+            printf("010D\r"); // MPH code
+            scanf("%ld",mph);
+            mph = mph & 0xFF; // km/h
 
             cout << mph << endl;
 
