@@ -93,25 +93,124 @@ A recently purchased [Clearmounts phone adapter](https://www.audiphoneholder.com
 This project is wildly application specific but I welcome any feedback or suggestions you might have! If you were inspired to build your own similar system or would like some guidance to replicate this specific solution I would love hear from you as well!
 
 __SETUP__
-
-```
-sudo su -
-dphys-swapfile swapoff
-systemctl disable dphys-swapfile.service
-raspi-config -> 
-```
-add this line to `/etc/fstab`:
-```
-LABEL=[label] /[mount/location/] [fs type] nofail      0       0
-```
-
+1. flash buster or bullseye with pi imager, add login/wifi details
+1. enter god mode
+    chaos ensues
+    ```
+    sudo su -
+    ```
+1. do I have to mess with program?
+    ```
+    raspi-config -> locale, keyboard
+    ```
+1. Turn off swap file to spare the SD card and trim some fat
+    ```
+    dphys-swapfile swapoff
+    systemctl disable dphys-swapfile.service
+    systemctl disable ModemManager.service
+    apt autoremove -y modemmanager
+    ```
+1. get some tools and make sure the system is up to date in the background so you can do other things
+    ```
+    apt install -y vim screen
+    apt update && screen -d -m apt upgrade -y
+    ```
+1. add this line to `/etc/fstab`. I like to use `vim` but you can use `nano` if you're not an elite hacker:
+    ```
+    LABEL=[label] /[mount/location/] [fs type] nofail      0       0
+    ```
+1. `apt install -y python3-opencv python3-pip`
+1. add the following to rc.local:
+    ```
+    screen -d -m /root/carCam.py
+    ```
+1. add the following lines to config.txt
+    ```
+    disable_splash=1
+    dtparam=i2c_arm=on
+    framebuffer_width=1600
+    framebuffer_height=480
+    hdmi_force_hotplug=1
+    hdmi_group=2
+    hdmi_mode=87
+    hdmi_ignore_edid=0xa5000080
+    hdmi_cvt 1600 480 60 6 0 0 0
+    hdmi_drive=2
+    hdmi_enable_4kp60=1
+    gpu_mem=128
+    dtoverlay=gpio-fan,gpiopin=14,temp=60000
+    ```
+1. add the following to the end of cmdline.txt
+    ```
+    
+    ```
+1. 
 
 
 ####  References
+
 1. ] https://www.first-sensor.com/cms/upload/appnotes/AN_Massflow_E_11153.pdf
+
+
 1. ] https://github.com/tmckay1/pi_bluetooth_auto_connect
+
 1. ] https://towardsdatascience.com/circular-queue-or-ring-buffer-92c7b0193326
 
-![y u no load 4rings](assets/pi_files/IMG_5046.PNG)
-![python image failed to load](assets/img/python.png)
-![opencv image failed to load](assets/img/opencv.png)
+1. ] https://github.com/waveform80/picamera/issues/335#issuecomment-252662503
+
+    ```
+    v4l2-ctl -v width=2592,height=1944,pixelformat=MJPG
+    v4l2-ctl --stream-mmap=3 --stream-count=100 --stream-to=unique_path.mjpeg
+    vlc --demux=mjpeg --mjpeg-fps=10 unique_path.mjpeg
+    ```
+1. ] https://stackoverflow.com/questions/11436502/closing-all-threads-with-a-keyboard-interrupt h/t [Paul Seeb](https://stackoverflow.com/a/11436603)
+    ```
+    from threading import Thread, Event
+    from time import sleep
+
+    def thready_boi(data, run_event):
+        while run_event.is_set():
+            do stuff...
+
+
+    def main():
+        run_event = Event()
+        run_event.set()
+        thread = Thread(target=thready_boi,args=(data,run_event))
+        thread.start()
+        
+        try:
+            while 1:
+                time.sleep(.1)
+        except KeyboardInterrupt:
+            run_event.clear()
+            thread.join()
+    ```
+1. ] https://www.csselectronics.com/pages/obd2-pid-table-on-board-diagnostics-j1979
+1. ] https://raspberry-projects.com/pi/programming-in-c/uart-serial-port/using-the-uart
+    Great breakdown of serial access in C++
+1. ] https://stackoverflow.com/questions/19790570/using-a-global-variable-with-a-thread
+    ```
+    def thread1(threadname):
+        while True:
+        lock_a.acquire()
+        if a % 2 and not a % 2:
+            print "unreachable."
+        lock_a.release()
+
+    def thread2(threadname):
+        global a
+        while True:
+            lock_a.acquire()
+            a += 1
+            lock_a.release()
+    ```
+1. ] [https://13945096965777909312.googlegroups.com/attach/d7c59fe234298ded/minicom.cpp](https://13945096965777909312.googlegroups.com/attach/d7c59fe234298ded/minicom.cpp?part=0.1&view=1&view=1&vt=ANaJVrGAA71JEVEd4XEuxt4VG5FwYI41tF0sUnwR5UahihIrjmiCfS_xpkNKyNVPVjY8P9OESmx3ShNeygnof3162UaTuSNlbdUcoqu1T7HRyUoyHgYL-nc)
+1. ] https://people.eecs.ku.edu/~jrmiller/Courses/JavaToC++/BasicPointerUse.html
+1. ] https://cplusplus.com/reference/cstdio/scanf/
+
+
+
+[![y u no load 4rings](assets/pi_files/IMG_5046.PNG)](https://parts.audiusa.com/)
+[![python image failed to load](assets/img/python.png)](https://www.python.org/)
+[![opencv image failed to load](assets/img/opencv.png)](https://opencv.org/)
