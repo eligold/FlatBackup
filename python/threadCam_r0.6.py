@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os, traceback, cv2, logging, numpy as np
-from subprocess import run, Popen, PIPE
+from subprocess import run, Popen, PIPE, CREATE_NEW_PROCESS_GROUP
+from signal import SIGINT
 from threading  import Thread
 from queue import Queue, Empty, Full, SimpleQueue
 from time import sleep, time
@@ -44,9 +45,11 @@ no_signal_frame = cv2.putText(
     "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
 keyboard_interrupt = False
+ready = False
 
 def begin():
     global keyboard_interrupt # signal for threads to end
+    global ready
     wifi_flag = False
     threads = []
     try: # is the wifi connected?
@@ -65,9 +68,13 @@ def begin():
         while not keyboard_interrupt:
             sidebar = sidebar_base
             with open('/dev/fb0','rb+') as frame_buffer:
+               # display_queue = SimpleQueue()
+                ready = True # many seconds of lag currently, maybe stacking frames before disp init?
                 while True:
                     try:
-                        image = display_queue.get(timeout=0.04)
+                       # while not display_queue.empty():
+                       #     image = display_queue.get(block=False)
+                        image = display_queue.get(timeout=0.04)  # maybe get_nowait?
                         image = build_reverse_view(undistort(image))
                         for i in range(480):
                             frame_buffer.write(image[i])
@@ -90,7 +97,6 @@ def begin():
             run('ip link set wlan0 up',shell=True)
         for thread in threads:
             thread.join()
-        
 
 def touch_screen():
     global keyboard_interrupt
@@ -118,7 +124,6 @@ def touch_screen():
             stdout.close()
             process.terminate()
         if keyboard_interrupt: break
-    logger.info("leaving")
 
 def get_image():
     width, height = DIM
@@ -141,7 +146,8 @@ def get_image():
                     while camera.isOpened():
                         success, image = camera.read()
                         if success:
-                            display_queue.put(image)
+                            if ready:
+                                display_queue.put(image)
                         elif keyboard_interrupt: break
                         else:
                             logger.error("bad UVC read!")
@@ -151,7 +157,6 @@ def get_image():
         except Exception as e:
             logger.error(traceback.format_tb(e.__traceback__))
         if keyboard_interrupt: break
-    logger.info("leaving")
 
 def sidebar_builder():
     while True:
@@ -182,22 +187,23 @@ def dash_cam():
     width, height = 2592, 1944
     runtime = fps * 60 * 30
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+    creationFlags = CREATE_NEW_PROCESS_GROUP
     while True:
         try:
-            run(f"v4l2-ctl -d {camPath} -v width={width},height={height},pixelformat=MJPG",shell=True,check=True)
-            cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to=/media/usb/dashcam_{time()}.mjpeg"
-            sp = Popen(cmd,shell=True,capture_output=True)
+            run(f"v4l2-ctl -d {camPath} -v width={width},height={height},pixelformat=MJPG",shell=True)
+            filepath = f"/media/usb/dashcam_{time():.0f}.mjpeg"
+            command = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
+            sp = Popen(command,shell=True,stdout=PIPE,stderr=PIPE,creationflags=creationFlags) # +BELOW_NORMAL_PRIORITY_CLASS) # ABOVE_NORMAL_ HIGH_ IDLE_
             while (sp.returncode is None):
                 if keyboard_interrupt:
-                    sp.terminate()
-                sleep(0.01)
+                    sp.send_signal(SIGINT)
+                sleep(0.19)
         except Exception as e:
             logger.error(traceback.format_tb(e.__traceback__))
         finally:
             if sp.returncode is None:
                 sp.kill()
         if keyboard_interrupt: break
-    logger.info("leaving")
 
 def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
