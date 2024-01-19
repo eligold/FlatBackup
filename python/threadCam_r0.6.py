@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import os, traceback, cv2, logging, numpy as np
-from subprocess import run, Popen, PIPE, CREATE_NEW_PROCESS_GROUP
+from subprocess import run, Popen, PIPE
 from signal import SIGINT
 from threading  import Thread
 from queue import Queue, Empty, Full, SimpleQueue
@@ -15,7 +15,7 @@ FDIM = (1040,FINAL_IMAGE_HEIGHT)
 
 COLOR_REC = 0xfa00 # 0x58
 COLOR_GOOD = 0x871a
-COLOR_LOW = 0xc4e4
+COLOR_LOW = (0xc4,0xe4)
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
@@ -40,9 +40,9 @@ sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120,2),COLOR_LOW,np.uint8)
 for i in range(160,FINAL_IMAGE_HEIGHT):
     for j in range(120):
         color = np.uint16(i*2&(i-255-j))
-        high = color >> 8 & 0xFF
-        low = color & 0xFF
-        sidebar_base[i][j] = high, low
+        high = np.uint8(color >> 8)
+        low = np.uint8(color)
+        sidebar_base[i][j] = low, high
 
 no_signal_frame = cv2.putText(
     np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH),COLOR_BAD,np.uint16),
@@ -53,6 +53,7 @@ ready = False
 
 def begin():
     global keyboard_interrupt_flag # signal for threads to end
+    global display_queue, processing_queue
     wifi_flag = False
     threads = []
     try: # is the wifi connected?
@@ -81,11 +82,10 @@ def begin():
             except Empty:
                 pass
     except Exception as ex:
-        logger.exception(ex)
-    except KeyboardInterrupt:
-        logger.info(traceback.format_exc())
-    finally:
         keyboard_interrupt_flag = True
+        traceback.print_exc()
+        logger.exception(ex)
+    finally:
         msg = f'processing: {processing_queue.qsize()}, display: {display_queue.qsize()}'
         print(msg)
         logger.info(msg)
@@ -115,6 +115,7 @@ def touch_screen():
                         x = None
                 elif keyboard_interrupt_flag: break
         except Exception as e:
+            traceback.print_exc()
             logger.exception(e)
         finally:
             stdout.close()
@@ -123,6 +124,7 @@ def touch_screen():
     logger.info("exit touchscreen routine")
 
 def on_screen():
+    global display_queue
     while True:
         try:
             with open('/dev/fb0','rb+') as frame_buffer:
@@ -135,11 +137,13 @@ def on_screen():
                         logger.warning("no image from display queue")
                     if keyboard_interrupt_flag: break
         except Exception as e:
+            traceback.print_exc()
             logger.exception(e)
         if keyboard_interrupt_flag: break
     logger.info("exit onscreen routine")
 
 def get_image():
+    global processing_queue
     width, height = DIM
     usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     while True:
@@ -147,7 +151,7 @@ def get_image():
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
             if usb_capture_id_path == usb_capture_real_path:
                 logger.error("camera not found!\twaiting...")
-                sleep(3)
+                sleep(2)
             else:
                 logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
                 index = int(usb_capture_real_path.split("video")[-1])
@@ -161,7 +165,7 @@ def get_image():
                         success, image = camera.read()
                         if success:
                             if ready:
-                                display_queue.put(image)
+                                processing_queue.put(image)
                         elif keyboard_interrupt_flag: break
                         else:
                             logger.error("bad UVC read!")
@@ -169,11 +173,13 @@ def get_image():
                     logger.warning("release camera resource")
                     camera.release()
         except Exception as e:
+            traceback.print_exc()
             logger.exception(e)
         if keyboard_interrupt_flag: break
     logger.info("exit camera routine")
 
 def sidebar_builder():
+    global sidebar_queue
     while True:
         try:
             elm = ELM327()
@@ -190,7 +196,7 @@ def sidebar_builder():
                 if keyboard_interrupt_flag: break
         except Exception as e:
             traceback.print_exc()
-            logger.eexception(e)
+            logger.exception(e)
         finally:
             elm.close()
         if keyboard_interrupt_flag: break
@@ -202,13 +208,12 @@ def dash_cam():
     width, height = 2592, 1944
     runtime = fps * 60 * 30
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    creationFlags = CREATE_NEW_PROCESS_GROUP
     while True:
         try:
             run(f"v4l2-ctl -d {camPath} -v width={width},height={height},pixelformat=MJPG",shell=True)
             filepath = f"/media/usb/dashcam_{time():.0f}.mjpeg"
             command = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
-            sp = Popen(command,shell=True,stdout=PIPE,stderr=PIPE,creationflags=creationFlags) # +BELOW_NORMAL_PRIORITY_CLASS) # ABOVE_NORMAL_ HIGH_ IDLE_
+            sp = Popen(command,shell=True,stdout=PIPE,stderr=PIPE) # ,creationflags=BELOW_NORMAL_PRIORITY_CLASS) # ABOVE_NORMAL_ HIGH_ IDLE_
             while (sp.returncode is None):
                 if keyboard_interrupt_flag:
                     sp.send_signal(SIGINT)

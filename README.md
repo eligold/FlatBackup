@@ -214,7 +214,7 @@ __SETUP__
 
 
 
-[![y u no load 4rings](./assets/pi_files/IMG_5046.PNG)](https://parts.audiusa.com/)
+[ ![y u no load 4rings](./assets/pi_files/IMG_5046.PNG) ](https://parts.audiusa.com/)
 source: https://wall.alphacoders.com/big.php?i=474466
-[![python image failed to load](./assets/img/python.png)](https://www.python.org/)
-[![opencv image failed to load](./assets/img/opencv.png)](https://opencv.org/)
+[ ![python image failed to load](./assets/img/python.png) ](https://www.python.org/)
+[ ![opencv image failed to load](./assets/img/opencv.png) ](https://opencv.org/)

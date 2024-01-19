@@ -71,11 +71,22 @@ def run(t = (600,480)):
     try:
         c = init()
         c.read()
+        c.read()
+        c.read()
+        c.read()
+        c.read()
+        c.read()
+        c.read()
+        c.read()
+        c.read()
+        c.read()
+        c.read()
+        c.read()
         saveImage(c.read()[1])
         #while(c.isOpened()): onScreen(cv.resize(c.read()[1],t))
     finally:
         c.release()
 
 if __name__ == "__main__":
-    runDual()
+    run()
     code.interact(local=globals())
