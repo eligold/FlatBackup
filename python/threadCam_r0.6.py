@@ -32,24 +32,27 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 
+processing_queue = SimpleQueue()
 display_queue = SimpleQueue()
 sidebar_queue = Queue(2)
 
-sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
+sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120,2),COLOR_LOW,np.uint8)
 for i in range(160,FINAL_IMAGE_HEIGHT):
     for j in range(120):
-        sidebar_base[i][j] = np.uint16(i*2&(i-255-j))
+        color = np.uint16(i*2&(i-255-j))
+        high = color >> 8 & 0xFF
+        low = color & 0xFF
+        sidebar_base[i][j] = high, low
 
 no_signal_frame = cv2.putText(
     np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH),COLOR_BAD,np.uint16),
     "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
-keyboard_interrupt = False
+keyboard_interrupt_flag = False
 ready = False
 
 def begin():
-    global keyboard_interrupt # signal for threads to end
-    global ready
+    global keyboard_interrupt_flag # signal for threads to end
     wifi_flag = False
     threads = []
     try: # is the wifi connected?
@@ -60,46 +63,39 @@ def begin():
            wifi_flag = True 
            run('ip link set wlan0 down',shell=True)
        # start each thread
-        for function in [touch_screen,get_image,sidebar_builder,dash_cam]:
+        for function in [touch_screen,on_screen,get_image,dash_cam,sidebar_builder]:
             thread = Thread(target=function,name=function.__name__)
             thread.start()
             threads.append(thread)
             logger.info(f"started thread {function.__name__}")
-        while not keyboard_interrupt:
-            sidebar = sidebar_base
-            with open('/dev/fb0','rb+') as frame_buffer:
-               # display_queue = SimpleQueue()
-                ready = True # many seconds of lag currently, maybe stacking frames before disp init?
-                while True:
-                    try:
-                       # while not display_queue.empty():
-                       #     image = display_queue.get(block=False)
-                        image = display_queue.get(timeout=0.04)  # maybe get_nowait?
-                        image = build_reverse_view(undistort(image))
-                        for i in range(480):
-                            frame_buffer.write(image[i])
-                            frame_buffer.write(sidebar[i])
-                        frame_buffer.seek(0)
-                    except Empty:
-                        logger.warning("no frame from camera thread")
-                    try:
-                        sidebar = sidebar_queue.get_nowait()
-                    except Empty:
-                        pass
-                    if keyboard_interrupt: break
+        sidebar = sidebar_base
+        while not keyboard_interrupt_flag:
+            try:
+                image = processing_queue.get(block=False)
+                processed = build_reverse_view(undistort(image,sidebar))
+                display_queue.put(processed)
+            except Empty:
+                logger.warning("no frame from camera thread")
+            try:
+                sidebar = sidebar_queue.get_nowait()
+            except Empty:
+                pass
     except Exception as ex:
-        logger.error(traceback.format_tb(ex.__traceback__))
-    except KeyboardInterrupt as kbx:
-        logger.info(traceback.format_tb(kbx.__traceback__))
+        logger.exception(ex)
+    except KeyboardInterrupt:
+        logger.info(traceback.format_exc())
     finally:
-        keyboard_interrupt = True
+        keyboard_interrupt_flag = True
+        msg = f'processing: {processing_queue.qsize()}, display: {display_queue.qsize()}'
+        print(msg)
+        logger.info(msg)
         if wifi_flag:
             run('ip link set wlan0 up',shell=True)
         for thread in threads:
             thread.join()
 
 def touch_screen():
-    global keyboard_interrupt
+    global keyboard_interrupt_flag
     command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
     while True:
         try:
@@ -114,16 +110,34 @@ def touch_screen():
                         y = int(line.decode().split('value')[-1])
                         if y > 239:
                             logger.warning(f"exit;\ttouch input (x->,y\/): {x},{y}")
-                            keyboard_interrupt = True
+                            keyboard_interrupt_flag = True
                     else:
                         x = None
-                elif keyboard_interrupt: break
+                elif keyboard_interrupt_flag: break
         except Exception as e:
-            logger.error(traceback.format_tb(e.__traceback__))
+            logger.exception(e)
         finally:
             stdout.close()
             process.terminate()
-        if keyboard_interrupt: break
+        if keyboard_interrupt_flag: break
+    logger.info("exit touchscreen routine")
+
+def on_screen():
+    while True:
+        try:
+            with open('/dev/fb0','rb+') as frame_buffer:
+                while True:
+                    try:
+                        image = display_queue.get_nowait()
+                        frame_buffer.write(image)
+                        frame_buffer.seek(0)
+                    except:
+                        logger.warning("no image from display queue")
+                    if keyboard_interrupt_flag: break
+        except Exception as e:
+            logger.exception(e)
+        if keyboard_interrupt_flag: break
+    logger.info("exit onscreen routine")
 
 def get_image():
     width, height = DIM
@@ -148,15 +162,16 @@ def get_image():
                         if success:
                             if ready:
                                 display_queue.put(image)
-                        elif keyboard_interrupt: break
+                        elif keyboard_interrupt_flag: break
                         else:
                             logger.error("bad UVC read!")
                 finally:
                     logger.warning("release camera resource")
                     camera.release()
         except Exception as e:
-            logger.error(traceback.format_tb(e.__traceback__))
-        if keyboard_interrupt: break
+            logger.exception(e)
+        if keyboard_interrupt_flag: break
+    logger.info("exit camera routine")
 
 def sidebar_builder():
     while True:
@@ -172,15 +187,15 @@ def sidebar_builder():
                 except Full:
                     sidebar_queue.get()
                     sidebar_queue.put(sidebar)
-                if keyboard_interrupt: break
+                if keyboard_interrupt_flag: break
         except Exception as e:
             traceback.print_exc()
-            logger.error(traceback.format_tb(e.__traceback__))
+            logger.eexception(e)
         finally:
             elm.close()
-        if keyboard_interrupt: break
+        if keyboard_interrupt_flag: break
         sleep(2)
-    logger.info("leaving")
+    logger.info("exit sidebar routine")
 
 def dash_cam():
     fps = 15
@@ -195,15 +210,16 @@ def dash_cam():
             command = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
             sp = Popen(command,shell=True,stdout=PIPE,stderr=PIPE,creationflags=creationFlags) # +BELOW_NORMAL_PRIORITY_CLASS) # ABOVE_NORMAL_ HIGH_ IDLE_
             while (sp.returncode is None):
-                if keyboard_interrupt:
+                if keyboard_interrupt_flag:
                     sp.send_signal(SIGINT)
                 sleep(0.19)
         except Exception as e:
-            logger.error(traceback.format_tb(e.__traceback__))
+            logger.exception(e)
         finally:
             if sp.returncode is None:
                 sp.kill()
-        if keyboard_interrupt: break
+        if keyboard_interrupt_flag: break
+    logger.info("exit dashcam routine")
 
 def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
@@ -216,10 +232,10 @@ def undistort(image):
     undistorted = cv2.remap(image,mapx,mapy,interpolation=CUBIC)
     return cv2.resize(undistorted,SDIM,interpolation=CUBIC)[64:556]
 
-def build_reverse_view(image):
+def build_reverse_view(image,sidebar):
     middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=CUBIC)
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
-    return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
+    return cv2.hconcat(cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565),sidebar)
 
 def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
