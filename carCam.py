@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
-import asyncio, obd, traceback, subprocess, cv2, numpy as np
-from obd import Unit
-from time import sleep
+import os, sys, traceback, cv2, logging, numpy as np #, asyncio, aiofiles
+from subprocess import run, Popen, PIPE
+from threading  import Thread
+from queue import Queue, Empty, Full
+from time import sleep, time, localtime
+from ELM327 import ELM327
+#import evdev
+# from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
+#                           ABS_MT_POSITION_Y, EV_ABS)
+IMAGE_WIDTH = 1480
+IMAGE_HEIGHT = 480
+DIM = (720,576) # video dimensions
+SDIM = (960,768)
+FDIM = (1040,IMAGE_HEIGHT)
 
-DIM = (720, 576) # video dimensions
-SDIM = (960, 768)
-FDIM = (1280,480)
-COLOR_REC = 0x58
+COLOR_REC = 0xfa00 # 0x58
 COLOR_GOOD = 0x871a
 COLOR_LOW = 0xc4e4
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
-CVT3TO2B = cv2.COLOR_BGR2BGR565
+COLOR_LAYM = 0xbfe4
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
-BRIGHTNESS = cv2.CAP_PROP_BRIGHTNESS  #default 0?
-CONTRAST = cv2.CAP_PROP_CONTRAST #default 92
+FPS = cv2.CAP_PROP_FPS
 
 # below values are specific to my backup camera run thru
 # my knock-off easy-cap calibrated with my phone screen. 
@@ -25,152 +32,206 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 # calculate camera values to upscale and undistort. TODO upscale later vs now
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
+fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+touch_queue = Queue()
+display_queue = Queue()
+sidebar_queue = Queue(2)
 
-def run():
-    psi = 19
-    ec = 0
-    count = 0
-    obdd = OBDData()
-    elm327 = getOBDconn()
-    wait = True
+sidebar_base = np.full((IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
+for i in range(160,480): #(320,480):
+    for j in range(120):
+        sidebar_base[i][j] = np.uint16(i*2&(i-255-j))
+
+no_signal_frame = cv2.putText(
+    np.full((IMAGE_HEIGHT,IMAGE_WIDTH),COLOR_BAD,np.uint16),
+    "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
+
+def begin():
+    wifi = True
+    try:
+        res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
+        if res.stdout == b'up\n':
+            raise KeyboardInterrupt("wifi connected")
+        else:
+           wifi = False
+           run('ip link set wlan0 down',shell=True)
+        for f in [dash_cam,get_image,on_screen,sidebar_builder]:
+            t = Thread(target=f,name=f.__name__)
+            t.daemon = True
+            t.start()
+            logger.info(f"started thread {f.__name__}")
+        while(True):
+            try:
+                cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
+                            shell=True,stdout=PIPE,stderr=PIPE)
+                touch_thread = Thread(target=enqueue_output, args=(cmd.stdout,))
+                touch_thread.daemon = True
+                touch_thread.start()
+                while(True):
+                    try:
+                        line = touch_queue.get_nowait()
+                        if(b'POSITION_X' in line and b'value' in line):
+                            x = int(line.decode().split('value')[-1])
+                            if x > IMAGE_WIDTH:
+                                line = touch_queue.get_nowait()
+                                y = int(line.decode().split('value')[-1])
+                                if y > 239:
+                                    raise KeyboardInterrupt(f"touch input, x,y: {x},{y}")
+                    except Empty:
+                        sleep(0.019)
+            except Exception as e:
+                logger.error(e.with_traceback(traceback))
+    except KeyboardInterrupt as ki:
+        logger.warning(ki.with_traceback(traceback))
+        print("deuces")
+    except Exception as e:
+        logger.error(e.with_traceback(traceback))
+        traceback.print_exc()
+    finally:
+        logger.warning(f"sidebars: {sidebar_queue.qsize()}\timages ready to display: {display_queue.qsize()}")
+        if not wifi:
+            run('ip link set wlan0 up',shell=True)
+
+def enqueue_output(out):
+    for line in iter(out.readline, b''):
+        touch_queue.put(line)
+    out.close()
+
+def get_image():
     while(True):
-        subprocess.run(['bash','-c','ip link set wlan0 down'])
         try:
-            camera = getCamera()
-            success, img = getUndist(camera)
-            with open('/dev/fb0','rb+') as buf:
-                while camera.isOpened():
-                    if not wait and elm327.is_connected():
-                        psi = getPSI(elm327,obdd)
-                    else:
-                        psi = 19.1
-                    success, img = getUndist(camera)
-                    if not success:
-                        errScreen(buf)
-                    else:
-                        onScreen(buf,img,f"{psi:.2f} PSI")
-                    if count > 125:
-                        wait = False
-                        count = 0
-                        if not elm327.is_connected():
-                            elm327.close()
-                            elm327 = getOBDconn()
-                            wait = True
-                    else: count += 1
-            sleep(3)
-        except KeyboardInterrupt:
-            bounce(elm327,camera)
+            usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
+            usb_capture_real_path = os.path.realpath(usb_capture_id_path)
+            if usb_capture_id_path == usb_capture_real_path:
+                logger.error("camera not found!\twaiting...")
+                sleep(3)
+            else:
+                logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
+                index = int(usb_capture_real_path.split("video")[-1])
+                camera = get_camera(index)
+                camera.read()
+                try:
+                    while camera.isOpened():
+                        success, image = camera.read()
+                        if success:
+                            display_queue.put(undistort(image))
+                        else:
+                            logger.error("bad UVC read!")
+                finally:
+                    logger.warning("release camera resource")
+                    camera.release()
+            
         except Exception as e:
-            ec += 1
-            if ec > 10:
-                ec = 0
-                raise e
+            logger.error(e.with_traceback(traceback))
+
+def on_screen():
+    while(True):
+        sidebar = sidebar_base
+        try:
+            with open('/dev/fb0','rb+') as frame_buffer:
+                while(True):
+                    try:
+                        final_image = build_reverse_view(display_queue.get(timeout=0.04))
+                        for i in range(480):
+                            frame_buffer.write(final_image[i])
+                            frame_buffer.write(sidebar[i])
+                        frame_buffer.seek(0)
+                    except Empty:
+                        sleep(0.019)
+                    try:
+                        sidebar = sidebar_queue.get_nowait()
+                    except Empty:
+                        pass
+        except Exception as e:
+            logger.error(e.with_traceback(traceback))
+
+def sidebar_builder():
+    while(True):
+        try:
+            elm = ELM327()
+            while(True):
+                sidebar = sidebar_base.copy()
+                psi = elm.psi()
+                sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
+                sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
+                sidebar = putText(sidebar,f"{elm.volts():.1f}V",(4,130),color=COLOR_BAD,fontScale=1.19,thickness=3)
+                try:
+                    sidebar_queue.put(sidebar)
+                except Full:
+                    sidebar_queue.get()
+                    sidebar_queue.put(sidebar)
+        except Exception as e:
+            traceback.print_exc()
+            logger.error(e.with_traceback(traceback))
+        finally:
+            elm.close()
+            sleep(3)
+
+def dash_entry():
+    t = Thread(target=dash_cam)
+    t.daemon = True
+    t.start()
+
+def dash_cam():
+    while(True): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
+        dashcam_id_path = \
+                "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+        dashcam = get_camera(int(os.path.realpath(dashcam_id_path).split("video")[-1]),
+                             width=2592,height=1944,mjpg=True)
+        size = (int(dashcam.get(WIDTH)), int(dashcam.get(HEIGHT)))
+        logger.info(f"dashcam resolution: {size}")
+        fps = dashcam.get(FPS)
+        try:
+            while(dashcam.isOpened()):
+                stop_time = int(time()) + 1800
+                out = cv2.VideoWriter(f"/media/usb/dashcam-{stop_time}.avi",fourcc,fps,size)
+                while(time()<stop_time):
+                    success, frame = dashcam.read()
+                    if success:
+                        out.write(frame)
+                    else:
+                       # out.write(putText(np.full((1944,2592),COLOR_BAD,np.uint16),
+                       #                   "No Signal!",(1200,972),COLOR_NORMAL))
+                        logger.warning("missing frame from dashcam!")
+                out.release()
+        except Exception:
             traceback.print_exc()
         finally:
-            close(elm327,camera)
+            dashcam.release()
+            out.release()
 
-def errScreen(frame_buffer):
-    image = screenPrint(np.full((1600,480),COLOR_BAD,np.uint16),"No Signal!",(500,200))
-    for i in range(480):
-        frame_buffer.write(image[i])
-    frame_buffer.seek(0,0)
-
-def getCamera(camIndex=0,apiPreference=cv2.CAP_V4L2):
+def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2,width=720,height=576,mjpg=False) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
-    camera.set(WIDTH,720)
-    camera.set(HEIGHT,576)
-    camera.set(BRIGHTNESS,25)
+    if mjpg:
+        camera.set(6,fourcc)
+    camera.set(WIDTH,width)
+    camera.set(HEIGHT,height)
+    camera.set(cv2.CAP_PROP_BRIGHTNESS,25)
     return camera
 
-def getOBDconn():
-    elm327 = obd.Async(portstr="/dev/ttyUSB0")
-    elm327.watch(obd.commands.INTAKE_TEMP)
-    elm327.watch(obd.commands.RPM)
-    elm327.watch(obd.commands.MAF)
-    elm327.watch(obd.commands.BAROMETRIC_PRESSURE)
-    elm327.start()
-    return elm327
+def undistort(img):
+    undist = cv2.remap(img,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
+    image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
+    return image
 
-def getPSI(elm327,obdd):
-    if elm327.supports(obd.commands.RPM):
-        obdd.update(maf = elm327.query(obd.commands.MAF).value,
-                    iat = elm327.query(obd.commands.INTAKE_TEMP).value.to('degK'), 
-                    rpm = elm327.query(obd.commands.RPM).value,
-                    atm = elm327.query(obd.commands.BAROMETRIC_PRESSURE).value.to('psi'))
-        return obdd.psi()
-    else:
-        return 19.0
+def build_reverse_view(image):
+    middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4)
+    combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
+    return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
 
-def screenPrint(img,text,pos=(589,473)):
-    font_face = cv2.FONT_HERSHEY_SIMPLEX
-    scale = 1
-    return cv2.putText(img, text, pos, font_face, scale, (0xc4,0xe4), 2, cv2.LINE_AA)
-
-def getUndist(c):
-    success, image = c.read()
-    if success:
-        image = cv2.resize(
-                cv2.remap(image, mapx, mapy, interpolation=cv2.INTER_CUBIC),
-                SDIM,interpolation=cv2.INTER_CUBIC)[64:556]
-    return success, image
-
-def onScreen(frame_buffer,image,text):
-    image_right = cv2.cvtColor(image,CVT3TO2B)
-    image_left = image_right[12:492,:160]
-    image_right = image_right[:480,-160:]
-    image = screenPrint(
-            cv2.cvtColor(
-                cv2.resize(image[220:460,160:800], FDIM,interpolation=cv2.INTER_CUBIC),
-            CVT3TO2B),
-            text)
-    for i in range(480):
-        frame_buffer.write(image_left[i])
-        frame_buffer.write(image[i])
-        frame_buffer.write(image_right[i])
-    frame_buffer.seek(0,0)
-
-def close(elm327,camera):
-    if elm327.is_connected():
-                elm327.close()
-    camera.release()
-    subprocess.run(['bash','-c','ip link set wlan0 up'])
-
-def bounce(elm327,camera):
-    close(elm327,camera)
-    exit()
-
-class OBDData:
-    R = Unit.Quantity(1,Unit.R).to_base_units()
-    VF = Unit.Quantity(1984,Unit.cc).to_base_units()/Unit.Quantity(2,Unit.turn)
-    MM = Unit.Quantity(28.949,"g/mol").to_base_units()
-    C = R/(VF*MM)
-
-    def __init__(self,atm=14.3,iat=499.0,maf=132.0,rpm=4900):
-        self.atm = atm*Unit.psi
-        self.iat = iat*Unit.degK
-        self.maf = maf*Unit.gps
-        self.rpm = rpm*Unit.rpm
-        self._recalc()
-
-    def update(self,iat,rpm,maf,atm):
-        self.iat=iat
-        self.rpm=rpm
-        self.maf=maf
-        self.atm=atm
-        self._recalc()
-
-    def psi(self):
-        return (self.iap - self.atm).magnitude
-
-    def _recalc(self): # [2] C * IAT(K) * MAF / RPM = IAP
-        iap = self.C / self.rpm * self.maf * self.iat
-        self.iap = iap.to('psi')
+def putText(img, text="you forgot the text idiot", origin=(0,480), #bottom left
+            color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+            fontScale=1,thickness=2,lineType=cv2.LINE_AA):
+    return cv2.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
 if __name__ == "__main__":
-    subprocess.run(['sh','-c','echo 0 | sudo tee /sys/class/leds/PWR/brightness'])
-    run()
-###############
-#  References #
-###############
-# [1] https://towardsdatascience.com/circular-queue-or-ring-buffer-92c7b0193326
-# [2] https://www.first-sensor.com/cms/upload/appnotes/AN_Massflow_E_11153.pdf
+    handler = logging.FileHandler("runtime-carCam.log")
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter('[%(levelname)s] [%(threadName)s] %(message)s'))
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    run('echo none > /sys/class/leds/PWR/trigger',shell=True)
+    run('echo 0 > /sys/class/leds/PWR/brightness',shell=True)
+   # dash_entry()
+    begin()

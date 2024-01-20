@@ -72,7 +72,7 @@ def begin():
         while not keyboard_interrupt_flag:
             try:
                 image = processing_queue.get(block=False)
-                processed = build_reverse_view(undistort(image,sidebar))
+                processed = build_reverse_view(undistort(image),sidebar)
                 display_queue.put(processed)
             except Empty:
                 logger.warning("no frame from camera thread")
