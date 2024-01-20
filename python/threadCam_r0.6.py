@@ -68,18 +68,13 @@ def begin():
             thread.start()
             threads.append(thread)
             logger.info(f"started thread {function.__name__}")
-        sidebar = sidebar_base
         while not keyboard_interrupt_flag:
             try:
                 image = processing_queue.get(block=False)
-                processed = build_reverse_view(undistort(image),sidebar)
+                processed = build_reverse_view(undistort(image))
                 display_queue.put(processed)
             except Empty:
                 logger.warning("no frame from camera thread")
-            try:
-                sidebar = sidebar_queue.get_nowait()
-            except Empty:
-                pass
     except Exception as ex:
         keyboard_interrupt_flag = True
         traceback.print_exc()
@@ -96,7 +91,7 @@ def begin():
 def touch_screen():
     global keyboard_interrupt_flag
     command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
-    while True:
+    while not keyboard_interrupt_flag:
         try:
             process = Popen(command,shell=True,stdout=PIPE,stderr=PIPE)
             stdout = process.stdout
@@ -123,17 +118,24 @@ def touch_screen():
     logger.info("exit touchscreen routine")
 
 def on_screen():
-    global display_queue
-    while True:
+    global display_queue, sidebar_queue
+    while not keyboard_interrupt_flag:
         try:
+            sidebar = sidebar_base
             with open('/dev/fb0','rb+') as frame_buffer:
                 while True:
                     try:
-                        image = display_queue.get_nowait()
-                        frame_buffer.write(image)
+                        image = display_queue.get(block=False)
+                        for i in range(FINAL_IMAGE_HEIGHT):
+                            frame_buffer.write(image[i])
+                            frame_buffer.write(sidebar[i])
                         frame_buffer.seek(0)
                     except:
                         logger.warning("no image from display queue")
+                    try:
+                        sidebar = sidebar_queue.get(block=False)
+                    except Empty:
+                        pass
                     if keyboard_interrupt_flag: break
         except Exception as e:
             traceback.print_exc()
@@ -145,7 +147,7 @@ def get_image():
     global processing_queue
     width, height = DIM
     usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
-    while True:
+    while not keyboard_interrupt_flag:
         try:
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
             if usb_capture_id_path == usb_capture_real_path:
@@ -178,7 +180,7 @@ def get_image():
 
 def sidebar_builder():
     global sidebar_queue
-    while True:
+    while not keyboard_interrupt_flag:
         try:
             elm = ELM327()
             while(True):
@@ -235,10 +237,10 @@ def undistort(image):
     undistorted = cv2.remap(image,mapx,mapy,interpolation=CUBIC)
     return cv2.resize(undistorted,SDIM,interpolation=CUBIC)[64:556]
 
-def build_reverse_view(image,sidebar):
+def build_reverse_view(image):
     middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=CUBIC)
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
-    return cv2.hconcat(cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565),sidebar)
+    return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
 
 def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,

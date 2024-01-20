@@ -12,6 +12,7 @@
 ### Overview
 
 __SIDE BY SIDE OF FLATTENED AND ORIGINAL TO INTRODUCE PROJECT__
+
 Welcome to my fisheye backup camera image correction and automotive data processing project! This GitHub repository contains the code underlying my efforts to develop a solution for enhancing my custom car backup camera installation. The project evolved from a desire to cut my teeth with a powerful tool I had only had peripheral experience with both academically and professionally, OpenCV. When I installed an Audi original backup camera into my car, the image projected to a standard 4:3 ration NTSC resolution screen was heavily distorted from the fisheye lens and I knew that was something I could rectify using the power of Python and OpenCV. With a knock-off Easy-Cap adapter to digitize the signal I am able to process it on a Raspberry Pi and display the corrected image on an HDMI screen. An ELM327 USB OBDII adapter allows me to calculate and display turbocharger boost pressure from real-time car sensor data.
 
 ## Background
@@ -71,7 +72,7 @@ although I wasn't able to get the wires through the weatherproof articulated tub
  As it is a small loop of wires exits the top of the hatch with enough slack to reach the headliner trim while the hatch is fully open. It is visible but unobtrusive and proper cable management helps keep it from moving much while driving.
 __picture of progress, picture of final wire arrangement__
 
-I connected the 12V power supply in-line with harness wires for the trunk 12V accesory plug using some high current waterproof connectors I had on hand keeping nearly the entire wire run out of the cabin. A second small loop of the power cable was routed through a vent in the trunk trim with a redundant set of connectors as a failsafe quick disconnect. With the trim removed I also took the oppotunity to wire up some high power Philips LEDs on custom-made aluminum PCBs to replace the pathetically dim single incandescent bulb that used to illuminate my trunk. Even at night it's always bright and sunny in there now!
+I connected the 12V power supply in-line with harness wires for the trunk 12V accesory plug using some high current waterproof connectors I had on hand keeping nearly the entire wire run out of the cabin. I left a small loop with a pair of connectors running through some vent slots in the side panel as a quick disconnect in case any work needs to be done with the wiring down the line. With the trim removed I also took the oppotunity to wire up some high power Philips LEDs on custom-made aluminum PCBs to replace the pathetically dim single incandescent bulb that used to illuminate my trunk. Even at night it's always bright and sunny in there now!
 <img src="./assets/doc/hatch_light_inset.png" alt="trunk light image failed to load" width="75%">
 
 A recently purchased [Clearmounts phone adapter](https://www.audiphoneholder.com/product/78/clearmounts-bracket-low-profile-magnetic-holder-part-8p-low), pictured below, serves to conveniently and robustly secure my homebrew solution between the two centermost vents on my dashboard. After removing the simple magnetic holder that came with it I installed an articulated Scosche handsfree wireless charging mount similar to one that previously mounted to my windshield with a suction cup. I realized this model would be unsuitable for adapting to my project only after disassembling it completely so I purchased the articulated vent-mount model, securing a length of scrap aluminum angle extrusion to the back with the ball joint retaining screw through the Clearmounts adapter. Using a small L-bracket and some fastening hardware I mounted a second length of extrusion with holes drilled out to match the mounting pattern of my new widescreen display. It's practical but I'd like to replace it with something a bit more attractive down the line, perhaps in the vein of the beautiful custom devices built by [DIY Perks on YouTube](https://www.youtube.com/c/diyperks).
@@ -213,10 +214,7 @@ __SETUP__
 
 
 
-
-[ ![y u no load 4rings](./assets/pi_files/IMG_5046.PNG) ](https://parts.audiusa.com/)
-source: https://wall.alphacoders.com/big.php?i=474466
-
-[ ![python image failed to load](./assets/img/python.png) ](https://www.python.org/)
-
-[ ![opencv image failed to load](./assets/img/opencv.png) ](https://opencv.org/)
+Image source: https://wall.alphacoders.com/big.php?i=474466
+[![y u no load 4rings](./assets/pi_files/IMG_5046.PNG?raw=true)](https://parts.audiusa.com/)
+[![python image failed to load](./assets/doc/python.png?raw=true)](https://www.python.org/)
+[![opencv image failed to load](./assets/doc/opencv.png?raw=true)](https://opencv.org/)
