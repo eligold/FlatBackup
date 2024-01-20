@@ -49,7 +49,6 @@ no_signal_frame = cv2.putText(
     "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
 
 keyboard_interrupt_flag = False
-ready = False
 
 def begin():
     global keyboard_interrupt_flag # signal for threads to end
@@ -162,11 +161,10 @@ def get_image():
                 camera.read()
                 try:
                     while camera.isOpened():
+                        if keyboard_interrupt_flag: break
                         success, image = camera.read()
                         if success:
-                            if ready:
-                                processing_queue.put(image)
-                        elif keyboard_interrupt_flag: break
+                            processing_queue.put(image)
                         else:
                             logger.error("bad UVC read!")
                 finally:
