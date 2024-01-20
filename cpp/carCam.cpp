@@ -9,8 +9,10 @@
 #include <time.h>   // time calls
 #include <iostream>
 #include <thread>
+#include <atomic>
 #include <queue>
 #include <mutex>
+#include <csignal>
 
 #define FINAL_IMAGE_HEIGHT 480
 #define COLOR_LOW 0xc4e4
@@ -19,105 +21,59 @@
 using namespace cv;
 using namespace std;
 
-atomic_bool isELMFramesAvailable = false;
-queue<Mat> dataQueue;
-mutex queueMutex;
-Mat sidebar_base(480, 120, CV_16U, Scalar(COLOR_LOW));
-for (int i = 160; i < 480; ++i) {
-    for (int j = 0; j < 120; ++j) {
-        sidebar_base.at<uint16_t>(i, j) = static_cast<uint16_t>(i * 2 & (i - 255 - j));
-    }
-}
-OBD obd;
-atomic_bool running = true;
-thread elmThread(elm327);
-filesystem::path cameraPath = 
-    "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0";
-int camIndex;
-int capErrors = 0;
-if (!(filesystem::exists(cameraPath) && filesystem::is_symlink(cameraPath))) {
-    // cerr << "Error: bad camera URI." << endl;
-    return 1;
-} else {
-    string indexString = filesystem::read_symlink(cameraPath).string();
-    camIndex = stoi(indexString[indexString.length()-1]);
-}
-VideoCapture cap(camIndex);
-if (!cap.isOpened()) {
-    // cerr << "Error: Couldn't open the webcam." << endl;
-    return 2;
-}
+using InputCallback = std::function<void(const std::string&)>;
+
+// queue<Mat> dataQueue;
+// mutex queueMutex;
+// atomic_bool running = true;
+atomic<bool> terminateThread(false);
+string *psi = nullptr;
+
 void kbi(int signum) {
-    // cout << "killing program...\nSIGNAL " << signum << endl;
-    running = false;
-    if (obd.isConnected()) { obd.disconnect(); }
-    if (cap.isConnected()) { cap.release(); }
-    
-}
-int open_port(void) {
-    int fd = open("/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0", O_RDWR | O_NOCTTY | O_NDELAY);
-    if(fd == -1) {
-        cout << "unable to open ELM port" << endl;
-        return 3
-    } else {
-        fcntl(fd, F_SETFL, 0);
-    }
-    struct termios port_settings;
-    cfsetispeed(&port_settings, B38400);
-    cfsetospeed(&port_settings, B38400);
-    port_settings.c_cflag &= ~PARENB;
-    port_settings.c_cflag &= ~CSTOPB;
-    port_settings.c_cflag &= ~CSIZE;
-    port_settings.c_cflag |= CS8;
-    tcsetattr(fd, TCSANOW, &port_settings);
+    cout << "killing program...\nSIGNAL " << signum << endl;
+    terminateThread.store(true);
 }
 
-void elm327() {
-    while (running) {
-        obd.connect("/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"); // nah
-        long rpm, iat, maf, bps, mph;
-        float bps_f, maf_f, psi_f;
-
-        if (obd.isConnected()) { // nah
-
-            Mat sidebar = sidebar_base.clone()
-            printf("010C\r"); // RPM code
-            scanf("%ld")
-            rpm = rpm & 0xFFFFFFFF / 4;     // divide by 4 for whatever reason
-            printf("010F\r");               // IAT code
-            scanf("%ld",iat);
-            iat = iat & 0xFFFF - 40;        // magic 40 degrees
-            printf("0110\r");               // MAF code
-            scanf("%ld",maf);
-            maf_f = maf & 0xFFFF / 100.0f;  // g/s
-            printf("0133\r");               // BPS code
-            scanf("%ld",bps);
-            bps = bps & 0xFF; // kPa
-            printf("010D\r"); // MPH code
-            scanf("%ld",mph);
-            mph = mph & 0xFF; // km/h
-
-            cout << mph << endl;
-
-            //calculate here
-            float psi;
-
-            putText(sidebar,to_string(psi),Point(4,57),FONT_HERSHEY_SIMPLEX,1.19,Scalar(COLOR_NORMAL),3,LINE_AA);
-            lock_guard<mutex> lock(queueMutex);
-            dataQueue.push(sidebar);
-            isELMFrameAvailable = true;
-        } else {
-            // cerr << "failed to connect to OBD-II interface. retrying..." << endl;
-            this_thread::sleep_for(chrono::seconds(1));
-        }
-        obd.disconnect()
+void inputThread(InputCallback callback) {
+    string input;
+    while (!terminateThread.load()) {
+        cin >> input;
+        callback(input);
     }
-    return;
 }
 
 int main() {
     signal(SIGINT, kbi);
+    signal(SIGTERM, kbi);
+    auto onInputReceived = [](const string& input) {
+        psi = input;
+    };
+    thread inputHandler(inputThread, onInputReceived);
     
+    Mat sidebar_base(480, 120, CV_16U, Scalar(COLOR_LOW));
+    for (int i = 160; i < 480; ++i) {
+        for (int j = 0; j < 120; ++j) {
+            sidebar_base.at<uint16_t>(i, j) = static_cast<uint16_t>(i * 2 & (i - 255 - j));
+        }
+    }
+
+    filesystem::path cameraPath = 
+        "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0";
+    int camIndex;
+    int capErrors = 0;
+    if (!(filesystem::exists(cameraPath) && filesystem::is_symlink(cameraPath))) {
+        cerr << "Error: bad camera URI." << endl;
+        return 1;
+    } else {
+        string indexString = filesystem::read_symlink(cameraPath).string();
+        camIndex = stoi(indexString[indexString.length()-1]);
+    }
+    VideoCapture cap(camIndex);
+    if (!cap.isOpened()) {
+        cerr << "Error: Couldn't open the webcam." << endl;
+        return 2;
+    }
+
     Size inputSize(720, 576);
     Mat cameraMatrix = (Mat_<double>(3,3) << 
             309.41085232860985, 0.0, 355.4094868125207,
@@ -141,11 +97,11 @@ int main() {
     Mat middle;
     Mat recolor;
     Mat output;
-    while (true) {
+    while (!terminateThread.load()) {
         Mat frame;
         cap >> frame;
         if (frame.empty()) {
-            // cerr << "Error: Couldn't capture frame." << endl;
+            cerr << "Error: Couldn't capture frame." << endl;
             capErrors++;
             if (capErrors > 10) {
                 return 4;
@@ -163,21 +119,22 @@ int main() {
             );
             cvtColor(recolor,output,COLOR_BGR2BGR565);
         }
-        if (isELMFramesAvailable) {
-            lock_guard<mutex> lock(queueMutex);
-            sidebar = dataQueue.front()
-            dataQueue.pop();
-            isELMFrameAvailable = false;
+        if (psi != nullptr) {
+            sidebar = sidebar_base.clone()
+            putText(sidebar,to_string(psi),Point(4,57),FONT_HERSHEY_SIMPLEX,1.19,Scalar(COLOR_NORMAL),3,LINE_AA);
+            *psi = nullptr;
         }
 
         // DISPLAY 'output' on /dev/fb0
         // sidebar.at<uint16_t>(row)
 
     }
-    elmThread.join();
-    cap.release();
+    terminateThread.store(true);
+    if (cap.isConnected()) { cap.release(); }
 
     // Release /dev/fb0 here
+
+    inputHandler.join();
 
     return 0;
 }

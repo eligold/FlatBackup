@@ -15,7 +15,7 @@ FDIM = (1040,FINAL_IMAGE_HEIGHT)
 
 COLOR_REC = 0xfa00 # 0x58
 COLOR_GOOD = 0x871a
-COLOR_LOW = (0xc4,0xe4)
+COLOR_LOW = 0xc4e4
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
@@ -36,13 +36,10 @@ processing_queue = SimpleQueue()
 display_queue = SimpleQueue()
 sidebar_queue = Queue(2)
 
-sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120,2),COLOR_LOW,np.uint8)
+sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
 for i in range(160,FINAL_IMAGE_HEIGHT):
     for j in range(120):
-        color = np.uint16(i*2&(i-255-j))
-        high = np.uint8(color >> 8)
-        low = np.uint8(color)
-        sidebar_base[i][j] = low, high
+        sidebar_base[i][j] = np.uint16(i*2&(i-255-j))
 
 no_signal_frame = cv2.putText(
     np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH),COLOR_BAD,np.uint16),
@@ -63,7 +60,7 @@ def begin():
            wifi_flag = True 
            run('ip link set wlan0 down',shell=True)
        # start each thread
-        for function in [touch_screen,on_screen,get_image,dash_cam,sidebar_builder]:
+        for function in [touch_screen,on_screen,get_image,sidebar_builder,dash_cam]:
             thread = Thread(target=function,name=function.__name__)
             thread.start()
             threads.append(thread)
@@ -80,7 +77,7 @@ def begin():
         traceback.print_exc()
         logger.exception(ex)
     finally:
-        msg = f'processing: {processing_queue.qsize()}, display: {display_queue.qsize()}'
+        msg = f'\nprocessing: {processing_queue.qsize()}, display: {display_queue.qsize()}'
         print(msg)
         logger.info(msg)
         if wifi_flag:
@@ -107,7 +104,7 @@ def touch_screen():
                             keyboard_interrupt_flag = True
                     else:
                         x = None
-                elif keyboard_interrupt_flag: break
+                if keyboard_interrupt_flag: break
         except Exception as e:
             traceback.print_exc()
             logger.exception(e)
@@ -130,7 +127,7 @@ def on_screen():
                             frame_buffer.write(image[i])
                             frame_buffer.write(sidebar[i])
                         frame_buffer.seek(0)
-                    except:
+                    except Empty:
                         logger.warning("no image from display queue")
                     try:
                         sidebar = sidebar_queue.get(block=False)
