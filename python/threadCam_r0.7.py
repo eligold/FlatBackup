@@ -75,17 +75,18 @@ def begin():
         except:
             logger.warning("dashcam problem")
         while not keyboard_interrupt_flag:
-            if sp is not None:
+            if sp is not None and not keyboard_interrupt_flag:
                 if sp.returncode is None:
                     for l in iter(sp.stdout.readline,b''):
                         line = l.decode()
                         if "dropped" in line:
                             print(line)
-                else:
+                elif not keyboard_interrupt_flag:
                     try:
                         sp = dash_cam()
                     except:
                         logger.warning("dashcam problem")
+            if keyboard_interrupt_flag: break
             for line in iter(stdout.readline, b''):
                 if(b'value' in line and b'POSITION_X' in line):
                     x = int(line.decode().split('value')[-1])
@@ -98,11 +99,13 @@ def begin():
                             break
                     else:
                         x = None
+                if keyboard_interrupt_flag: break
     except Exception as ex:
         keyboard_interrupt_flag = True
         traceback.print_exc()
         logger.exception(ex)
     finally:
+        keyboard_interrupt_flag = True
         stdout.close()
         process.terminate()
         if sp is not None:
@@ -212,7 +215,7 @@ def sidebar_builder():
         finally:
             elm.close()
         if keyboard_interrupt_flag: break
-        sleep(2)
+        else: sleep(2)
     logger.info("exit sidebar routine")
 
 def dash_cam():
