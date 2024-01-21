@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import os, traceback, cv2, logging, numpy as np
 from subprocess import run, Popen, PIPE
-from signal import SIGINT
 from threading  import Thread
 from queue import Queue, Empty, Full, SimpleQueue
 from time import sleep, time
@@ -60,18 +59,12 @@ def begin():
            wifi_flag = True 
            run('ip link set wlan0 down',shell=True)
        # start each thread
-        for function in [touch_screen,on_screen,get_image,sidebar_builder,dash_cam]:
+        for function in [touch_screen,process_me,on_screen,get_image,sidebar_builder,dash_cam]:
             thread = Thread(target=function,name=function.__name__)
             thread.start()
             threads.append(thread)
             logger.info(f"started thread {function.__name__}")
-        while not keyboard_interrupt_flag:
-            try:
-                image = processing_queue.get(block=False)
-                processed = build_reverse_view(undistort(image))
-                display_queue.put(processed)
-            except Empty:
-                logger.warning("no frame from camera thread")
+        
     except Exception as ex:
         keyboard_interrupt_flag = True
         traceback.print_exc()
@@ -84,6 +77,15 @@ def begin():
             run('ip link set wlan0 up',shell=True)
         for thread in threads:
             thread.join()
+
+def process_me():
+    while not keyboard_interrupt_flag:
+        try:
+            image = processing_queue.get(timeout=0.05)
+            processed = build_reverse_view(undistort(image))
+            display_queue.put(processed)
+        except Empty:
+            logger.warning(f"process queue empty? p:{processing_queue.qsize()} d:{display_queue.qsize()}")
 
 def touch_screen():
     global keyboard_interrupt_flag
@@ -120,15 +122,15 @@ def on_screen():
         try:
             sidebar = sidebar_base
             with open('/dev/fb0','rb+') as frame_buffer:
-                while True:
+                while not keyboard_interrupt_flag:
                     try:
-                        image = display_queue.get(block=False)
+                        image = display_queue.get(timeout=0.05)
                         for i in range(FINAL_IMAGE_HEIGHT):
                             frame_buffer.write(image[i])
                             frame_buffer.write(sidebar[i])
                         frame_buffer.seek(0)
                     except Empty:
-                        logger.warning("no image from display queue")
+                        logger.warning(f"display queue empty? p:{processing_queue.qsize()} d:{display_queue.qsize()}")
                     try:
                         sidebar = sidebar_queue.get(block=False)
                     except Empty:
@@ -213,7 +215,7 @@ def dash_cam():
             sp = Popen(command,shell=True,stdout=PIPE,stderr=PIPE) # ,creationflags=BELOW_NORMAL_PRIORITY_CLASS) # ABOVE_NORMAL_ HIGH_ IDLE_
             while (sp.returncode is None):
                 if keyboard_interrupt_flag:
-                    sp.send_signal(SIGINT)
+                    sp.terminate()
                 sleep(0.19)
         except Exception as e:
             logger.exception(e)

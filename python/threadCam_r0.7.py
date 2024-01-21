@@ -52,6 +52,7 @@ def begin():
     global display_queue, processing_queue
     wifi_flag = False
     threads = []
+    sp = None
     try: # is the wifi connected?
         process = run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
         if process.stdout == b'up\n':
@@ -60,7 +61,7 @@ def begin():
            wifi_flag = True 
            run('ip link set wlan0 down',shell=True)
        # start each thread
-        for function in [on_screen,process_me,get_image,sidebar_builder,dash_cam]:
+        for function in [on_screen,get_image,sidebar_builder]:
             thread = Thread(target=function,name=function.__name__)
             thread.start()
             threads.append(thread)
@@ -69,18 +70,34 @@ def begin():
         process = Popen(command,shell=True,stdout=PIPE,stderr=PIPE)
         stdout = process.stdout
         x = None
-        for line in iter(stdout.readline, b''):
-            if(b'POSITION_X' in line and b'value' in line):
-                x = int(line.decode().split('value')[-1])
-            elif x is not None:
-                if x >= FINAL_IMAGE_WIDTH:
-                    y = int(line.decode().split('value')[-1])
-                    if y > 239:
-                        logger.warning(f"exit;\ttouch input (x->,y\/): {x},{y}")
-                        keyboard_interrupt_flag = True
-                        break
-                else:
-                    x = None
+        try:
+            sp = dash_cam()
+        except:
+            logger.warning("dashcam problem")
+        while not keyboard_interrupt_flag:
+            try:
+                image = processing_queue.get(timeout=0.05)
+                output = build_reverse_view(undistort(image))
+                display_queue.put(output)
+            except Empty:
+                pass
+            if sp is not None and sp.returncode is not None:
+                try:
+                    sp = dash_cam()
+                except:
+                    logger.warning("dashcam problem")
+            for line in iter(stdout.readline, b''):
+                if(b'value' in line and b'POSITION_X' in line):
+                    x = int(line.decode().split('value')[-1])
+                elif x is not None:
+                    if x >= FINAL_IMAGE_WIDTH:
+                        y = int(line.decode().split('value')[-1])
+                        if y > 239:
+                            logger.warning(f"exit;\ttouch input (x->,y\/): {x},{y}")
+                            keyboard_interrupt_flag = True
+                            break
+                    else:
+                        x = None
     except Exception as ex:
         keyboard_interrupt_flag = True
         traceback.print_exc()
@@ -88,6 +105,12 @@ def begin():
     finally:
         stdout.close()
         process.terminate()
+        if sp is not None:
+            if sp.returncode is None:
+                sp.terminate()
+                sleep(0.19)
+                if sp.returncode is None:
+                    sp.kill()
         msg = f'\nprocessing: {processing_queue.qsize()}, display: {display_queue.qsize()}'
         print(msg)
         logger.info(msg)
@@ -95,16 +118,7 @@ def begin():
             run('ip link set wlan0 up',shell=True)
         for thread in threads:
             thread.join()
-
-def process_me():
-    global display_queue, processing_queue
-    while not keyboard_interrupt_flag:
-        try:
-            image = processing_queue.get(timeout=0.05)
-            output = build_reverse_view(undistort(image))
-            display_queue.put(output)
-        except Empty:
-            logger.warning(f"processing queue empty? p:{processing_queue.qsize()} d:{display_queue.qsize()}")
+        
 
 def on_screen():
     global display_queue, sidebar_queue
@@ -197,23 +211,10 @@ def dash_cam():
     width, height = 2592, 1944
     runtime = fps * 60 * 30
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    while True:
-        try:
-            run(f"v4l2-ctl -d {camPath} -v width={width},height={height},pixelformat=MJPG",shell=True)
-            filepath = f"/media/usb/dashcam_{time():.0f}.mjpeg"
-            command = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
-            sp = Popen(command,shell=True,stdout=PIPE,stderr=PIPE) # ,creationflags=BELOW_NORMAL_PRIORITY_CLASS) # ABOVE_NORMAL_ HIGH_ IDLE_
-            while (sp.returncode is None):
-                if keyboard_interrupt_flag:
-                    sp.send_signal(SIGINT)
-                sleep(0.38)
-        except Exception as e:
-            logger.exception(e)
-        finally:
-            if sp.returncode is None:
-                sp.kill()
-        if keyboard_interrupt_flag: break
-    logger.info("exit dashcam routine")
+    run(f"v4l2-ctl -d {camPath} -v width={width},height={height},pixelformat=MJPG",shell=True)
+    filepath = f"/media/usb/dashcam_{time():.0f}.mjpeg"
+    command = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
+    return Popen(command,shell=True,stdout=PIPE,stderr=PIPE) # ,creationflags=BELOW_NORMAL_PRIORITY_CLASS) # ABOVE_NORMAL_ HIGH_ IDLE_
 
 def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
