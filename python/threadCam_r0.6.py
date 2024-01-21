@@ -64,7 +64,8 @@ def begin():
             thread.start()
             threads.append(thread)
             logger.info(f"started thread {function.__name__}")
-        
+        while not keyboard_interrupt_flag:
+            sleep(0.19)
     except Exception as ex:
         keyboard_interrupt_flag = True
         traceback.print_exc()
@@ -79,9 +80,10 @@ def begin():
             thread.join()
 
 def process_me():
+    global processing_queue, display_queue
     while not keyboard_interrupt_flag:
         try:
-            image = processing_queue.get(timeout=0.05)
+            image = processing_queue.get(timeout=0.04)
             processed = build_reverse_view(undistort(image))
             display_queue.put(processed)
         except Empty:
@@ -124,7 +126,7 @@ def on_screen():
             with open('/dev/fb0','rb+') as frame_buffer:
                 while not keyboard_interrupt_flag:
                     try:
-                        image = display_queue.get(timeout=0.05)
+                        image = display_queue.get(timeout=0.04)
                         for i in range(FINAL_IMAGE_HEIGHT):
                             frame_buffer.write(image[i])
                             frame_buffer.write(sidebar[i])

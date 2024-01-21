@@ -61,7 +61,7 @@ def begin():
            wifi_flag = True 
            run('ip link set wlan0 down',shell=True)
        # start each thread
-        for function in [on_screen,get_image,sidebar_builder]:
+        for function in [sidebar_builder,process_me,on_screen,get_image]:
             thread = Thread(target=function,name=function.__name__)
             thread.start()
             threads.append(thread)
@@ -75,17 +75,17 @@ def begin():
         except:
             logger.warning("dashcam problem")
         while not keyboard_interrupt_flag:
-            try:
-                image = processing_queue.get(timeout=0.05)
-                output = build_reverse_view(undistort(image))
-                display_queue.put(output)
-            except Empty:
-                pass
-            if sp is not None and sp.returncode is not None:
-                try:
-                    sp = dash_cam()
-                except:
-                    logger.warning("dashcam problem")
+            if sp is not None:
+                if sp.returncode is None:
+                    for l in iter(sp.stdout.readline,b''):
+                        line = l.decode()
+                        if "dropped" in line:
+                            print(line)
+                else:
+                    try:
+                        sp = dash_cam()
+                    except:
+                        logger.warning("dashcam problem")
             for line in iter(stdout.readline, b''):
                 if(b'value' in line and b'POSITION_X' in line):
                     x = int(line.decode().split('value')[-1])
@@ -118,7 +118,16 @@ def begin():
             run('ip link set wlan0 up',shell=True)
         for thread in threads:
             thread.join()
-        
+
+def process_me():
+    global processing_queue, display_queue
+    while not keyboard_interrupt_flag:
+        try:
+            image = processing_queue.get(timeout=0.04)
+            processed = build_reverse_view(undistort(image))
+            display_queue.put(processed)
+        except Empty:
+            logger.warning(f"process queue empty? p:{processing_queue.qsize()} d:{display_queue.qsize()}")
 
 def on_screen():
     global display_queue, sidebar_queue
@@ -128,7 +137,7 @@ def on_screen():
             with open('/dev/fb0','rb+') as frame_buffer:
                 while True:
                     try:
-                        image = display_queue.get(timeout=0.05)
+                        image = display_queue.get(timeout=0.04)
                         for i in range(FINAL_IMAGE_HEIGHT):
                             frame_buffer.write(image[i])
                             frame_buffer.write(sidebar[i])
