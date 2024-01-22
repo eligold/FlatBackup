@@ -54,22 +54,22 @@ def begin():
     threads = []
     sp = None
     try: # is the wifi connected?
-        process = run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
-        if process.stdout == b'up\n':
+        touch_process = run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
+        if touch_process.stdout == b'up\n':
             pass # raise KeyboardInterrupt("wifi connected")
         else: # turn off radio, no need to waste power
            wifi_flag = True 
            run('ip link set wlan0 down',shell=True)
-       # start each thread
-        for function in [sidebar_builder,process_me,on_screen,get_image]:
+          # manage BT conn here
+        for function in [sidebar_builder,undistort_and_panelize,on_screen,get_image]:
             thread = Thread(target=function,name=function.__name__)
-            thread.start()
-            threads.append(thread)
+            thread.start()          # start each thread
+            threads.append(thread)  # store them for termination later
             logger.info(f"started thread {function.__name__}")
         command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
-        process = Popen(command,shell=True,stdout=PIPE,stderr=PIPE)
-        stdout = process.stdout
-        x = None
+        touch_process = Popen(command,shell=True,stdout=PIPE,stderr=PIPE)
+        stdout = touch_process.stdout   # watch output of evtest for touch coordinates
+        x = None    # variable for the x coordinate
         try:
             sp = dash_cam()
         except:
@@ -79,7 +79,7 @@ def begin():
                 if sp.returncode is None:
                     line = sp.stdout.readline().decode()
                     if "dropped" in line:
-                        print(line)
+                        logger.info(line)
                 elif not keyboard_interrupt_flag:
                     try:
                         sp = dash_cam()
@@ -89,11 +89,11 @@ def begin():
             for line in iter(stdout.readline, b''):
                 if(b'value' in line and b'POSITION_X' in line):
                     x = int(line.decode().split('value')[-1])
-                elif x is not None:
+                elif x is not None:     # next line contains y coordinate
                     if x >= FINAL_IMAGE_WIDTH:
                         y = int(line.decode().split('value')[-1])
                         if y > 239:
-                            logger.warning(f"exit;\ttouch input (x->,y\/): {x},{y}")
+                            logger.info(f"exit;\ttouch input (x->,y\/): {x},{y}")
                             keyboard_interrupt_flag = True
                             break
                     else:
@@ -106,22 +106,20 @@ def begin():
     finally:
         keyboard_interrupt_flag = True
         stdout.close()
-        process.terminate()
+        touch_process.terminate()
         if sp is not None:
             if sp.returncode is None:
                 sp.terminate()
                 sleep(0.19)
                 if sp.returncode is None:
                     sp.kill()
-        msg = f'\nprocessing: {processing_queue.qsize()}, display: {display_queue.qsize()}'
-        print(msg)
-        logger.info(msg)
         if wifi_flag:
             run('ip link set wlan0 up',shell=True)
+            # manage BT conn here
         for thread in threads:
             thread.join()
 
-def process_me():
+def undistort_and_panelize():
     global processing_queue, display_queue
     while not keyboard_interrupt_flag:
         try:
@@ -129,7 +127,7 @@ def process_me():
             processed = build_reverse_view(undistort(image))
             display_queue.put(processed)
         except Empty:
-            logger.warning(f"process queue empty? p:{processing_queue.qsize()} d:{display_queue.qsize()}")
+            pass
 
 def on_screen():
     global display_queue, sidebar_queue
@@ -145,7 +143,7 @@ def on_screen():
                             frame_buffer.write(sidebar[i])
                         frame_buffer.seek(0)
                     except Empty:
-                        logger.warning(f"display queue empty? p:{processing_queue.qsize()} d:{display_queue.qsize()}")
+                        pass
                     try:
                         sidebar = sidebar_queue.get(block=False)
                     except Empty:
@@ -155,12 +153,12 @@ def on_screen():
             traceback.print_exc()
             logger.exception(e)
         if keyboard_interrupt_flag: break
-    logger.info("exit onscreen routine")
 
 def get_image():
     global processing_queue
     width, height = DIM
     usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
+    image = None
     while not keyboard_interrupt_flag:
         try:
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
@@ -189,8 +187,9 @@ def get_image():
         except Exception as e:
             traceback.print_exc()
             logger.exception(e)
+        if image is not None:
+            cv2.imwrite("sample.jpg",image)
         if keyboard_interrupt_flag: break
-    logger.info("exit camera routine")
 
 def sidebar_builder():
     global sidebar_queue
@@ -215,7 +214,6 @@ def sidebar_builder():
             elm.close()
         if keyboard_interrupt_flag: break
         else: sleep(2)
-    logger.info("exit sidebar routine")
 
 def dash_cam():
     fps = 15
