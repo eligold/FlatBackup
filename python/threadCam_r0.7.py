@@ -77,10 +77,9 @@ def begin():
         while not keyboard_interrupt_flag:
             if sp is not None and not keyboard_interrupt_flag:
                 if sp.returncode is None:
-                    for l in iter(sp.stdout.readline,b''):
-                        line = l.decode()
-                        if "dropped" in line:
-                            print(line)
+                    line = sp.stdout.readline().decode()
+                    if "dropped" in line:
+                        print(line)
                 elif not keyboard_interrupt_flag:
                     try:
                         sp = dash_cam()
