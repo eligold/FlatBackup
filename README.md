@@ -209,7 +209,7 @@ This project is wildly application specific but I welcome any feedback or sugges
 1. ] https://github.com/Douglas6/blueplayer/
     This script will come in handy for using touch input to control iphone audio, calls, etc.
 1. ] https://forums.raspberrypi.com/viewtopic.php?t=235519
-    my first attempt at bluetooth auto-connect for car audio involved following the steps laid out in the linked forum post but it seems like `bluez` doesn't play nice with contemporary rpiOS
+    first attempt at bluetooth auto-connect for car audio involved following the steps laid out in this forum post
 1. ] https://raspberrypi.stackexchange.com/questions/50496/automatically-accept-bluetooth-pairings/55589#55589
     ```
     sudo bluetoothctl <<EOF
@@ -221,7 +221,7 @@ This project is wildly application specific but I welcome any feedback or sugges
     EOF
     ```
 1. ] https://gist.github.com/mill1000/74c7473ee3b4a5b13f6325e9994ff84c
-    Meanwhile, this setup should make auto-connecting to my phone a breeze
+1. ] https://www.sigmdel.ca/michel/ha/rpi/bluetooth_in_rpios_02_en.html
 1. ] https://www.csselectronics.com/pages/obd2-pid-table-on-board-diagnostics-j1979
 1. ] https://raspberry-projects.com/pi/programming-in-c/uart-serial-port/using-the-uart
     Great breakdown of serial access in C++
