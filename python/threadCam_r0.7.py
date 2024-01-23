@@ -103,7 +103,6 @@ def main():
             for line in iter(stdout.readline, b''):
                 if(b'value' in line and b'POSITION_X' in line):
                     x = int(line.decode().split('value')[-1])
-                    print(x)                                                # DEBUGGING
                 elif x is not None:     # next line contains y coordinate
                     if x >= FINAL_IMAGE_WIDTH:
                         y = int(line.decode().split('value')[-1])
