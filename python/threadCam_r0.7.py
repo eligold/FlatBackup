@@ -4,9 +4,12 @@ from subprocess import run, Popen, PIPE
 from signal import SIGINT
 from threading  import Thread
 from queue import Queue, Empty, Full, SimpleQueue
-from time import sleep, time
+from time import sleep, ctime
 from ELM327 import ELM327
 
+DASHCAM_FPS = 15
+DASHCAM_IMAGE_WIDTH = 2592
+DASHCAM_IMAGE_HEIGHT = 1944
 FINAL_IMAGE_WIDTH = 1480
 FINAL_IMAGE_HEIGHT = 480
 DIM = (720,576) # PAL video dimensions
@@ -25,9 +28,16 @@ FORMAT = cv2.CAP_PROP_FOURCC
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
 
-# below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my phone screen. YMMV
-K = np.array([[309.41085232860985, 0.0, 355.4094868125207], [0.0, 329.90981352161924, 292.2015284112677], [0.0, 0.0, 1.0]])
-D = np.array([[0.013301372417500422], [0.03857464918863361], [0.004117306147228716], [-0.008896442339724364]])
+# below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
+K = np.array([                                                               # phone screen. YMMV
+        [309.41085232860985,                0.0, 355.4094868125207],
+        [0.0,                329.90981352161924, 292.2015284112677],
+        [0.0,                               0.0,               1.0]])
+D = np.array([
+    [0.013301372417500422],
+    [0.03857464918863361],
+    [0.004117306147228716],
+    [-0.008896442339724364]])
 # calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
@@ -47,48 +57,53 @@ no_signal_frame = cv2.putText(
 
 keyboard_interrupt_flag = False
 
-def begin():
+def main():
     global keyboard_interrupt_flag # signal for threads to end
     global display_queue, processing_queue
     wifi_flag = False
     threads = []
-    sp = None
+    dashcam_process = None
     try: # is the wifi connected?
-        touch_process = run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
-        if touch_process.stdout == b'up\n':
+        wifi_process = run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
+        if wifi_process.stdout == b'up\n':
             pass # raise KeyboardInterrupt("wifi connected")
         else: # turn off radio, no need to waste power
            wifi_flag = True 
            run('ip link set wlan0 down',shell=True)
           # manage BT conn here
-        for function in [sidebar_builder,undistort_and_panelize,on_screen,get_image]:
-            thread = Thread(target=function,name=function.__name__)
+        for function, name in [
+                (sidebar_builder,"sdbr"),
+                (undistort_and_panelize,"proc"),
+                (on_screen,"show"),
+                (get_image,"read")]:
+            thread = Thread(target=function,name=name)
             thread.start()          # start each thread
             threads.append(thread)  # store them for termination later
-            logger.info(f"started thread {function.__name__}")
+            logger.info(f"started thread {name}")
         command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
         touch_process = Popen(command,shell=True,stdout=PIPE,stderr=PIPE)
         stdout = touch_process.stdout   # watch output of evtest for touch coordinates
-        x = None    # variable for the x coordinate
+        x = None    # variable for the touchscreen x coordinate
         try:
-            sp = dash_cam()
+            dashcam_process = start_dash_cam()
         except:
             logger.warning("dashcam problem")
         while not keyboard_interrupt_flag:
-            if sp is not None and not keyboard_interrupt_flag:
-                if sp.returncode is None:
-                    line = sp.stdout.readline().decode()
+            if dashcam_process is not None and not keyboard_interrupt_flag:
+                if dashcam_process.returncode is None:
+                    line = dashcam_process.stdout.readline().decode()
                     if "dropped" in line:
                         logger.info(line)
                 elif not keyboard_interrupt_flag:
                     try:
-                        sp = dash_cam()
+                        dashcam_process = start_dash_cam()
                     except:
                         logger.warning("dashcam problem")
             if keyboard_interrupt_flag: break
             for line in iter(stdout.readline, b''):
                 if(b'value' in line and b'POSITION_X' in line):
                     x = int(line.decode().split('value')[-1])
+                    print(x)                                                # DEBUGGING
                 elif x is not None:     # next line contains y coordinate
                     if x >= FINAL_IMAGE_WIDTH:
                         y = int(line.decode().split('value')[-1])
@@ -107,12 +122,12 @@ def begin():
         keyboard_interrupt_flag = True
         stdout.close()
         touch_process.terminate()
-        if sp is not None:
-            if sp.returncode is None:
-                sp.terminate()
+        if dashcam_process is not None:
+            if dashcam_process.returncode is None:
+                dashcam_process.terminate()
                 sleep(0.19)
-                if sp.returncode is None:
-                    sp.kill()
+                if dashcam_process.returncode is None:
+                    dashcam_process.kill()
         if wifi_flag:
             run('ip link set wlan0 up',shell=True)
             # manage BT conn here
@@ -199,7 +214,8 @@ def sidebar_builder():
             while not keyboard_interrupt_flag:
                 sidebar = sidebar_base.copy()
                 psi = elm.psi()
-                sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
+                sidebar = putText(
+                        sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
                 sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
                 try:
                     sidebar_queue.put(sidebar)
@@ -215,15 +231,14 @@ def sidebar_builder():
         if keyboard_interrupt_flag: break
         else: sleep(2)
 
-def dash_cam():
-    fps = 15
-    width, height = 2592, 1944
-    runtime = fps * 60 * 30
+def start_dash_cam():    # sets camera attributes for proper output size and format before running
+    runtime = DASHCAM_FPS * 60 * 30
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    run(f"v4l2-ctl -d {camPath} -v width={width},height={height},pixelformat=MJPG",shell=True)
-    filepath = f"/media/usb/dashcam_{time():.0f}.mjpeg"
-    command = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
-    return Popen(command,shell=True,stdout=PIPE,stderr=PIPE) # ,creationflags=BELOW_NORMAL_PRIORITY_CLASS) # ABOVE_NORMAL_ HIGH_ IDLE_
+    format = f"width={DASHCAM_IMAGE_WIDTH},height={DASHCAM_IMAGE_HEIGHT},pixelformat=MJPG"
+    run(f"v4l2-ctl -d {camPath} -v {format}",shell=True)
+    filepath = f"/media/usb/dashcam_{ctime()}.mjpeg"
+    cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
+    return Popen(cmd,shell=True,stdout=PIPE,stderr=PIPE)
 
 def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
@@ -252,7 +267,7 @@ if __name__ == "__main__":
     handler.setFormatter(logging.Formatter('[%(levelname)s] [%(threadName)s] %(message)s'))
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    logger.addHandler(handler)  # turn off bright red LED
+    logger.addHandler(handler)      # turn off bright red LED
     run('echo none > /sys/class/leds/PWR/trigger',shell=True)
     run('echo 0 > /sys/class/leds/PWR/brightness',shell=True)
-    begin()
+    main()
