@@ -86,6 +86,7 @@ def main():
                     discoverable on\nconnect 00:00:00:00:00\ndiscoverable off\nEOF',check=True)
            logger.info(bluetooth_process.stdout)
         for function, name in [
+                (touch_screen,"touch"),
                 (sidebar_builder,"sdbr"),
                 (undistort_and_panelize,"proc"),
                 (on_screen,"show"),
