@@ -57,20 +57,34 @@ no_signal_frame = cv2.putText(
 
 keyboard_interrupt_flag = False
 
+def bash(cmd:str,shell=True,capture_output=True,check=False):
+    try:
+        return run(cmd,shell=shell,capture_output=capture_output,check=check)
+    except Exception as e:
+        traceback.print_exc()
+        logger.exception(e)
+
+def unabashed(cmd:str,shell=True,stdout=PIPE,stderr=PIPE):
+    return Popen(cmd,shell=shell,stdout=stdout,stderr=stderr)
+
 def main():
     global keyboard_interrupt_flag # signal for threads to end
     global display_queue, processing_queue
     wifi_flag = False
     threads = []
     dashcam_process = None
+    dashcam_counter = 0
+    dashcam_switch = True
     try: # is the wifi connected?
         wifi_process = run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
         if wifi_process.stdout == b'up\n':
             pass # raise KeyboardInterrupt("wifi connected")
         else: # turn off radio, no need to waste power
            wifi_flag = True 
-           run('ip link set wlan0 down',shell=True)
-          # manage BT conn here
+           bash('ip link set wlan0 down')
+           bluetooth_process = bash('bluetoothctl << EOF\nagent NoInputNoOutput\ndefault-agent\n\
+                    discoverable on\nconnect 00:00:00:00:00\ndiscoverable off\nEOF',check=True)
+           logger.info(bluetooth_process.stdout)
         for function, name in [
                 (sidebar_builder,"sdbr"),
                 (undistort_and_panelize,"proc"),
@@ -80,16 +94,12 @@ def main():
             thread.start()          # start each thread
             threads.append(thread)  # store them for termination later
             logger.info(f"started thread {name}")
-        command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
-        touch_process = Popen(command,shell=True,stdout=PIPE,stderr=PIPE)
-        stdout = touch_process.stdout   # watch output of evtest for touch coordinates
-        x = None    # variable for the touchscreen x coordinate
         try:
             dashcam_process = start_dash_cam()
-        except:
-            logger.warning("dashcam problem")
+        except Exception as e:
+            logger.exception(e)
         while not keyboard_interrupt_flag:
-            if dashcam_process is not None and not keyboard_interrupt_flag:
+            if dashcam_process is not None and dashcam_switch:
                 if dashcam_process.returncode is None:
                     line = dashcam_process.stdout.readline().decode()
                     if "dropped" in line:
@@ -97,41 +107,57 @@ def main():
                 elif not keyboard_interrupt_flag:
                     try:
                         dashcam_process = start_dash_cam()
-                    except:
-                        logger.warning("dashcam problem")
-            if keyboard_interrupt_flag: break
-            for line in iter(stdout.readline, b''):
-                if(b'value' in line and b'POSITION_X' in line):
-                    x = int(line.decode().split('value')[-1])
-                elif x is not None:     # next line contains y coordinate
-                    if x >= FINAL_IMAGE_WIDTH:
-                        y = int(line.decode().split('value')[-1])
-                        if y > 239:
-                            logger.info(f"exit;\ttouch input (x->,y\/): {x},{y}")
-                            keyboard_interrupt_flag = True
-                            break
-                    else:
-                        x = None
-                if keyboard_interrupt_flag: break
+                    except Exception as e:
+                        logger.exception(e)
+                        dashcam_counter += 1
+                        if dashcam_counter > 2:
+                            logger.error("failed to start dashcam 3x, giving up")
+                            dashcam_switch = False
     except Exception as ex:
         keyboard_interrupt_flag = True
         traceback.print_exc()
         logger.exception(ex)
     finally:
         keyboard_interrupt_flag = True
-        stdout.close()
-        touch_process.terminate()
         if dashcam_process is not None:
             if dashcam_process.returncode is None:
                 dashcam_process.terminate()
-                sleep(0.19)
+                sleep(1.9)
                 if dashcam_process.returncode is None:
                     dashcam_process.kill()
         if wifi_flag:
-            run('ip link set wlan0 up',shell=True)
-            # manage BT conn here
+           # manage BT conn here maybe
+            bash('ip link set wlan0 up',check=False)
         for thread in threads:
             thread.join()
+
+def touch_screen():
+    global keyboard_interrupt_flag
+    command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
+    stdout = None
+    while not keyboard_interrupt_flag:
+        try:
+            process = unabashed(command)
+            stdout = process.stdout   # watch output of evtest for touch coordinates
+            if('POSITION_X' in line and 'value' in line):
+                x = int(line.split('value')[-1])
+                if x >= FINAL_IMAGE_WIDTH:
+                    line = stdout.readline().decode()
+                    y = int(line.split('value')[-1])
+                    if y > 239:
+                        logger.warning(f"exit;\ttouch input (X=>,Y=v) {x},{y}")
+                        keyboard_interrupt_flag = True
+            if keyboard_interrupt_flag: break
+        except Exception as e:
+            traceback.print_exc()
+            logger.exception(e)
+        finally:
+            if stdout is not None:
+                stdout.close()
+            process.terminate()
+        if keyboard_interrupt_flag: break
+    logger.info("exit touchscreen routine")
+    return
 
 def undistort_and_panelize():
     global processing_queue, display_queue
@@ -142,6 +168,7 @@ def undistort_and_panelize():
             display_queue.put(processed)
         except Empty:
             pass
+    return
 
 def on_screen():
     global display_queue, sidebar_queue
@@ -167,6 +194,7 @@ def on_screen():
             traceback.print_exc()
             logger.exception(e)
         if keyboard_interrupt_flag: break
+    return
 
 def get_image():
     global processing_queue
@@ -194,16 +222,17 @@ def get_image():
                         if success:
                             processing_queue.put(image)
                         else:
-                            logger.error("bad UVC read!")
+                            pass
                 finally:
                     logger.warning("release camera resource")
                     camera.release()
         except Exception as e:
             traceback.print_exc()
             logger.exception(e)
-        if image is not None:
+        if success:
             cv2.imwrite("sample.jpg",image)
         if keyboard_interrupt_flag: break
+    return
 
 def sidebar_builder():
     global sidebar_queue
@@ -229,15 +258,16 @@ def sidebar_builder():
             elm.close()
         if keyboard_interrupt_flag: break
         else: sleep(2)
+    return
 
 def start_dash_cam():    # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     format = f"width={DASHCAM_IMAGE_WIDTH},height={DASHCAM_IMAGE_HEIGHT},pixelformat=MJPG"
-    run(f"v4l2-ctl -d {camPath} -v {format}",shell=True)
+    bash(f"v4l2-ctl -d {camPath} -v {format}",check=False)
     filepath = f"/media/usb/dashcam_{ctime()}.mjpeg"
     cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
-    return Popen(cmd,shell=True,stdout=PIPE,stderr=PIPE)
+    return unabashed(cmd)
 
 def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)

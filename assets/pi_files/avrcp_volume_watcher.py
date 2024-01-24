@@ -7,7 +7,7 @@ import logging.handlers
 import signal
 import dbus
 import dbus.service
-import dbus.mainloop.glib
+import dbus.mainloop.glib # maybe after below import?
 
 try:
     import gobject

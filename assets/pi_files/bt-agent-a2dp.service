@@ -6,6 +6,7 @@ Wants=bluetooth.service
 [Service]
 ExecStartPre=/bin/sh -c "echo discoverable on | bluetoothctl"
 ExecStart=/usr/bin/python -u /usr/local/bin/a2dp-agent
+#ExecStartPost=/bin/sh -c "echo discoverable off | bluetoothctl"
 StandardOutput=syslog
 StandardError=syslog
 SyslogIdentifier=A2DP-Agent

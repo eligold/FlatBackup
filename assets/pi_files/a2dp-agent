@@ -5,11 +5,11 @@ from __future__ import absolute_import, print_function, unicode_literals
 import sys
 import dbus
 import dbus.service
-import dbus.mainloop.glib
 try:
-  from gi.repository import GObject
+    from gi.repository import GObject
 except ImportError:
-  import gobject as GObject
+    import gobject as GObject
+import dbus.mainloop.glib
 
 AGENT_INTERFACE = "org.bluez.Agent1"
 AGENT_PATH = "/test/agent"
@@ -34,10 +34,10 @@ class Agent(dbus.service.Object):
 					in_signature="os", out_signature="")
 	def AuthorizeService(self, device, uuid):
 		print("AuthorizeService (%s, %s)" % (device, uuid))
-                if uuid == "0000110d-0000-1000-8000-00805f9b34fb":
-                    print("Authorized A2DP Service")
-                    return
-                print("Rejecting non-A2DP Service")
+		if uuid == "0000110d-0000-1000-8000-00805f9b34fb":
+			print("Authorized A2DP Service")
+			return
+		print("Rejecting non-A2DP Service")
 		raise Rejected("Connection rejected")
 
 	@dbus.service.method(AGENT_INTERFACE,

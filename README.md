@@ -181,7 +181,7 @@ This project is wildly application specific but I welcome any feedback or sugges
     ```
     v4l2-ctl -v width=2592,height=1944,pixelformat=MJPG
     v4l2-ctl --stream-mmap=3 --stream-count=100 --stream-to=unique_path.mjpeg
-    vlc --demux=mjpeg --mjpeg-fps=10 unique_path.mjpeg
+    cvlc --demux=mjpeg --mjpeg-fps=15 unique_path.mjpeg
     ```
 1. ] https://stackoverflow.com/questions/11436502/closing-all-threads-with-a-keyboard-interrupt h/t [Paul Seeb](https://stackoverflow.com/a/11436603)
     ```
