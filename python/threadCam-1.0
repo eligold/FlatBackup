@@ -44,7 +44,6 @@ mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv
 
 processing_queue = SimpleQueue()
 display_queue = SimpleQueue()
-touch_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
 
 sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
@@ -70,10 +69,9 @@ def unabashed(cmd:str,shell=True,stdout=PIPE,stderr=PIPE):
 
 def main():
     global keyboard_interrupt_flag # signal for threads to end
-    global display_queue, processing_queue, touch_queue
+    global display_queue, processing_queue
     wifi_flag = False
     threads = []
-    dashcam_process = None
     with open("/root/.btmac","r") as file:
         mac = file.readline()
     bluetoothctl_lines = [
@@ -89,10 +87,8 @@ def main():
             else: # turn off radio, no need to waste power
                 wifi_flag = True 
                 bash('ip link set wlan0 down')
-                bluetooth_process = bash('\n'.join(bluetoothctl_lines))
-                logger.info(bluetooth_process.stdout.decode())
+                bluetooth_process = unabashed('\n'.join(bluetoothctl_lines))
             for function, name in [
-                    (touch_screen,"touch"),
                     (sidebar_builder,"sdbr"),
                     (undistort_and_panelize,"proc"),
                     (on_screen,"show"),
@@ -102,71 +98,62 @@ def main():
                 thread.start()          # start each thread
                 threads.append(thread)  # store them for termination later
                 logger.info(f"started thread {name}")
+            command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
+            stdout = None
+            touch_process = None
+            for line in bluetooth_process.stdout.readlines():
+                logger.info(line.decode())
+            ret = bluetooth_process.returncode
+            logger.info("Bluetooth success?" if ret == 0 else f"BT return code: {ret}")
             while not keyboard_interrupt_flag:
                 try:
-                    line = touch_queue.get(block=False)
-                    if("POSITION_X" in line and "value" in line):
-                        x = int(line.split("value")[-1])
-                        if x >= FINAL_IMAGE_WIDTH:
-                            line = touch_queue.get()
-                            y = int(line.split("value")[-1])
-                            if y > 239:
-                                logger.warning(f'exit;\ttouch input ( X: > , Y: v ) {x}x , {y}y')
-                                keyboard_interrupt_flag = True
-                except Empty:
-                    pass
+                    touch_process = unabashed(command)
+                    stdout = touch_process.stdout   # watch output of evtest for touch coordinates
+                    for line in iter(stdout.readline,b''):
+                        if("POSITION_X" in line and "value" in line):
+                            x = int(line.split("value")[-1])
+                            if x >= FINAL_IMAGE_WIDTH:
+                                line = stdout.readline().decode()
+                                y = int(line.split("value")[-1])
+                                if y > 239:
+                                    logger.warning(f'exit;\ttouch input ( X: > , Y: v ) {x}x , {y}y')
+                                    keyboard_interrupt_flag = True
+                        if keyboard_interrupt_flag: break
+                except Exception as e:
+                    logger.exception(e)
         except Exception as ex:
             keyboard_interrupt_flag = True
             traceback.print_exc()
             logger.exception(ex)
         finally:
+            logger.info(f"proc: {processing_queue.qsize()}\tdisp: {display_queue.qsize()}")
             keyboard_interrupt_flag = True
-            if dashcam_process is not None:
-                if dashcam_process.returncode is None:
-                    dashcam_process.terminate()
-                    sleep(1.9)
-                    if dashcam_process.returncode is None:
-                        dashcam_process.kill()
+            if stdout:
+                stdout.close()
+            if touch_process:
+                touch_process.terminate()
             if wifi_flag:
             # manage BT conn here maybe
                 bash('ip link set wlan0 up',check=False)
             for thread in threads:
                 thread.join()
 
-def touch_screen():
-    global keyboard_interrupt_flag
-    global touch_queue
-    command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
-    stdout = None
-    while not keyboard_interrupt_flag:
-        try:
-            process = unabashed(command)
-            stdout = process.stdout   # watch output of evtest for touch coordinates
-            for line in iter(stdout.readline,b''):
-                touch_queue.put(line.decode())
-                if keyboard_interrupt_flag: break
-        except Exception as e:
-            traceback.print_exc()
-            logger.exception(e)
-        finally:
-            if stdout is not None:
-                stdout.close()
-            process.terminate()
-    return
-
 def undistort_and_panelize():
     global processing_queue, display_queue
+    empty_counter = 0
     while not keyboard_interrupt_flag:
         try:
             image = processing_queue.get(timeout=0.04)
             processed = build_reverse_view(undistort(image))
             display_queue.put(processed)
         except Empty:
-            pass
+            empty_counter += 1
+    logger.info(f"empty exc count: {empty_counter}")
     return
 
 def on_screen():
     global display_queue, sidebar_queue
+    empty_counter = 0
     while not keyboard_interrupt_flag:
         try:
             sidebar = sidebar_base
@@ -179,7 +166,7 @@ def on_screen():
                             frame_buffer.write(sidebar[i])
                         frame_buffer.seek(0)
                     except Empty:
-                        pass
+                        empty_counter += 1
                     try:
                         sidebar = sidebar_queue.get(block=False)
                     except Empty:
@@ -189,6 +176,7 @@ def on_screen():
             traceback.print_exc()
             logger.exception(e)
         if keyboard_interrupt_flag: break
+    logger.info(f"empty exc count: {empty_counter}")
     return
 
 def get_image():
@@ -196,6 +184,7 @@ def get_image():
     width, height = DIM
     usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     image = None
+    read_fail_count = 0
     while not keyboard_interrupt_flag:
         try:
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
@@ -217,16 +206,14 @@ def get_image():
                         if success:
                             processing_queue.put(image)
                         else:
-                            pass
+                            read_fail_count += 1
                 finally:
                     logger.warning("release camera resource")
                     camera.release()
         except Exception as e:
             traceback.print_exc()
             logger.exception(e)
-        if success:
-            cv2.imwrite("sample.jpg",image)
-        if keyboard_interrupt_flag: break
+    logger.info(f"UVC read fail count: {read_fail_count}")
     return
 
 def sidebar_builder():
@@ -240,12 +227,7 @@ def sidebar_builder():
                 sidebar = putText(
                         sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
                 sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
-                try:
-                    sidebar_queue.put(sidebar)
-                except Full:
-                    sidebar_queue.get()
-                    sidebar_queue.put(sidebar)
-                if keyboard_interrupt_flag: break
+                sidebar_queue.put(sidebar)
         except Exception as e:
             traceback.print_exc()
             logger.exception(e)
@@ -253,6 +235,7 @@ def sidebar_builder():
             elm.close()
         if keyboard_interrupt_flag: break
         else: sleep(2)
+    logger.info(f"queue size: {sidebar_queue.qsize()}")
     return
 
 def dash_camera():
@@ -261,7 +244,7 @@ def dash_camera():
         try:
             dashcam_process = start_dash_cam()
             while not keyboard_interrupt_flag:
-                if dashcam_process.returncode is not None:
+                if dashcam_process.returncode == 0:
                     for line in dashcam_process.stdout.readlines():
                         logger.info(line.decode())
                     logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
@@ -273,7 +256,7 @@ def dash_camera():
         except Exception as e:
             logger.exception(e)
     finally:
-        if dashcam_process is not None:
+        if dashcam_process:
             dashcam_process.terminate()
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
