@@ -78,11 +78,8 @@ def main():
         mac = file.readline()
     bluetoothctl_lines = [
             'bluetoothctl << EOF',
-            'agent NoInputNoOutput',
-            'default-agent',
-            'discoverable on',
             f'connect {mac}',
-            'discoverable off',
+            f'info {mac}',
             'EOF']
     while not keyboard_interrupt_flag:
         try: # is the wifi connected?
@@ -99,26 +96,13 @@ def main():
                     (sidebar_builder,"sdbr"),
                     (undistort_and_panelize,"proc"),
                     (on_screen,"show"),
-                    (get_image,"read")]:
+                    (get_image,"read"),
+                    (dash_camera,"dash")]:
                 thread = Thread(target=function,name=name)
                 thread.start()          # start each thread
                 threads.append(thread)  # store them for termination later
                 logger.info(f"started thread {name}")
-            try:
-                dashcam_process = start_dash_cam()
-            except Exception as e:
-                logger.exception(e)
             while not keyboard_interrupt_flag:
-                if dashcam_process is not None:
-                    if dashcam_process.returncode is None:
-                        line = dashcam_process.stdout.readline().decode()
-                        if "dropped" in line:
-                            logger.info(line)
-                    elif not keyboard_interrupt_flag:
-                        try:
-                            dashcam_process = start_dash_cam()
-                        except Exception as e:
-                            logger.exception(e)
                 try:
                     line = touch_queue.get(block=False)
                     if("POSITION_X" in line and "value" in line):
@@ -271,7 +255,28 @@ def sidebar_builder():
         else: sleep(2)
     return
 
-def start_dash_cam():    # sets camera attributes for proper output size and format before running
+def dash_camera():
+    dashcam_process = None
+    try:
+        try:
+            dashcam_process = start_dash_cam()
+            while not keyboard_interrupt_flag:
+                if dashcam_process.returncode is not None:
+                    for line in dashcam_process.stdout.readlines():
+                        logger.info(line.decode())
+                    logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
+                    try:
+                        dashcam_process = start_dash_cam()
+                    except Exception as e:
+                        logger.exception(e)
+                else: sleep(0.19)
+        except Exception as e:
+            logger.exception(e)
+    finally:
+        if dashcam_process is not None:
+            dashcam_process.terminate()
+
+def start_dash_cam(): # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     format = f"width={DASHCAM_IMAGE_WIDTH},height={DASHCAM_IMAGE_HEIGHT},pixelformat=MJPG"
