@@ -23,7 +23,7 @@ Doesn't get much more seamless than that 👌
 
 The output from my newly installed camera was initially displayed on a cheap flip up display from Amazon or eBay or wherever. It was somehow always too dim in the daytime and too bright at night and had an annoying habit of sliding around despite the thoughtful inclusion of a small square bit of drawer liner for use on the dashboard. I knew I would have to find a better long-term solution. With the distortion from the wide angle lens not much useful detail could be made out on the standard 4:3 ratio screen size and displaying the camera's view of my own license plate seems like kind of a waste of resources. Having already retrofitted my [Scoshe wireless charger](https://www.amazon.com/MCQVP-XTET-MagicMount-Magnetic-Qi-Certified-FreeFlow/dp/B07Z7CYRD2?th=1) and a more stable screen to my [Clearmounts dashboard bracket](https://www.audiphoneholder.com/product/78/clearmounts-bracket-low-profile-magnetic-holder-part-8p-low), an idea began to take shape...
 
-<img src="./assets/doc/flipscreen.jpg?raw=true" alt="flip screen image failed to load" width="5ss5%">
+<img src="./assets/doc/flipscreen.jpg?raw=true" alt="flip screen image failed to load" width="55%">
 
 ### Project Components
 #### > Touchscreen and Raspberry Pi
