@@ -277,9 +277,9 @@ def start_dash_cam():    # sets camera attributes for proper output size and for
     format = f"width={DASHCAM_IMAGE_WIDTH},height={DASHCAM_IMAGE_HEIGHT},pixelformat=MJPG"
     bash(f"v4l2-ctl -d {camPath} -v {format}",check=False)
     local_time = localtime()
-    day = "-".join([local_time.tm_year,local_time.tm_mon,local_time.tm_mday])
-    clock_time = ".".join([local_time.tm_hour,local_time.tm_min,local_time.tm_sec])
-    weekday = (lambda i : {'Mo','Tu','We','Th','Fr','Sa','Su'}[i])(local_time.tm_wday)
+    day = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
+    clock_time = f"{local_time.tm_hour:02d}.{local_time.tm_min:02d}.{local_time.tm_sec:02d}"
+    weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
     filepath = f"/media/usb/{'_'.join([day,clock_time,weekday])}.mjpeg"
     cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
     return unabashed(cmd)

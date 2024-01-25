@@ -1,0 +1,32 @@
+Device D4:68:AA:2D:9C:F5 (public)
+	Name: ASUS_E8_2G
+	Alias: ASUS_E8_2G
+	Class: 0x007a020c
+	Icon: phone
+	Paired: yes
+	Trusted: yes
+	Blocked: no
+	Connected: no
+	LegacyPairing: no
+	UUID: Vendor specific           (00000000-deca-fade-deca-deafdecacafe)
+	UUID: Service Discovery Serve.. (00001000-0000-1000-8000-00805f9b34fb)
+	UUID: Audio Source              (0000110a-0000-1000-8000-00805f9b34fb)
+	UUID: A/V Remote Control Target (0000110c-0000-1000-8000-00805f9b34fb)
+	UUID: Advanced Audio Distribu.. (0000110d-0000-1000-8000-00805f9b34fb)
+	UUID: A/V Remote Control        (0000110e-0000-1000-8000-00805f9b34fb)
+	UUID: NAP                       (00001116-0000-1000-8000-00805f9b34fb)
+	UUID: Handsfree Audio Gateway   (0000111f-0000-1000-8000-00805f9b34fb)
+	UUID: Phonebook Access Server   (0000112f-0000-1000-8000-00805f9b34fb)
+	UUID: Message Access Server     (00001132-0000-1000-8000-00805f9b34fb)
+	UUID: PnP Information           (00001200-0000-1000-8000-00805f9b34fb)
+	UUID: Generic Access Profile    (00001800-0000-1000-8000-00805f9b34fb)
+	UUID: Generic Attribute Profile (00001801-0000-1000-8000-00805f9b34fb)
+	UUID: Current Time Service      (00001805-0000-1000-8000-00805f9b34fb)
+	UUID: Device Information        (0000180a-0000-1000-8000-00805f9b34fb)
+	UUID: Battery Service           (0000180f-0000-1000-8000-00805f9b34fb)
+	UUID: Vendor specific           (02030302-1d19-415f-86f2-22a2106a0a77)
+	UUID: Vendor specific           (7905f431-b5ce-4e99-a40f-4b1e122d00d0)
+	UUID: Vendor specific           (89d3502b-0f36-433a-8ef4-c502ad55f8dc)
+	UUID: Vendor specific           (9fa480e0-4967-4542-9390-d343dc5d04ae)
+	UUID: Vendor specific           (d0611e78-bbb4-4591-a5f8-487910ae4366)
+	Modalias: bluetooth:v004Cp7510d1010
