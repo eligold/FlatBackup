@@ -58,6 +58,7 @@ class ELM327:
             if self.volts() > 12.1 or time() > self.checktime:
                 self.__init__()
                 return self.psi()
+            sleep(0.19)
             return 19.0
 
     def volts(self):

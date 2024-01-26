@@ -4,3 +4,4 @@ python-old
 assets/img
 __pycache__
 *.log
+.btmac

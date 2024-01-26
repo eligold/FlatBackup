@@ -109,7 +109,8 @@ def main():
                 try:
                     touch_process = unabashed(command)
                     stdout = touch_process.stdout   # watch output of evtest for touch coordinates
-                    for line in iter(stdout.readline,b''):
+                    while not keyboard_interrupt_flag:
+                        line = stdout.readline().decode()
                         if("POSITION_X" in line and "value" in line):
                             x = int(line.split("value")[-1])
                             if x >= FINAL_IMAGE_WIDTH:
