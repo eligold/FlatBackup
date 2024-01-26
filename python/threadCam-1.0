@@ -45,6 +45,7 @@ new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 
 processing_queue = SimpleQueue()
+panel_queue = SimpleQueue()
 display_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
 
@@ -71,14 +72,9 @@ def unabashed(cmd:str,shell=True,stdout=PIPE,stderr=PIPE):
 
 def main():
     global exit_flag # signal for threads to end
-    global display_queue, processing_queue
+    global display_queue, processing_queue, panel_queue
     wifi_flag = False
     threads = []
-
-
-    start_time = time()
-
-
     with open("/root/.btmac","r") as file:
         mac = file.readline()
     bluetoothctl_lines = [
@@ -95,7 +91,7 @@ def main():
             pass # raise KeyboardInterrupt("wifi connected")
         else: # turn off radio, no need to waste power
             wifi_flag = unabashed('ip link set wlan0 down').wait() == 0
-            bluetooth_process = unabashed(f"bluetoothctl connect {mac}") # '\n'.join(bluetoothctl_lines))
+        bluetooth_process = unabashed(f"bluetoothctl connect {mac}") # '\n'.join(bluetoothctl_lines))
 
 
         thread_start_time = time()
@@ -103,7 +99,8 @@ def main():
 
         for function, name in [
                 (sidebar_builder,"sdbr"),
-                (undistort_and_panelize,"proc"),
+                (undistorter,"proc"),
+                (panelize,"pane"),
                 (on_screen,"show"),
                 (get_image,"read")]:
             thread = Thread(target=function,name=name)
@@ -121,17 +118,7 @@ def main():
         for bt_line in bluetooth_process.stdout.readlines():
             logger.info(bt_line.decode())
         logger.info("Bluetooth success?" if ret == 0 else f"BT return code: {ret}")
-
-
-        dash_start_time = time()
-
-
         dashcam_process = start_dash_cam()
-
-
-        dash_after_start_time = time()
-
-
         while not exit_flag:
             try:
                 touch_process = unabashed(touch_command)
@@ -149,23 +136,16 @@ def main():
                                 logger.warning(f'exit;\ttouch input ( X: > , Y: v ) {x}x , {y}y')
                                 exit_flag = True
                     if exit_flag: break
-
-
-                    logger.info(f"1: {time()}")
-
-
                     if dashcam_process.returncode == 0:
                         for dash_line in dashcam_process.stdout.readlines():
                             logger.info(dash_line.decode())
                         logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
                         dashcam_process = start_dash_cam()
-
-
-                    logger.info(f"2: {time()}")
                     if time() > t + 1:
                         t = time()
                         snapshot = tracemalloc.take_snapshot()
                         snapshot.dump(f"/root/memdump{count:03d}")
+                        count += 1
 
 
             except Exception as e:
@@ -175,15 +155,9 @@ def main():
         traceback.print_exc()
         logger.exception(ex)
     finally:
-        finally_time = time()
-        full_time = finally_time - start_time
-        thread_time = thread_start_time - start_time
-        threadset_time = thread_start_done_time - start_time
-        dash_time = dash_start_time - start_time
-        dash_done_time =  dash_after_start_time - start_time
-        logger.info(f"program lasted {full_time}s, {thread_time}s to get to thread init, {threadset_time}s to finish thread init, {dash_time}s to start dash which finished at {dash_done_time}s")
         logger.info(f"proc: {processing_queue.qsize()}\tdisp: {display_queue.qsize()}")
-        for l in tracemalloc.take_snapshot().statistics('traceback')[:10]:
+        logger.info(f"pane: {panel_queue.qsize()}")
+        for l in tracemalloc.take_snapshot().statistics('lineno')[:10]:
             logger.info(l)
         exit_flag = True
         if stdout:
@@ -198,17 +172,32 @@ def main():
         for thread in threads:
             thread.join()
 
-def undistort_and_panelize():
-    global processing_queue, display_queue
+def undistorter():
+    global processing_queue, panel_queue
     empty_counter = 0
     while not exit_flag:
         try:
             image = processing_queue.get(timeout=0.04)
-            processed = build_reverse_view(undistort(image))
+            processed = undistort(image)
+            try:
+                panel_queue.put(processed)
+            except Full:
+                logger.error("panel queue full?")
+        except Empty:
+            empty_counter += 1
+    logger.info(f"empty exc count: {empty_counter}")
+
+def panelize():
+    global panel_queue, display_queue
+    empty_counter = 0
+    while not exit_flag:
+        try:
+            image = panel_queue.get(timeout=0.04)
+            processed = build_reverse_view(image)
             try:
                 display_queue.put(processed)
             except Full:
-                logger.error("disp queue full?")
+                logger.error("disp queue full")
         except Empty:
             empty_counter += 1
     logger.info(f"empty exc count: {empty_counter}")
