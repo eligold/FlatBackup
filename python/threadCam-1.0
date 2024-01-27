@@ -154,9 +154,8 @@ def undistort_and_panelize():
         try:
             image = processing_queue.get(timeout=0.04)
             try:
-                start = perf_counter()
-                display_queue.put(build_reverse_view(undistort(image)))
-                logger.info(f"{perf_counter()-start}s")
+                result = build_reverse_view(image)
+                display_queue.put(result)
             except Full:
                 logger.error("disp queue full?")
             image = None
@@ -173,7 +172,7 @@ def on_screen():
             with open('/dev/fb0','rb+') as frame_buffer:
                 while True:
                     try:
-                        image = display_queue.get(timeout=0.04)
+                        image = display_queue.get(timeout=0.04).get()
                         for i in range(FINAL_IMAGE_HEIGHT):
                             frame_buffer.write(image[i])
                             frame_buffer.write(sidebar[i])
@@ -218,7 +217,7 @@ def get_image():
                         success, image = camera.read()
                         if success:
                             try:
-                                processing_queue.put(cv2.UMat(image))
+                                processing_queue.put(undistort(cv2.UMat(image)))
                             except Full:
                                 logger.error("proc queue full?")
                         else:
@@ -298,9 +297,9 @@ def undistort(image):
     return cv2.remap(image,mapx,mapy,interpolation=CUBIC)
 
 def build_reverse_view(img):
-    image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
-    middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=CUBIC)
-    combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
+    image = cv2.UMat(cv2.resize(img,SDIM,interpolation=CUBIC),[64,556])
+    middle = cv2.resize(cv2.UMat(image,[213,453],[220,740]),FDIM,interpolation=CUBIC)
+    combo = cv2.hconcat([cv2.UMat(image,[8,488],[0,220]),middle,cv2.UMat(image,[0,480],[740,960])])
     return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
 
 def putText(img, text, origin=(0,480), #bottom left
