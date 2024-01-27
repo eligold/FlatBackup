@@ -91,9 +91,10 @@ def main():
         bluetooth_process = unabashed(f"bluetoothctl connect {mac}") # '\n'.join(bluetoothctl_lines))
         for function, name in [
                 (sidebar_builder,"sdbr"),
-                (undistort_and_panelize,"proc"),
+                (undistort_and_panelize,"prc1"),
                 (on_screen,"show"),
-                (get_image,"read")]:
+                (get_image,"read"),
+                (undistort_and_panelize,"prc2")]:
             thread = Thread(target=function,name=name)
             thread.start()          # start each thread
             threads.append(thread)  # store them for termination later
@@ -152,10 +153,10 @@ def undistort_and_panelize():
     empty_counter = 0
     while not exit_flag:
         try:
-            image = processing_queue.get(timeout=0.04)
+            num, image = processing_queue.get(timeout=0.08)
             try:
-                result = build_reverse_view(image)
-                display_queue.put(result)
+                display_queue.put(num,undistort(build_reverse_view(image)))
+                image = None
             except Full:
                 logger.error("disp queue full?")
             image = None
@@ -167,16 +168,26 @@ def on_screen():
     global display_queue, sidebar_queue
     empty_counter = 0
     while not exit_flag:
+        lastnum = 0
         try:
             sidebar = sidebar_base
             with open('/dev/fb0','rb+') as frame_buffer:
                 while True:
                     try:
-                        image = display_queue.get(timeout=0.04).get()
+                        num, image = display_queue.get(timeout=0.04).get()
+                        if lastnum and num - lastnum > 1:
+                            newnum, nimage = display_queue.get(timeout=0.04).get()
+                            if newnum > num:
+                                raise Exception("MISSED A FRAME!")
+                            for i in range(FINAL_IMAGE_HEIGHT):
+                                frame_buffer.write(nimage[i])
+                                frame_buffer.write(sidebar[i])
+                            frame_buffer.seek(0)
                         for i in range(FINAL_IMAGE_HEIGHT):
                             frame_buffer.write(image[i])
                             frame_buffer.write(sidebar[i])
                         frame_buffer.seek(0)
+                        lastnum = num
                     except Empty:
                         empty_counter += 1
                     image = None                            # HI IM HERE
@@ -211,19 +222,22 @@ def get_image():
                 fps = (int(camera.get(FPS)))
                 logger.info(f"camera resolution: {size[0]}x{size[1]}\t@ {fps}FPS")
                 camera.read()
+                counter = 0
                 try:
                     while camera.isOpened():
                         if exit_flag: break
+                        while not processing_queue.empty(): logger.info("here we go again. maybe a longer line wastes more cycles?")
                         success, image = camera.read()
                         if success:
                             try:
-                                processing_queue.put(undistort(cv2.UMat(image)))
+                                processing_queue.put(counter,cv2.UMat(image))
+                                counter += 1
                             except Full:
                                 logger.error("proc queue full?")
                         else:
                             read_fail_count += 1
                 finally:
-                    logger.warning("release camera resource")
+                    logger.info("release camera resource")
                     camera.release()
         except Exception as e:
             traceback.print_exc()
@@ -249,7 +263,6 @@ def sidebar_builder():
             elm.close()
         if exit_flag: break
         else: sleep(2)
-    logger.info(f"queue size: {sidebar_queue.qsize()}")
 
 def dash_camera():
     dashcam_process = None
