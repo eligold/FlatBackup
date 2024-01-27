@@ -4,11 +4,9 @@ from subprocess import run, Popen, PIPE
 from signal import SIGINT
 from threading  import Thread
 from queue import Empty, Full, SimpleQueue
-from time import sleep, time, localtime
+from time import sleep, time, localtime, perf_counter
 from ELM327 import ELM327
-import tracemalloc
 
-tracemalloc.start()
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
 DASHCAM_IMAGE_HEIGHT = 1944
@@ -45,7 +43,6 @@ new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 
 processing_queue = SimpleQueue()
-panel_queue = SimpleQueue()
 display_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
 
@@ -92,26 +89,15 @@ def main():
         else: # turn off radio, no need to waste power
             wifi_flag = unabashed('ip link set wlan0 down').wait() == 0
         bluetooth_process = unabashed(f"bluetoothctl connect {mac}") # '\n'.join(bluetoothctl_lines))
-
-
-        thread_start_time = time()
-
-
         for function, name in [
                 (sidebar_builder,"sdbr"),
-                (undistorter,"proc"),
-                (panelize,"pane"),
+                (undistort_and_panelize,"proc"),
                 (on_screen,"show"),
                 (get_image,"read")]:
             thread = Thread(target=function,name=name)
             thread.start()          # start each thread
             threads.append(thread)  # store them for termination later
             logger.info(f"started thread {name}")
-
-
-        thread_start_done_time = time()
-
-
         stdout = None
         touch_process = None
         ret = bluetooth_process.wait()
@@ -122,9 +108,7 @@ def main():
         while not exit_flag:
             try:
                 touch_process = unabashed(touch_command)
-                stdout = touch_process.stdout   # watch output of evtest for touch coordinates
-                t = time()
-                count = 0
+                stdout = touch_process.stdout
                 while not exit_flag:
                     line = stdout.readline().decode()
                     if("POSITION_X" in line and "value" in line):
@@ -133,21 +117,15 @@ def main():
                             line = stdout.readline().decode()
                             y = int(line.split("value")[-1])
                             if y > 239:
-                                logger.warning(f'exit;\ttouch input ( X: > , Y: v ) {x}x , {y}y')
+                                logger.warning(f'exit:\ttouch input ( X: > , Y: v ) {x} , {y}')
                                 exit_flag = True
                     if exit_flag: break
                     if dashcam_process.returncode == 0:
                         for dash_line in dashcam_process.stdout.readlines():
                             logger.info(dash_line.decode())
                         logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
+                        if exit_flag: break
                         dashcam_process = start_dash_cam()
-                    if time() > t + 1:
-                        t = time()
-                        snapshot = tracemalloc.take_snapshot()
-                        snapshot.dump(f"/root/memdump{count:03d}")
-                        count += 1
-
-
             except Exception as e:
                 logger.exception(e)
     except Exception as ex:
@@ -156,9 +134,6 @@ def main():
         logger.exception(ex)
     finally:
         logger.info(f"proc: {processing_queue.qsize()}\tdisp: {display_queue.qsize()}")
-        logger.info(f"pane: {panel_queue.qsize()}")
-        for l in tracemalloc.take_snapshot().statistics('lineno')[:10]:
-            logger.info(l)
         exit_flag = True
         if stdout:
             stdout.close()
@@ -172,32 +147,19 @@ def main():
         for thread in threads:
             thread.join()
 
-def undistorter():
-    global processing_queue, panel_queue
+def undistort_and_panelize():
+    global processing_queue, display_queue
     empty_counter = 0
     while not exit_flag:
         try:
             image = processing_queue.get(timeout=0.04)
-            processed = undistort(image)
             try:
-                panel_queue.put(processed)
+                start = perf_counter()
+                display_queue.put(build_reverse_view(undistort(image)))
+                logger.info(f"{perf_counter()-start}s")
             except Full:
-                logger.error("panel queue full?")
-        except Empty:
-            empty_counter += 1
-    logger.info(f"empty exc count: {empty_counter}")
-
-def panelize():
-    global panel_queue, display_queue
-    empty_counter = 0
-    while not exit_flag:
-        try:
-            image = panel_queue.get(timeout=0.04)
-            processed = build_reverse_view(image)
-            try:
-                display_queue.put(processed)
-            except Full:
-                logger.error("disp queue full")
+                logger.error("disp queue full?")
+            image = None
         except Empty:
             empty_counter += 1
     logger.info(f"empty exc count: {empty_counter}")
@@ -218,6 +180,7 @@ def on_screen():
                         frame_buffer.seek(0)
                     except Empty:
                         empty_counter += 1
+                    image = None                            # HI IM HERE
                     try:
                         sidebar = sidebar_queue.get(block=False)
                     except Empty:
@@ -255,7 +218,7 @@ def get_image():
                         success, image = camera.read()
                         if success:
                             try:
-                                processing_queue.put(image)
+                                processing_queue.put(cv2.UMat(image))
                             except Full:
                                 logger.error("proc queue full?")
                         else:
@@ -331,10 +294,11 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     return camera
 
 def undistort(image):
-    undistorted = cv2.remap(image,mapx,mapy,interpolation=CUBIC)
-    return cv2.resize(undistorted,SDIM,interpolation=CUBIC)[64:556]
+    # image = ; return image?
+    return cv2.remap(image,mapx,mapy,interpolation=CUBIC)
 
-def build_reverse_view(image):
+def build_reverse_view(img):
+    image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
     middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=CUBIC)
     combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
     return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
@@ -352,5 +316,5 @@ if __name__ == "__main__":
     logger.setLevel(logging.INFO)
     logger.addHandler(handler)
     bash('echo none > /sys/class/leds/PWR/trigger')
-    bash('echo 0 > /sys/class/leds/PWR/brightness')
-    main()  # ^^^ turn off bright red LED ^^^
+    bash('echo 0 > /sys/class/leds/PWR/brightness') # turn off red LED
+    main()
