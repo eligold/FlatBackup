@@ -230,7 +230,8 @@ def get_image():
                     while camera.isOpened():
                         if exit_flag: break
                         start = perf_counter()
-                        success, image = camera.read()
+                        success, im = camera.read()
+                        image = cv2.UMat(im)        # maybe try reusing ref too?
                         times.append(perf_counter()-start)
                         if success:
                             try:
