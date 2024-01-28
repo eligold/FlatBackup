@@ -216,7 +216,6 @@ def get_image():
                 try:
                     while camera.isOpened():
                         if exit_flag: break
-                        while not processing_queue.empty(): logger.info("here we go again. maybe a longer line wastes more cycles?")
                         success, image = camera.read()
                         if success:
                             try:
