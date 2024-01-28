@@ -6,10 +6,10 @@ namespace bv {
         Rect roi(0,64,719,492);
         resize(undistorted(roi).clone(), resized, Size(960,768));
         resize(resized(Rect(220,213,520,240)).clone(), middle, Size(1040,480));
-        hconcat({
+        hconcat(new Mat[] {
                 resized(Rect(0,8,219,487)),
                 middle,
-                resized(Rect(740,0,959,479))
+                resized(Rect(740,0,959,479)),
             },recolor);
         cvtColor(recolor,imview,COLOR_BGR2BGR565);
     }
