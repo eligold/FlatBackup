@@ -157,8 +157,9 @@ def undistort_and_panelize():
             image = processing_queue.get(timeout=0.04)
             try:
                 start = perf_counter()
-                display_queue.put(vb.build(image))
+                final = vb.build(image)
                 print(f"{perf_counter()-start}")
+                display_queue.put(final)
                 image = None
             except Full:
                 logger.error("disp queue full?")
