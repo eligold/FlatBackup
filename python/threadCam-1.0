@@ -4,7 +4,7 @@ from subprocess import run, Popen, PIPE
 from signal import SIGINT
 from threading  import Thread
 from queue import Empty, Full, SimpleQueue
-from time import sleep, time, localtime, perf_counter
+from time import sleep, time, localtime, perf_counter_ns as perf_counter
 from ELM327 import ELM327
 from bv import bv_ViewBuilder as ViewBuilder
 
@@ -111,6 +111,7 @@ def main():
                 touch_process = unabashed(touch_command)
                 stdout = touch_process.stdout
                 while not exit_flag:
+                    sleep(0.019)                    # HI IM HERE
                     line = stdout.readline().decode()
                     if("POSITION_X" in line and "value" in line):
                         x = int(line.split("value")[-1])
@@ -152,13 +153,14 @@ def undistort_and_panelize():
     global processing_queue, display_queue
     empty_counter = 0
     vb = ViewBuilder()
+    times = []
     while not exit_flag:
         try:
             image = processing_queue.get(timeout=0.04)
             try:
                 start = perf_counter()
                 final = vb.build(image)
-                print(f"{perf_counter()-start}")
+                times.append(perf_counter()-start)
                 display_queue.put(final)
                 image = None
             except Full:
@@ -167,21 +169,25 @@ def undistort_and_panelize():
         except Empty:
             empty_counter += 1
     logger.info(f"empty exc count: {empty_counter}")
+    logger.info(f"time stats:\nmin: {min(times)}ns\tmax: {max(times)}ns\nmean: {np.mean(times)}ns\tmedian: {np.median(times)}ns")
 
 def on_screen():
     global display_queue, sidebar_queue
     empty_counter = 0
     while not exit_flag:
         try:
+            times = []
             sidebar = sidebar_base
             with open('/dev/fb0','rb+') as frame_buffer:
                 while True:
                     try:
                         image = display_queue.get(timeout=0.04)
+                        start = perf_counter()
                         for i in range(FINAL_IMAGE_HEIGHT):
                             frame_buffer.write(image[i])
                             frame_buffer.write(sidebar[i])
                         frame_buffer.seek(0)
+                        times.append(perf_counter()-start)
                     except Empty:
                         empty_counter += 1
                     image = None                            # HI IM HERE
@@ -195,6 +201,7 @@ def on_screen():
             logger.exception(e)
         if exit_flag: break
     logger.info(f"empty exc count: {empty_counter}")
+    logger.info(f"time stats:\nmin: {min(times)}ns\tmax: {max(times)}ns\nmean: {np.mean(times)}ns\tmedian: {np.median(times)}ns")
 
 def get_image():
     global processing_queue
@@ -204,6 +211,7 @@ def get_image():
     read_fail_count = 0
     while not exit_flag:
         try:
+            times = []
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
             if usb_capture_id_path == usb_capture_real_path:
                 logger.error("camera not found!\twaiting...")
@@ -215,11 +223,15 @@ def get_image():
                 size = (int(camera.get(WIDTH)), int(camera.get(HEIGHT)))
                 fps = (int(camera.get(FPS)))
                 logger.info(f"camera resolution: {size[0]}x{size[1]}\t@ {fps}FPS")
+                start = perf_counter()
                 camera.read()
+                times.append(perf_counter()-start)
                 try:
                     while camera.isOpened():
                         if exit_flag: break
+                        start = perf_counter()
                         success, image = camera.read()
+                        times.append(perf_counter()-start)
                         if success:
                             try:
                                 processing_queue.put(image)
@@ -234,6 +246,7 @@ def get_image():
             traceback.print_exc()
             logger.exception(e)
     logger.info(f"UVC read fail count: {read_fail_count}")
+    logger.info(f"time stats:\nmin: {min(times)}ns\tmax: {max(times)}ns\nmean: {np.mean(times)}ns\tmedian: {np.median(times)}ns")
 
 def sidebar_builder():
     global sidebar_queue
