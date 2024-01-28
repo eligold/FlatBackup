@@ -15,13 +15,12 @@ namespace bv {
     const Mat newCameraMatrix, undistortMapX, undistortMapY;
     void ViewBuilder::build(InputArray image, OutputArray imview) {
         remap(image, undistorted, undistortMapX, undistortMapY, INTER_CUBIC);
-        Rect roi(0,64,719,492);
-        resize(undistorted(roi).clone(), resized, Size(960,768));
+        resize(undistorted.rowRange(64,556), resized, Size(960,768));
         resize(resized(Rect(220,213,520,240)).clone(), middle, Size(1040,480));
-        hconcat(new Mat[3] {
-                resized(Rect(0,8,219,487)).clone(),
+        hconcat(new Mat[] { // needs >c++11
+                resized(Rect(0,8,220,480)).clone(),
                 middle,
-                resized(Rect(740,0,959,479)).clone(),
+                resized(Rect(740,0,220,480)).clone(),
             },3,recolor);
         cvtColor(recolor,imview,COLOR_BGR2BGR565);
     }
@@ -30,6 +29,6 @@ namespace bv {
             cameraMatrix, distortionCoefficients, inputSize, Matx33d::eye(),newCameraMatrix);
         fisheye::initUndistortRectifyMap(
             cameraMatrix, distortionCoefficients, Mat(), newCameraMatrix,
-            inputSize, CV_32FC1, undistortMapX, undistortMapY); // CV_16SC2?
+            inputSize, CV_32FC1, undistortMapX, undistortMapY);
     }
 }

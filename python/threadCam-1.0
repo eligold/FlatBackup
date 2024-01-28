@@ -6,6 +6,7 @@ from threading  import Thread
 from queue import Empty, Full, SimpleQueue
 from time import sleep, time, localtime, perf_counter
 from ELM327 import ELM327
+from bv import bv_ViewBuilder as ViewBuilder
 
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
@@ -91,10 +92,9 @@ def main():
         bluetooth_process = unabashed(f"bluetoothctl connect {mac}") # '\n'.join(bluetoothctl_lines))
         for function, name in [
                 (sidebar_builder,"sdbr"),
-                (undistort_and_panelize,"prc1"),
+                (undistort_and_panelize,"proc"),
                 (on_screen,"show"),
-                (get_image,"read"),
-                (undistort_and_panelize,"prc2")]:
+                (get_image,"read")]:
             thread = Thread(target=function,name=name)
             thread.start()          # start each thread
             threads.append(thread)  # store them for termination later
@@ -151,11 +151,12 @@ def main():
 def undistort_and_panelize():
     global processing_queue, display_queue
     empty_counter = 0
+    vb = ViewBuilder()
     while not exit_flag:
         try:
-            num, image = processing_queue.get(timeout=0.08)
+            image = processing_queue.get(timeout=0.08)
             try:
-                display_queue.put(num,undistort(build_reverse_view(image)))
+                display_queue.put(vb.build(image))
                 image = None
             except Full:
                 logger.error("disp queue full?")
@@ -168,26 +169,16 @@ def on_screen():
     global display_queue, sidebar_queue
     empty_counter = 0
     while not exit_flag:
-        lastnum = 0
         try:
             sidebar = sidebar_base
             with open('/dev/fb0','rb+') as frame_buffer:
                 while True:
                     try:
-                        num, image = display_queue.get(timeout=0.04).get()
-                        if lastnum and num - lastnum > 1:
-                            newnum, nimage = display_queue.get(timeout=0.04).get()
-                            if newnum > num:
-                                raise Exception("MISSED A FRAME!")
-                            for i in range(FINAL_IMAGE_HEIGHT):
-                                frame_buffer.write(nimage[i])
-                                frame_buffer.write(sidebar[i])
-                            frame_buffer.seek(0)
+                        image = display_queue.get(timeout=0.04)
                         for i in range(FINAL_IMAGE_HEIGHT):
                             frame_buffer.write(image[i])
                             frame_buffer.write(sidebar[i])
                         frame_buffer.seek(0)
-                        lastnum = num
                     except Empty:
                         empty_counter += 1
                     image = None                            # HI IM HERE
@@ -222,7 +213,6 @@ def get_image():
                 fps = (int(camera.get(FPS)))
                 logger.info(f"camera resolution: {size[0]}x{size[1]}\t@ {fps}FPS")
                 camera.read()
-                counter = 0
                 try:
                     while camera.isOpened():
                         if exit_flag: break
@@ -230,8 +220,7 @@ def get_image():
                         success, image = camera.read()
                         if success:
                             try:
-                                processing_queue.put(counter,cv2.UMat(image))
-                                counter += 1
+                                processing_queue.put(image)
                             except Full:
                                 logger.error("proc queue full?")
                         else:
