@@ -129,12 +129,12 @@ A recently purchased [Clearmounts phone adapter](https://www.audiphoneholder.com
     ```
 1. By default `\etc\cmdline.txt` will look something like this:
     `console=serial0,115200 console=tty1 root=PARTUUID=[xxxxxxxx]-0[n] rootfstype=ext4 fsck.repair=yes rootwait quiet splash plymouth.ignore-serial-consoles`
-    After `rootwait` add `logol.nologo` to turn off the pi icon at boot, and `consoleblank=0` to shut off screen blanking and keep the display on. replace `splash` with `vt.global_cursor_default=0` for no blinky cursor and turn off default rainbow splash screen.
+    After `rootwait` add `logo.nologo` to turn off the pi icon at boot, and `consoleblank=0` to shut off screen blanking and keep the display on. replace `splash` with `vt.global_cursor_default=0` for no blinky cursor and turn off default rainbow splash screen.
 1. Install dependencies:
     ```
-    apt install -y python3-opencv python3-pip v4l-utils fim
+    apt install -y python3-opencv python3-pip fim git
     pip3 install obd
-    ssh-keygen -t ed25119
+    ssh-keygen -t ed25519
     git clone git@github.com:eligold/FlatBackup.git
     ```
 1. Install a new service to show the splashscreen at boot. Make sure to copy the image to the root directory. `vim /etc/systemctl/system/splashscreen.service` opens an editor to create the service. Press the `i` key and type the following lines:
