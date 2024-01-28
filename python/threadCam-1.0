@@ -270,15 +270,13 @@ def dash_camera():
         try:
             dashcam_process = start_dash_cam()
             while not exit_flag:
-                if dashcam_process.returncode == 0:
-                    for line in dashcam_process.stdout.readlines():
-                        logger.info(line.decode())
-                    logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
-                    try:
+                if dashcam_process.returncode is None:
+                    sleep(0.19)
+                else:
+                    if dashcam_process.returncode == 0:
                         dashcam_process = start_dash_cam()
-                    except Exception as e:
-                        logger.exception(e)
-                else: sleep(0.19)
+                    else:
+                        raise Exception(f"dashcam process exit code {dashcam_process.returncode}")
         except Exception as e:
             logger.exception(e)
     finally:
