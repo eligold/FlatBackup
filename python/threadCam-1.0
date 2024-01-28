@@ -154,9 +154,11 @@ def undistort_and_panelize():
     vb = ViewBuilder()
     while not exit_flag:
         try:
-            image = processing_queue.get(timeout=0.08)
+            image = processing_queue.get(timeout=0.04)
             try:
+                start = perf_counter()
                 display_queue.put(vb.build(image))
+                print(f"{perf_counter()-start}")
                 image = None
             except Full:
                 logger.error("disp queue full?")
