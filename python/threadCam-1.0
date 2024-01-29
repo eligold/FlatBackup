@@ -6,7 +6,6 @@ from threading  import Thread
 from queue import Empty, Full, SimpleQueue
 from time import sleep, time, localtime, perf_counter_ns as perf_counter
 from ELM327 import ELM327
-from bv import bv_ViewBuilder as ViewBuilder
 
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
@@ -46,20 +45,21 @@ map1 , map2 = cv2.convertMaps(mapx, mapy, cv2.CV_16SC2)
 
 sidebar_queue = SimpleQueue()
 
-sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
+sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120,2),COLOR_LOW,np.uint8)
 for i in range(160,FINAL_IMAGE_HEIGHT):
     for j in range(120):
-        sidebar_base[i][j] = np.uint16(i*2&(i-255-j))
-sidebar=sidebar_base
-no_signal_frame = cv2.putText(
-    np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH),COLOR_BAD,np.uint16),
-    "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
+        color = i*2&(i-255-j)
+        high = np.uint8(color>>8)
+        low = np.uint8(color)
+        sidebar_base[i][j] = low, high
+
+frame_buffer = np.memmap("/dev/fb0",dtype='uint8',mode="w+", shape=(480,1600,2))
+frame_buffer[:,-120:] = sidebar_base
 
 exit_flag = False
-display_lock = False
-times = []
-vb = ViewBuilder()
 
+times = []
+sidebar_times = []
 
 def bash(cmd:str,shell=True,capture_output=True,check=False):
     try:
@@ -138,6 +138,7 @@ def main():
     finally:
        # logger.info(f"proc: {processing_queue.qsize()}\tdisp: {display_queue.qsize()}")
         logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ns\tmax: {max(times)/1000000:.0f}ns\nmean: {np.mean(times)/1000000:.0f}ns\tmedian: {np.median(times)/1000000:.0f}ns")
+        logger.info(f"time stats:\nmin: {min(sidebar_times)/1000000:.0f}ns\tmax: {max(sidebar_times)/1000000:.0f}ns\nmean: {np.mean(sidebar_times)/1000000:.0f}ns\tmedian: {np.median(sidebar_times)/1000000:.0f}ns")
         exit_flag = True
         if stdout:
             stdout.close()
@@ -151,36 +152,14 @@ def main():
         for thread in threads:
             thread.join()
 
-def undistort_and_show(image, frame_buffer):
-    global sidebar_queue
-    global sidebar
-    global times
-    global display_lock
-    
-    start = perf_counter()
-    try:
-        sidebar = sidebar_queue.get(block=False)
-   #     frame_buffer[:,-120:] = sidebar
-    except Empty: pass
-    image = vb.build(image)
-   # image = build_reverse_view(undistort(image))
-    while display_lock: sleep(0.001)
-    display_lock = True
-    for i in range(FINAL_IMAGE_HEIGHT):
-        frame_buffer.write(image[i])
-        frame_buffer.write(sidebar[i])
-    frame_buffer.seek(0)
-   # frame_buffer[:,:1480] = image
-    times.append(perf_counter()-start)
-
 def get_image():
+    global times
     width, height = DIM
     usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     image = None
     read_fail_count = 0
     while not exit_flag:
         try:
-            times = []
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
             if usb_capture_id_path == usb_capture_real_path:
                 logger.error("camera not found!\twaiting...")
@@ -193,26 +172,20 @@ def get_image():
                 fps = (int(camera.get(FPS)))
                 logger.info(f"camera resolution: {size[0]}x{size[1]}\t@ {fps}FPS")
                 camera.read()
-               # try:
-                with open('/dev/fb0','rb+') as frame_buffer:
-                   # frame_buffer = np.memmap("/dev/fb0",dtype='uint8',mode="w+", shape=(480,1600,2))
+                try:
                     while camera.isOpened():
                         if exit_flag: break
-                        start = perf_counter()
                         success, image = camera.read()
                         if success:
                             try:
-                                undistort_and_show(image,frame_buffer)
+                                project_reverse_view(undistort(image))
                             except Full:
                                 logger.error("proc queue full?")
                         else:
                             read_fail_count += 1
-                        t = perf_counter()-start
-                        if success: times.append(t)
-                        else: logger.error("failed UVC read")
-        except Exception as e:    # TAB +1 w np fb
-            traceback.print_exc()
-            logger.exception(e)
+                except Exception as e:    # TAB +1 w np fb
+                    traceback.print_exc()
+                    logger.exception(e)
         finally:
             logger.info("release camera resource")
             camera.release()
@@ -278,20 +251,29 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     camera.set(cv2.CAP_PROP_BRIGHTNESS,brightness)
     return camera
 
-def undistort(image):
-    return cv2.remap(image,map1,map2,interpolation=CUBIC)
+def undistort(image): # TODO should test timing of resizing here
+    return cv2.cvtColor(cv2.remap(image,map1,map2,interpolation=CUBIC),cv2.BGR2BGR565)
 
 def build_reverse_view_umat(img):
     image = cv2.UMat(cv2.resize(img,SDIM,interpolation=CUBIC),[64,556])
     middle = cv2.resize(cv2.UMat(image,[213,453],[220,740]),FDIM,interpolation=CUBIC)
-    combo = cv2.hconcat([cv2.UMat(image,[8,488],[0,220]),middle,cv2.UMat(image,[0,480],[740,960])])
-    return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
+    return cv2.hconcat([cv2.UMat(image,[8,488],[0,220]),middle,cv2.UMat(image,[0,480],[740,960])])
 
-def build_reverse_view(img):
+def project_reverse_view(img):
+    global frame_buffer
+    global sidebar_queue
+    start = perf_counter()
+    try:
+        frame_buffer[:,-120:] = sidebar_queue.get(block=False)
+        sidebar_times.append(perf_counter()-start)
+        start = perf_counter()
+    except Empty: pass
     image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
-    middle = cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC)
-    combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
-    return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
+    frame_buffer[:,220:1260] = cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC)
+    frame_buffer[:,:220] = image[8:488,:220]
+    frame_buffer[:,-340:120] = image[:480,-220:]
+    frame_buffer.flush()
+    times.append(perf_counter()-start)
 
 def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
