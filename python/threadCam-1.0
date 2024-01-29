@@ -42,7 +42,7 @@ D = np.array([
 # calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
-
+map1 , map2 = cv2.convertMaps(mapx, mapy, cv2.CV_16SC2)
 processing_queue = SimpleQueue()
 display_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
@@ -160,6 +160,7 @@ def undistort_and_panelize():
             try:
                 start = perf_counter()
                 final = vb.build(image)
+               # final = build_reverse_view(undistort(image))
                 times.append(perf_counter()-start)
                 display_queue.put(final)
                 image = None
@@ -211,7 +212,6 @@ def get_image():
     read_fail_count = 0
     while not exit_flag:
         try:
-            times = []
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
             if usb_capture_id_path == usb_capture_real_path:
                 logger.error("camera not found!\twaiting...")
@@ -223,16 +223,11 @@ def get_image():
                 size = (int(camera.get(WIDTH)), int(camera.get(HEIGHT)))
                 fps = (int(camera.get(FPS)))
                 logger.info(f"camera resolution: {size[0]}x{size[1]}\t@ {fps}FPS")
-                start = perf_counter()
                 camera.read()
-                times.append(perf_counter()-start)
                 try:
                     while camera.isOpened():
                         if exit_flag: break
-                        start = perf_counter()
-                        success, im = camera.read()
-                        image = cv2.UMat(im)        # maybe try reusing ref too?
-                        times.append(perf_counter()-start)
+                        success, image = camera.read()
                         if success:
                             try:
                                 processing_queue.put(image)
@@ -247,7 +242,6 @@ def get_image():
             traceback.print_exc()
             logger.exception(e)
     logger.info(f"UVC read fail count: {read_fail_count}")
-    logger.info(f"time stats:\nmin: {min(times)}ns\tmax: {max(times)}ns\nmean: {np.mean(times)}ns\tmedian: {np.median(times)}ns")
 
 def sidebar_builder():
     global sidebar_queue
@@ -309,13 +303,12 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     return camera
 
 def undistort(image):
-    # image = ; return image?
-    return cv2.remap(image,mapx,mapy,interpolation=CUBIC)
+    return cv2.remap(image,map1,map2,interpolation=CUBIC)
 
 def build_reverse_view(img):
-    image = cv2.UMat(cv2.resize(img,SDIM,interpolation=CUBIC),[64,556])
-    middle = cv2.resize(cv2.UMat(image,[213,453],[220,740]),FDIM,interpolation=CUBIC)
-    combo = cv2.hconcat([cv2.UMat(image,[8,488],[0,220]),middle,cv2.UMat(image,[0,480],[740,960])])
+    image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
+    middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=CUBIC)
+    combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
     return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
 
 def putText(img, text, origin=(0,480), #bottom left
