@@ -170,7 +170,7 @@ def undistort_and_panelize():
         except Empty:
             empty_counter += 1
     logger.info(f"empty exc count: {empty_counter}")
-    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ns\tmax: {max(times)/1000000:.0f}ns\nmean: {np.mean(times)/1000000:.0f}ns\tmedian: {np.median(times)/1000000:.0f}ns")
+    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
 
 def on_screen():
     global display_queue, sidebar_queue
@@ -202,7 +202,7 @@ def on_screen():
             logger.exception(e)
         if exit_flag: break
     logger.info(f"empty exc count: {empty_counter}")
-    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ns\tmax: {max(times)/1000000:.0f}ns\nmean: {np.mean(times)/1000000:.0f}ns\tmedian: {np.median(times)/1000000:.0f}ns")
+    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
 
 def get_image():
     global processing_queue
@@ -245,7 +245,7 @@ def get_image():
             traceback.print_exc()
             logger.exception(e)
     logger.info(f"UVC read fail count: {read_fail_count}")
-    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ns\tmax: {max(times)/1000000:.0f}ns\nmean: {np.mean(times)/1000000:.0f}ns\tmedian: {np.median(times)/1000000:.0f}ns")
+    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
 
 def sidebar_builder():
     global sidebar_queue
