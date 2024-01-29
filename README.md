@@ -245,6 +245,7 @@ This project is wildly application specific but I welcome any feedback or sugges
 1. ] https://people.eecs.ku.edu/~jrmiller/Courses/JavaToC++/BasicPointerUse.html
 1. ] https://cplusplus.com/reference/cstdio/scanf/
 1. ] https://opencvexamples.blogspot.com/2013/09/creating-matrix-in-different-ways.html
+1. ] https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html
 
 
 
