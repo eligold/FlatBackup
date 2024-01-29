@@ -53,7 +53,7 @@ def onScreen2(f):
 def saveImage(f):
     o = f.copy()
     f = cv.remap(f, mapx, mapy, interpolation=cv.INTER_CUBIC)
-    final = cv.hconcat(o,f)
+    final = cv.hconcat([o,f])
     cv.imwrite("sidebyside.png",final)
 
 def runDual():

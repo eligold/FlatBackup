@@ -65,7 +65,7 @@ def bash(cmd:str,shell=True,capture_output=True,check=False):
         traceback.print_exc()
         logger.exception(e)
 
-def unabashed(cmd:str,shell=True,stdout=PIPE,stderr=PIPE):
+def shell(cmd:str,shell=True,stdout=PIPE,stderr=PIPE):
     return Popen(cmd,shell=shell,stdout=stdout,stderr=stderr)
 
 def main():
@@ -88,11 +88,11 @@ def main():
         if wifi_process.stdout == b'up\n':
             pass # raise KeyboardInterrupt("wifi connected")
         else: # turn off radio, no need to waste power
-            wifi_flag = unabashed('ip link set wlan0 down').wait() == 0
-        bluetooth_process = unabashed(f"bluetoothctl connect {mac}") # '\n'.join(bluetoothctl_lines))
+            wifi_flag = shell('ip link set wlan0 down').wait() == 0
+        bluetooth_process = shell(f"bluetoothctl connect {mac}") # '\n'.join(bluetoothctl_lines))
         for function, name in [
                 (sidebar_builder,"sdbr"),
-                (undistort_and_panelize,"proc"),
+                (undistort_and_panelize,"prcA"), # (undistort_and_panelize,"prcB"),
                 (on_screen,"show"),
                 (get_image,"read")]:
             thread = Thread(target=function,name=name)
@@ -108,10 +108,10 @@ def main():
         dashcam_process = start_dash_cam()
         while not exit_flag:
             try:
-                touch_process = unabashed(touch_command)
+                touch_process = shell(touch_command)
                 stdout = touch_process.stdout
                 while not exit_flag:
-                    sleep(0.019)                    # HI IM HERE
+                    sleep(0.19)                    # HI IM HERE
                     line = stdout.readline().decode()
                     if("POSITION_X" in line and "value" in line):
                         x = int(line.split("value")[-1])
@@ -144,7 +144,7 @@ def main():
         if dashcam_process:
             dashcam_process.terminate()
         if wifi_flag:
-        # manage BT conn here maybe
+           # manage BT conn here maybe
             bash('ip link set wlan0 up',check=False)
         for thread in threads:
             thread.join()
@@ -152,15 +152,15 @@ def main():
 def undistort_and_panelize():
     global processing_queue, display_queue
     empty_counter = 0
-    vb = ViewBuilder()
+   # vb = ViewBuilder()
     times = []
     while not exit_flag:
         try:
             image = processing_queue.get(timeout=0.04)
             try:
                 start = perf_counter()
-                final = vb.build(image)
-               # final = build_reverse_view(undistort(image))
+               # final = vb.build(image)
+                final = build_reverse_view(undistort(image))
                 times.append(perf_counter()-start)
                 display_queue.put(final)
                 image = None
@@ -170,7 +170,7 @@ def undistort_and_panelize():
         except Empty:
             empty_counter += 1
     logger.info(f"empty exc count: {empty_counter}")
-    logger.info(f"time stats:\nmin: {min(times)}ns\tmax: {max(times)}ns\nmean: {np.mean(times)}ns\tmedian: {np.median(times)}ns")
+    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ns\tmax: {max(times)/1000000:.0f}ns\nmean: {np.mean(times)/1000000:.0f}ns\tmedian: {np.median(times)/1000000:.0f}ns")
 
 def on_screen():
     global display_queue, sidebar_queue
@@ -183,6 +183,7 @@ def on_screen():
                 while True:
                     try:
                         image = display_queue.get(timeout=0.04)
+                        image = image.get()
                         start = perf_counter()
                         for i in range(FINAL_IMAGE_HEIGHT):
                             frame_buffer.write(image[i])
@@ -202,7 +203,7 @@ def on_screen():
             logger.exception(e)
         if exit_flag: break
     logger.info(f"empty exc count: {empty_counter}")
-    logger.info(f"time stats:\nmin: {min(times)}ns\tmax: {max(times)}ns\nmean: {np.mean(times)}ns\tmedian: {np.median(times)}ns")
+    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ns\tmax: {max(times)/1000000:.0f}ns\nmean: {np.mean(times)/1000000:.0f}ns\tmedian: {np.median(times)/1000000:.0f}ns")
 
 def get_image():
     global processing_queue
@@ -212,6 +213,7 @@ def get_image():
     read_fail_count = 0
     while not exit_flag:
         try:
+            times = []
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
             if usb_capture_id_path == usb_capture_real_path:
                 logger.error("camera not found!\twaiting...")
@@ -230,7 +232,9 @@ def get_image():
                         success, image = camera.read()
                         if success:
                             try:
-                                processing_queue.put(image)
+                                start = perf_counter()
+                                processing_queue.put(cv2.UMat(image))
+                                times.append(perf_counter()-start)
                             except Full:
                                 logger.error("proc queue full?")
                         else:
@@ -242,6 +246,7 @@ def get_image():
             traceback.print_exc()
             logger.exception(e)
     logger.info(f"UVC read fail count: {read_fail_count}")
+    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ns\tmax: {max(times)/1000000:.0f}ns\nmean: {np.mean(times)/1000000:.0f}ns\tmedian: {np.median(times)/1000000:.0f}ns")
 
 def sidebar_builder():
     global sidebar_queue
@@ -293,7 +298,7 @@ def start_dash_cam(): # sets camera attributes for proper output size and format
     weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
     filepath = f"/media/usb/{'_'.join([date,clock_time,weekday])}.mjpeg"
     cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
-    return unabashed(cmd)
+    return shell(cmd)
 
 def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
@@ -303,12 +308,13 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     return camera
 
 def undistort(image):
+    # image = ; return image?
     return cv2.remap(image,map1,map2,interpolation=CUBIC)
 
 def build_reverse_view(img):
-    image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
-    middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=CUBIC)
-    combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
+    image = cv2.UMat(cv2.resize(img,SDIM,interpolation=CUBIC),[64,556])
+    middle = cv2.resize(cv2.UMat(image,[213,453],[220,740]),FDIM,interpolation=CUBIC)
+    combo = cv2.hconcat([cv2.UMat(image,[8,488],[0,220]),middle,cv2.UMat(image,[0,480],[740,960])])
     return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
 
 def putText(img, text, origin=(0,480), #bottom left
