@@ -35,7 +35,12 @@ def onScreen(f):
         for i in range(480):
             buf.write(f[i])
             buf.write(np.full(1600-f.shape[1],0x19ae,np.uint16))
+fb = np.memmap("/dev/fb0",dtype="uint8",shape=(480,1600,2))
 
+def onScreen2(f):
+    global fb
+    fb[:,:,:]=f
+    fb.flush()
 def make_view(f):
     f = cv.resize(
         cv.remap(f, mapx, mapy, interpolation=cv.INTER_CUBIC),
@@ -60,8 +65,8 @@ def saveImage(f):
 def run(t = (600,480)):
     try:
         c = get_camera()
-        for _ in range(100):
-            c.read()
+        while c.isOpened():
+            onScreen2(make_view(c.read()[1]))
         saveImage(c.read()[1])
         #while(c.isOpened()): onScreen(cv.resize(c.read()[1],t))
     finally:

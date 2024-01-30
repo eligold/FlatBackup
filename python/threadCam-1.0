@@ -277,10 +277,11 @@ def project_reverse_view():
         try:
             img = undistort(display_queue.get(timeout=0.04))
             image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
+            print(image.shape)
             frame_buffer[:,220:1260,:] = cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC)
             frame_buffer[:,:220,:] = image[8:488,:220]
             frame_buffer[:,-340:-120,:] = image[:480,-220:]
-            frame_buffer.flush()
+           # frame_buffer.flush()
             times.append(perf_counter()-start)
         except Empty:
             empty_exc_count += 1
