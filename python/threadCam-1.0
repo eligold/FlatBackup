@@ -43,6 +43,7 @@ D = np.array([
 # calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
+map1, map2 = cv2.convertMaps(mapx,mapy,cv2.CV_16SC2)
 
 display_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
@@ -61,7 +62,6 @@ frame_buffer[:,-120:,:] = sidebar_base
 exit_flag = False
 
 times = []
-sidebar_times = []
 
 def bash(cmd:str,shell=True,capture_output=True,check=False):
     try:
@@ -118,8 +118,7 @@ def main():
         logger.exception(ex)
     finally:
         logger.info(f"sdbr: {sidebar_queue.qsize()}\tdisp: {display_queue.qsize()}")
-        logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
-        logger.info(f"sidebar stats:\nmin: {min(sidebar_times)/1000000:.0f}ms\tmax: {max(sidebar_times)/1000000:.0f}ms\nmean: {np.mean(sidebar_times)/1000000:.0f}ms\tmedian: {np.median(sidebar_times)/1000000:.0f}ms")
+        logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\tmode: {max(times,key=times.count)}\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
         exit_flag = True
         if dashcam_process:
             dashcam_process.terminate()
@@ -198,7 +197,7 @@ def touch_input():
             touch_process = shell(touch_command)
             stdout = touch_process.stdout
             while not exit_flag:
-                line = stdout.readline.decode()
+                line = stdout.readline().decode()
                 if("POSITION_X" in line and "value" in line):
                     x = int(line.split("value")[-1])
                     if x >= FINAL_IMAGE_WIDTH:
@@ -246,7 +245,7 @@ def on_screen():
     global display_queue
     while not exit_flag:
         try:
-            Thread(target=project_reverse_view,args=(display_queue.get(timeout=0.04),),daemon=True).start()
+            project_reverse_view(display_queue.get(timeout=0.04))
         except Empty: pass
 
 def project_reverse_view(img):
@@ -260,8 +259,6 @@ def project_reverse_view(img):
     frame_buffer[:,-340:-120,:] = cv2.cvtColor(image[:480,-220:],BGR565)
     try:
         frame_buffer[:,-120:] = sidebar_queue.get(block=False)
-        sidebar_times.append(perf_counter()-start)
-        start = perf_counter()
     except Empty: pass
    # frame_buffer.flush()
     times.append(perf_counter()-start)
