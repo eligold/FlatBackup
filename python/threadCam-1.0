@@ -53,8 +53,8 @@ for i in range(160,FINAL_IMAGE_HEIGHT):
         low = np.uint8(color)
         sidebar_base[i][j] = low, high
 
-frame_buffer = np.memmap("/dev/fb0",dtype='uint8',mode="w+", shape=(480,1600,2))
-frame_buffer[:,-120:] = sidebar_base
+frame_buffer = np.memmap("/dev/fb0",dtype='uint8',mode="w+", shape=(480,1600,2)).newbyteorder()
+frame_buffer[:,-120:] = sidebar_base.byteswap()
 
 exit_flag = False
 
@@ -190,7 +190,6 @@ def get_image():
             logger.info("release camera resource")
             camera.release()
     logger.info(f"UVC read fail count: {read_fail_count}")
-    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ns\tmax: {max(times)/1000000:.0f}ns\nmean: {np.mean(times)/1000000:.0f}ns\tmedian: {np.median(times)/1000000:.0f}ns")
 
 def sidebar_builder():
     global sidebar_queue
@@ -203,7 +202,7 @@ def sidebar_builder():
                 sidebar = putText(
                         sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
                 sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
-                sidebar_queue.put(sidebar)
+                sidebar_queue.put(sidebar.byteswap(inplace=True))
         except Exception as e:
             traceback.print_exc()
             logger.exception(e)
