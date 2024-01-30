@@ -47,6 +47,7 @@ map1, map2 = cv2.convertMaps(mapx,mapy,cv2.CV_16SC2)
 
 display_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
+proc_queue = SimpleQueue()
 
 sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120,2),COLOR_LOW,np.uint8)
 for i in range(160,FINAL_IMAGE_HEIGHT):
@@ -60,8 +61,6 @@ frame_buffer = np.memmap("/dev/fb0",dtype='uint8', shape=(480,1600,2))
 frame_buffer[:,-120:,:] = sidebar_base
 
 exit_flag = False
-
-times = []
 
 def bash(cmd:str,shell=True,capture_output=True,check=False):
     try:
@@ -82,7 +81,7 @@ def main():
     bluetoothctl_lines = [
             'bluetoothctl << EOF',
             f'connect {mac}',
-           # f'info {mac}',
+            f'info {mac}',
             'EOF']
     bluetooth_process = None
     dashcam_process = None
@@ -95,7 +94,8 @@ def main():
             bluetooth_process = shell('\n'.join(bluetoothctl_lines)) # f"bluetoothctl connect {mac}")
         for function, name in [
                 (get_image,"read"),
-                (on_screen,"show"),
+                (project_reverse_view,"show")
+                (undistort,"proc"),
                 (touch_input,"taps"),
                 (sidebar_builder,"sdbr")]:
             thread = Thread(target=function,name=name)
@@ -117,8 +117,7 @@ def main():
         traceback.print_exc()
         logger.exception(ex)
     finally:
-        logger.info(f"sdbr: {sidebar_queue.qsize()}\tdisp: {display_queue.qsize()}")
-        logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\tmode: {max(times,key=times.count)}\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
+        logger.info(f"sdbr: {proc_queue.qsize()}\tdisp: {display_queue.qsize()}")
         exit_flag = True
         if dashcam_process:
             dashcam_process.terminate()
@@ -130,11 +129,11 @@ def main():
 
 def get_image():
     global display_queue
-    global times
     width, height = DIM
     usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     camera = None
     read_fail_count = 0
+    times = []
     while not exit_flag:
         try:
             usb_capture_real_path = os.path.realpath(usb_capture_id_path)
@@ -151,7 +150,9 @@ def get_image():
                 camera.read()
                 while camera.isOpened():
                     if exit_flag: break
+                    start = perf_counter()
                     success, image = camera.read()
+                    times.append(perf_counter()-start)
                     if success:
                         try:
                             display_queue.put(image)
@@ -166,11 +167,14 @@ def get_image():
             logger.info("release camera resource")
             if camera: camera.release()
     logger.info(f"UVC read fail count: {read_fail_count}")
+    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\tmode: {max(times,key=times.count)/1000000:.0f}\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
+
 
 def sidebar_builder():
     global sidebar_queue
     while not exit_flag:
         try:
+            sidebar_queue.put(sidebar_base)
             elm = ELM327()
             while not exit_flag:
                 psi = elm.psi()
@@ -207,6 +211,7 @@ def touch_input():
                             exit_flag = True
                             raise KeyboardInterrupt(f'exit:\ttouch input ( X: > , Y: v ) {x} , {y}')
                 if exit_flag: break
+                sleep(0.19)
         except KeyboardInterrupt as kbi:
             raise kbi
         except Exception as e:
@@ -238,30 +243,42 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     logger.info(f"camera brightness: {camera.get(BRIGHTNESS)}")
     return camera
 
-def undistort(image): # TODO should test timing of resizing here
-    return cv2.remap(image,mapx,mapy,interpolation=CUBIC)
-
-def on_screen():
-    global display_queue
+def undistort(): # TODO should test timing of resizing here, LINEAR vs CUBIC
+    global proc_queue, display_queue
+    times = []
     while not exit_flag:
         try:
-            project_reverse_view(display_queue.get(timeout=0.04))
-        except Empty: pass
+            start = perf_counter()
+            image = cv2.remap(proc_queue.get(timeout=0.04),map1,map2,interpolation=CUBIC)
+            display_queue.put(cv2.resize(image,SDIM,interpolation=CUBIC)[64:556])
+            times.append(perf_counter()-start)
+        except Full | Empty: perf_counter()
+    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\tmode: {max(times,key=times.count)/1000000:.0f}\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
 
-def project_reverse_view(img):
+def project_reverse_view():
     global frame_buffer
-    global sidebar_queue
-    start = perf_counter()
-    image = cv2.resize(undistort(img),SDIM,interpolation=CUBIC)[64:556]
-    frame_buffer[:,220:1260,:] = \
-        cv2.cvtColor(cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC),BGR565)
-    frame_buffer[:,:220,:] = cv2.cvtColor(image[8:488,:220],BGR565)
-    frame_buffer[:,-340:-120,:] = cv2.cvtColor(image[:480,-220:],BGR565)
-    try:
-        frame_buffer[:,-120:] = sidebar_queue.get(block=False)
-    except Empty: pass
-   # frame_buffer.flush()
-    times.append(perf_counter()-start)
+    global sidebar_queue, display_queue
+    times = []
+    stimes = []
+    while not exit_flag:
+        try:
+            start = perf_counter()
+            try:
+                frame_buffer[:,-120:] = sidebar_queue.get(block=False)
+                stimes.append(perf_counter()-start)
+                start = perf_counter()
+            except Empty: pass
+            image = display_queue.get(timeout=0.04)
+            frame_buffer[:,220:1260,:] = \
+                cv2.cvtColor(cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC),BGR565)
+            frame_buffer[:,:220,:] = cv2.cvtColor(image[8:488,:220],BGR565)
+            frame_buffer[:,-340:-120,:] = cv2.cvtColor(image[:480,-220:],BGR565)
+            frame_buffer.flush()  # NOT NEEDED?
+            times.append(perf_counter()-start)
+        except Empty: perf_counter()
+        
+    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\tmode: {max(times,key=times.count)/1000000:.0f}\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
+    logger.info(f"time stats:\nmin: {min(stimes)/1000000:.0f}ms\tmax: {max(stimes)/1000000:.0f}ms\tmode: {max(stimes,key=stimes.count)/1000000:.0f}\nmean: {np.mean(stimes)/1000000:.0f}ms\tmedian: {np.median(stimes)/1000000:.0f}ms")
 
 def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
