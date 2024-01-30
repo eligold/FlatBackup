@@ -42,7 +42,7 @@ D = np.array([
     [-0.008896442339724364]])
 # calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
-mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
+mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, SDIM, cv2.CV_32FC1)
 map1, map2 = cv2.convertMaps(mapx,mapy,cv2.CV_16SC2)
 
 display_queue = SimpleQueue()
@@ -94,7 +94,7 @@ def main():
             bluetooth_process = shell('\n'.join(bluetoothctl_lines)) # f"bluetoothctl connect {mac}")
         for function, name in [
                 (get_image,"read"),
-                (project_reverse_view,"show")
+                (project_reverse_view,"show"),
                 (undistort,"proc"),
                 (touch_input,"taps"),
                 (sidebar_builder,"sdbr")]:
@@ -128,7 +128,7 @@ def main():
             thread.join()
 
 def get_image():
-    global display_queue
+    global proc_queue
     width, height = DIM
     usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     camera = None
@@ -155,7 +155,7 @@ def get_image():
                     times.append(perf_counter()-start)
                     if success:
                         try:
-                            display_queue.put(image)
+                            proc_queue.put(image)
                         except Full:
                             logger.error("proc queue full?")
                     else:
@@ -249,10 +249,11 @@ def undistort(): # TODO should test timing of resizing here, LINEAR vs CUBIC
     while not exit_flag:
         try:
             start = perf_counter()
-            image = cv2.remap(proc_queue.get(timeout=0.04),map1,map2,interpolation=CUBIC)
-            display_queue.put(cv2.resize(image,SDIM,interpolation=CUBIC)[64:556])
+            image = cv2.remap(proc_queue.get(timeout=0.04)[64:556],map1,map2,interpolation=CUBIC)
+            display_queue.put(image)
             times.append(perf_counter()-start)
-        except Full | Empty: perf_counter()
+        except Full: perf_counter()
+        except Empty: perf_counter()
     logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\tmode: {max(times,key=times.count)/1000000:.0f}\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
 
 def project_reverse_view():
