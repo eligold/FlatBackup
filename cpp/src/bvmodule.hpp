@@ -15,6 +15,10 @@
 #include <csignal>
 #include <sys/mman.h>
 
+#define FINAL_IMAGE_HEIGHT 480
+#define COLOR_LOW 0xc4e4
+#define COLOR_NORMAL 0x19ae
+#define COLOR_BAD 0x8248
 using namespace std;
 using namespace cv;
 
