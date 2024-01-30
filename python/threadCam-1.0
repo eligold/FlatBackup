@@ -54,7 +54,7 @@ for i in range(160,FINAL_IMAGE_HEIGHT):
         sidebar_base[i][j] = low, high
 
 frame_buffer = np.memmap("/dev/fb0",dtype='uint8',mode="w+", shape=(480,1600,2)).newbyteorder()
-frame_buffer[:,-120:] = sidebar_base.byteswap()
+frame_buffer[:,-120:] = sidebar_base.copy()
 
 exit_flag = False
 
@@ -251,7 +251,7 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     return camera
 
 def undistort(image): # TODO should test timing of resizing here
-    return cv2.cvtColor(cv2.remap(image,map1,map2,interpolation=CUBIC),cv2.BGR2BGR565)
+    return cv2.cvtColor(cv2.remap(image,map1,map2,interpolation=CUBIC),cv2.COLOR_BGR2BGR565)
 
 def build_reverse_view_umat(img):
     image = cv2.UMat(cv2.resize(img,SDIM,interpolation=CUBIC),[64,556])
@@ -270,7 +270,7 @@ def project_reverse_view(img):
     image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
     frame_buffer[:,220:1260] = cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC)
     frame_buffer[:,:220] = image[8:488,:220]
-    frame_buffer[:,-340:120] = image[:480,-220:]
+    frame_buffer[:,-340:-120] = image[:480,-220:]
     frame_buffer.flush()
     times.append(perf_counter()-start)
 
