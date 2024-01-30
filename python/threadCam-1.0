@@ -95,7 +95,7 @@ def main():
             bluetooth_process = shell('\n'.join(bluetoothctl_lines)) # f"bluetoothctl connect {mac}")
         for function, name in [
                 (get_image,"read"),
-                (on_screen,"show"),
+               # (on_screen,"show"),
                 (touch_input,"taps"),
                 (sidebar_builder,"sdbr")]:
             thread = Thread(target=function,name=name)
@@ -117,9 +117,7 @@ def main():
         traceback.print_exc()
         logger.exception(ex)
     finally:
-        logger.info(f"sdbr: {sidebar_queue.qsize()}\tdisp: {display_queue.qsize()}")
         logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
-        logger.info(f"sidebar stats:\nmin: {min(sidebar_times)/1000000:.0f}ms\tmax: {max(sidebar_times)/1000000:.0f}ms\nmean: {np.mean(sidebar_times)/1000000:.0f}ms\tmedian: {np.median(sidebar_times)/1000000:.0f}ms")
         exit_flag = True
         if dashcam_process:
             dashcam_process.terminate()
@@ -154,10 +152,7 @@ def get_image():
                     if exit_flag: break
                     success, image = camera.read()
                     if success:
-                        try:
-                            display_queue.put(image)
-                        except Full:
-                            logger.error("proc queue full?")
+                        project_reverse_view(image)
                     else:
                         read_fail_count += 1
         except Exception as e:
@@ -198,7 +193,7 @@ def touch_input():
             touch_process = shell(touch_command)
             stdout = touch_process.stdout
             while not exit_flag:
-                line = stdout.readline.decode()
+                line = stdout.readline().decode()
                 if("POSITION_X" in line and "value" in line):
                     x = int(line.split("value")[-1])
                     if x >= FINAL_IMAGE_WIDTH:
@@ -242,13 +237,6 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
 def undistort(image): # TODO should test timing of resizing here
     return cv2.remap(image,mapx,mapy,interpolation=CUBIC)
 
-def on_screen():
-    global display_queue
-    while not exit_flag:
-        try:
-            Thread(target=project_reverse_view,args=(display_queue.get(timeout=0.04),),daemon=True).start()
-        except Empty: pass
-
 def project_reverse_view(img):
     global frame_buffer
     global sidebar_queue
@@ -260,8 +248,6 @@ def project_reverse_view(img):
     frame_buffer[:,-340:-120,:] = cv2.cvtColor(image[:480,-220:],BGR565)
     try:
         frame_buffer[:,-120:] = sidebar_queue.get(block=False)
-        sidebar_times.append(perf_counter()-start)
-        start = perf_counter()
     except Empty: pass
    # frame_buffer.flush()
     times.append(perf_counter()-start)
