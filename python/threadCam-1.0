@@ -28,6 +28,7 @@ FORMAT = cv2.CAP_PROP_FOURCC
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
 BRIGHTNESS = cv2.CAP_PROP_BRIGHTNESS
+BGR565 = cv2.COLOR_BGR2BGR565
 
 # below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
 K = np.array([                                                               # phone screen. YMMV
@@ -85,67 +86,41 @@ def main():
             'EOF']
     bluetooth_process = None
     dashcam_process = None
-    touch_command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
     try: # is the wifi connected?
         wifi_process = bash('cat /sys/class/net/wlan0/operstate')
         if wifi_process.stdout == b'up\n':
             pass # raise KeyboardInterrupt("wifi connected")
         else: # turn off radio, no need to waste power
             wifi_flag = shell('ip link set wlan0 down').wait() == 0
-        bluetooth_process = shell(f"bluetoothctl connect {mac}") # '\n'.join(bluetoothctl_lines))
+            bluetooth_process = shell('\n'.join(bluetoothctl_lines)) # f"bluetoothctl connect {mac}")
         for function, name in [
-                (sidebar_builder,"sdbr"),
-                (project_reverse_view,"show"),
-               # (touch_input,"touch"),
-                (get_image,"read")]:
+                (get_image,"read"),
+                (on_screen,"show"),
+                (touch_input,"taps"),
+                (sidebar_builder,"sdbr")]:
             thread = Thread(target=function,name=name)
             thread.start()          # start each thread
             threads.append(thread)  # store them for termination later
             logger.info(f"started thread {name}")
-        stdout = None
-        touch_process = None
-        ret = bluetooth_process.wait()
-        for bt_line in bluetooth_process.stdout.readlines():
-            logger.info(bt_line.decode())
-        logger.info("Bluetooth success?" if ret == 0 else f"BT return code: {ret}")
-        dashcam_process = start_dash_cam()
+        if bluetooth_process:
+            ret = bluetooth_process.wait()
+            for bt_line in bluetooth_process.stdout.readlines():
+                logger.info(bt_line.decode())
+            logger.info("Bluetooth success?" if ret == 0 else f"BT return code: {ret}")
         while not exit_flag:
-            try:
-                touch_process = shell(touch_command)
-                stdout = touch_process.stdout
-                while not exit_flag:
-                    sleep(0.19)                    # HI IM HERE
-                    line = stdout.readline().decode()
-                    if("POSITION_X" in line and "value" in line):
-                        x = int(line.split("value")[-1])
-                        if x >= FINAL_IMAGE_WIDTH:
-                            line = stdout.readline().decode()
-                            y = int(line.split("value")[-1])
-                            if y > 239:
-                                logger.warning(f'exit:\ttouch input ( X: > , Y: v ) {x} , {y}')
-                                exit_flag = True
-                    if exit_flag: break
-                    if dashcam_process.returncode == 0:
-                        for dash_line in dashcam_process.stdout.readlines():
-                            logger.info(dash_line.decode())
-                        logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
-                        if exit_flag: break
-                        dashcam_process = start_dash_cam()
-            except Exception as e:
-                logger.exception(e)
+            dashcam_process = start_dash_cam()
+            for dash_line in dashcam_process.stdout.readlines():
+                logger.info(dash_line.decode())
+            logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
     except Exception as ex:
         exit_flag = True
         traceback.print_exc()
         logger.exception(ex)
     finally:
-        logger.info(f"sdbr  : {sidebar_queue.qsize()}\tdisp: {display_queue.qsize()}")
-        logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ns\tmax: {max(times)/1000000:.0f}ns\nmean: {np.mean(times)/1000000:.0f}ns\tmedian: {np.median(times)/1000000:.0f}ns")
-        logger.info(f"time stats:\nmin: {min(sidebar_times)/1000000:.0f}ns\tmax: {max(sidebar_times)/1000000:.0f}ns\nmean: {np.mean(sidebar_times)/1000000:.0f}ns\tmedian: {np.median(sidebar_times)/1000000:.0f}ns")
+        logger.info(f"sdbr: {sidebar_queue.qsize()}\tdisp: {display_queue.qsize()}")
+        logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
+        logger.info(f"sidebar stats:\nmin: {min(sidebar_times)/1000000:.0f}ms\tmax: {max(sidebar_times)/1000000:.0f}ms\nmean: {np.mean(sidebar_times)/1000000:.0f}ms\tmedian: {np.median(sidebar_times)/1000000:.0f}ms")
         exit_flag = True
-        if stdout:
-            stdout.close()
-        if touch_process:
-            touch_process.terminate()
         if dashcam_process:
             dashcam_process.terminate()
         if wifi_flag:
@@ -213,24 +188,35 @@ def sidebar_builder():
         if exit_flag: break
         else: sleep(2)
 
-def dash_camera():
-    dashcam_process = None
-    try:
+def touch_input():
+    global exit_flag
+    touch_command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
+    while not exit_flag:
+        stdout = None
+        touch_process = None
         try:
-            dashcam_process = start_dash_cam()
+            touch_process = shell(touch_command)
+            stdout = touch_process.stdout
             while not exit_flag:
-                if dashcam_process.returncode is None:
-                    sleep(0.19)
-                else:
-                    if dashcam_process.returncode == 0:
-                        dashcam_process = start_dash_cam()
-                    else:
-                        raise Exception(f"dashcam process exit code {dashcam_process.returncode}")
+                line = stdout.readline.decode()
+                if("POSITION_X" in line and "value" in line):
+                    x = int(line.split("value")[-1])
+                    if x >= FINAL_IMAGE_WIDTH:
+                        line = stdout.readline().decode()
+                        y = int(line.split("value")[-1])
+                        if y > 239:
+                            exit_flag = True
+                            raise KeyboardInterrupt(f'exit:\ttouch input ( X: > , Y: v ) {x} , {y}')
+                if exit_flag: break
+        except KeyboardInterrupt as kbi:
+            raise kbi
         except Exception as e:
+            traceback.print_exc()
             logger.exception(e)
-    finally:
-        if dashcam_process:
-            dashcam_process.terminate()
+        finally:
+            if stdout: stdout.close()
+            if touch_process: touch_process.terminate()
+        if exit_flag: break
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30
@@ -243,7 +229,7 @@ def start_dash_cam(): # sets camera attributes for proper output size and format
     weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
     filepath = f"/media/usb/{'_'.join([date,clock_time,weekday])}.mjpeg"
     cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
-    return shell(cmd)
+    return bash(cmd)
 
 def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
@@ -254,39 +240,31 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     return camera
 
 def undistort(image): # TODO should test timing of resizing here
-    final = cv2.remap(image,mapx,mapy,interpolation=CUBIC)
-    return cv2.cvtColor(final,cv2.COLOR_BGR2BGR565)
+    return cv2.remap(image,mapx,mapy,interpolation=CUBIC)
 
-def build_reverse_view_umat(img):
-    image = cv2.UMat(cv2.resize(img,SDIM,interpolation=CUBIC),[64,556])
-    middle = cv2.resize(cv2.UMat(image,[213,453],[220,740]),FDIM,interpolation=CUBIC)
-    return cv2.hconcat([cv2.UMat(image,[8,488],[0,220]),middle,cv2.UMat(image,[0,480],[740,960])])
+def on_screen():
+    global display_queue
+    while not exit_flag:
+        try:
+            Thread(target=project_reverse_view,args=(display_queue.get(timeout=0.04),),daemon=True).start()
+        except Empty: pass
 
-def project_reverse_view():
+def project_reverse_view(img):
     global frame_buffer
     global sidebar_queue
-    global display_queue
-    empty_exc_count = 0
-    while not exit_flag:
+    start = perf_counter()
+    image = cv2.resize(undistort(img),SDIM,interpolation=CUBIC)[64:556]
+    frame_buffer[:,220:1260,:] = \
+        cv2.cvtColor(cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC),BGR565)
+    frame_buffer[:,:220,:] = cv2.cvtColor(image[8:488,:220],BGR565)
+    frame_buffer[:,-340:-120,:] = cv2.cvtColor(image[:480,-220:],BGR565)
+    try:
+        frame_buffer[:,-120:] = sidebar_queue.get(block=False)
+        sidebar_times.append(perf_counter()-start)
         start = perf_counter()
-        try:
-            frame_buffer[:,-120:] = sidebar_queue.get(block=False)
-            sidebar_times.append(perf_counter()-start)
-            start = perf_counter()
-        except Empty: pass
-        try:
-            img = undistort(display_queue.get(timeout=0.04))
-            image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
-            print(image.shape)
-            frame_buffer[:,220:1260,:] = cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC)
-            frame_buffer[:,:220,:] = image[8:488,:220]
-            frame_buffer[:,-340:-120,:] = image[:480,-220:]
-           # frame_buffer.flush()
-            times.append(perf_counter()-start)
-        except Empty:
-            empty_exc_count += 1
-            perf_counter()
-    if empty_exc_count: logger.error(f"display queue was empty {empty_exc_count} times")
+    except Empty: pass
+   # frame_buffer.flush()
+    times.append(perf_counter()-start)
 
 def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,

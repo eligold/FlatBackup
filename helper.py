@@ -74,4 +74,3 @@ def run(t = (600,480)):
 
 if __name__ == "__main__":
     run()
-    code.interact(local=globals())
