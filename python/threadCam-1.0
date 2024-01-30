@@ -27,6 +27,7 @@ CUBIC = cv2.INTER_CUBIC
 FORMAT = cv2.CAP_PROP_FOURCC
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
+BRIGHTNESS = cv2.CAP_PROP_BRIGHTNESS
 
 # below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
 K = np.array([                                                               # phone screen. YMMV
@@ -248,7 +249,8 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
     camera.set(WIDTH,width)
     camera.set(HEIGHT,height)
-    camera.set(cv2.CAP_PROP_BRIGHTNESS,brightness)
+    camera.set(BRIGHTNESS,brightness)
+    logger.info(f"camera brightness: {camera.get(BRIGHTNESS)}")
     return camera
 
 def undistort(image): # TODO should test timing of resizing here
@@ -272,7 +274,7 @@ def project_reverse_view():
             start = perf_counter()
         except Empty: pass
         try:
-            img = display_queue.get(timeout=0.04)
+            img = undistort(display_queue.get(timeout=0.04))
             image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
             frame_buffer[:,220:1260,:] = cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC)
             frame_buffer[:,:220,:] = image[8:488,:220]
