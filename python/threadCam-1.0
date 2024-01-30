@@ -254,7 +254,8 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     return camera
 
 def undistort(image): # TODO should test timing of resizing here
-    return cv2.cvtColor(cv2.remap(image,mapx,mapy,interpolation=CUBIC),cv2.COLOR_BGR2BGR565)
+    final = cv2.remap(image,mapx,mapy,interpolation=CUBIC)
+    return cv2.cvtColor(final,cv2.COLOR_BGR2BGR565)
 
 def build_reverse_view_umat(img):
     image = cv2.UMat(cv2.resize(img,SDIM,interpolation=CUBIC),[64,556])

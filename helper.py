@@ -19,7 +19,7 @@ D = np.array([[0.013301372417500422], [0.03857464918863361], [0.0041173061472287
 new_K = cv.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv.CV_32FC1)
 new_sK = cv.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, SDIM, np.eye(3), balance=1)
-mapx2, mapy2 = cv.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, SDIM, cv.CV_32FC1)
+mapx2, mapy2 = cv.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_sK, SDIM, cv.CV_32FC1)
 def get_camera():
     c = cv.VideoCapture(0,apiPreference = cv.CAP_V4L2)
     c.set(cv.CAP_PROP_FRAME_WIDTH,720)
@@ -47,11 +47,6 @@ def make_view(f):
         cv.resize(f[284:524,160:800],(1280,480),interpolation=cv.INTER_CUBIC),
         cv.COLOR_BGR2BGR565)
     return cv.hconcat([f1,f,f2])
-    with open('/dev/fb0','rb+') as buf:
-        for i in range(480):
-            buf.write(f1[i])
-            buf.write(f[i])
-            buf.write(f2[i])
 
 def saveImage(f):
     o = f.copy()
