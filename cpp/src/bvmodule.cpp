@@ -1,7 +1,5 @@
 #include"bvmodule.hpp"
 
-#define COLOR_LOW 0xc4e4
-
 namespace bv {
     atomic<bool> terminateThread(false);
     string *psi = "19.1";

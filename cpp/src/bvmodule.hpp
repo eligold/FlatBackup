@@ -26,6 +26,6 @@ namespace bv {
     class CV_EXPORTS_W ViewBuilder {
     public:
         CV_WRAP ViewBuilder();
-        CV_WRAP void build(InputArray image, OutputArray imview);
+        CV_WRAP void run();
     };
 }
