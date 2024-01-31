@@ -130,6 +130,7 @@ namespace bv {
     }
     float BackupViewer::psi;
     BackupViewer::update_psi(float pressure) {
+        // mutex???  -> if !mutex && new_psi<bool>
         this.psi = pressure;
     }
     BackupViewer::BackupViewer(int cidx) {
