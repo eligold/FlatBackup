@@ -59,7 +59,6 @@ no_signal_frame = cv2.putText(
 exit_flag = False
 display_lock = False
 times = []
-vb = bv.bv_ViewBuilder()
 
 
 def bash(cmd:str,shell=True,capture_output=True,check=False):
@@ -124,7 +123,7 @@ def main():
                             y = int(line.split("value")[-1])
                             if y > 239:
                                 logger.warning(f'exit:\ttouch input ( X: > , Y: v ) {x} , {y}')
-                                exit_flag = True
+                                exit_flag = True  # MAYBE SHUTDOWN?
                     if exit_flag: break
                     if dashcam_process.returncode == 0:
                         for dash_line in dashcam_process.stdout.readlines():
@@ -142,12 +141,16 @@ def main():
         logger.info(f"proc: {processing_queue.qsize()}\tdisp: {display_queue.qsize()}")
         logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ns\tmax: {max(times)/1000000:.0f}ns\nmean: {np.mean(times)/1000000:.0f}ns\tmedian: {np.median(times)/1000000:.0f}ns")
         exit_flag = True
-        if stdout:
-            stdout.close()
-        if touch_process:
-            touch_process.terminate()
-        if dashcam_process:
-            dashcam_process.terminate()
+        try:
+            if dashcam_process:
+                dashcam_process.terminate()
+            if stdout:
+                stdout.close()
+            if touch_process:
+                touch_process.terminate()
+        except Exception as e:
+            traceback.print_exc()
+            logger.exception(e)
         if wifi_flag:
            # manage BT conn here maybe
             bash('ip link set wlan0 up',check=False)

@@ -1,4 +1,5 @@
 #include <opencv2/opencv.hpp>
+#include <opencv2/videoio.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
 #include <stdio.h> // standard input / output functions
 #include <string.h> // string function definitions
@@ -14,6 +15,11 @@
 #include <mutex>
 #include <csignal>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <linux/fb.h>
+
 
 #define FINAL_IMAGE_HEIGHT 480
 #define COLOR_LOW 0xc4e4
@@ -23,9 +29,14 @@ using namespace std;
 using namespace cv;
 
 namespace bv {
-    class CV_EXPORTS_W ViewBuilder {
+    typedef Point_<uint8_t> Pixel;
+    using InputCallback = function<void(const string&)>;
+    void kbi(int);
+    void inputThread(bv::InputCallback);
+    CV_EXPORTS_W void play(int);
+    class CV_EXPORTS_W BackupViewer {
     public:
-        CV_WRAP ViewBuilder();
-        CV_WRAP void run();
+        CV_WRAP BackupViewer(int);
+        CV_WRAP BackupVIewer::update_psi(float);
     };
 }
