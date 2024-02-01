@@ -23,7 +23,7 @@ COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
 FPS = cv2.CAP_PROP_FPS
-CUBIC = cv2.INTER_CUBIC
+CUBIC = cv2.INTER_LINEAR
 FORMAT = cv2.CAP_PROP_FOURCC
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
@@ -42,7 +42,7 @@ D = np.array([
     [-0.008896442339724364]])
 # calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
-mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, SDIM, cv2.CV_32FC1)
+mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
 map1, map2 = cv2.convertMaps(mapx,mapy,cv2.CV_16SC2)
 
 display_queue = SimpleQueue()
@@ -249,7 +249,8 @@ def undistort(): # TODO should test timing of resizing here, LINEAR vs CUBIC
     while not exit_flag:
         try:
             start = perf_counter()
-            image = cv2.remap(proc_queue.get(timeout=0.04)[64:556],map1,map2,interpolation=CUBIC)
+            img = cv2.remap(proc_queue.get(timeout=0.04),map1,map2,interpolation=CUBIC)
+            image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
             display_queue.put(image)
             times.append(perf_counter()-start)
         except Full: perf_counter()
