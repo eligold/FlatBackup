@@ -23,7 +23,7 @@ COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
 FPS = cv2.CAP_PROP_FPS
-CUBIC = cv2.INTER_LINEAR
+LINEAR = cv2.INTER_LINEAR
 FORMAT = cv2.CAP_PROP_FOURCC
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
@@ -128,7 +128,7 @@ def main():
             thread.join()
 
 def get_image():
-    global proc_queue
+    global display_queue
     width, height = DIM
     usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     camera = None
@@ -155,9 +155,9 @@ def get_image():
                     times.append(perf_counter()-start)
                     if success:
                         try:
-                            proc_queue.put(image)
+                            display_queue.put(image)
                         except Full:
-                            logger.error("proc queue full?")
+                            logger.error("display queue full?")
                     else:
                         read_fail_count += 1
         except Exception as e:
@@ -243,19 +243,9 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     logger.info(f"camera brightness: {camera.get(BRIGHTNESS)}")
     return camera
 
-def undistort(): # TODO should test timing of resizing here, LINEAR vs CUBIC
-    global proc_queue, display_queue
-    times = []
-    while not exit_flag:
-        try:
-            start = perf_counter()
-            img = cv2.remap(proc_queue.get(timeout=0.04),map1,map2,interpolation=CUBIC)
-            image = cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
-            display_queue.put(image)
-            times.append(perf_counter()-start)
-        except Full: perf_counter()
-        except Empty: perf_counter()
-    logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\tmode: {max(times,key=times.count)/1000000:.0f}\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
+def undistort(img):
+    image = cv2.remap(img,map1,map2,interpolation=LINEAR)
+    return cv2.resize(image,SDIM,interpolation=LINEAR)[64:556]
 
 def project_reverse_view():
     global frame_buffer
@@ -270,12 +260,12 @@ def project_reverse_view():
                 stimes.append(perf_counter()-start)
                 start = perf_counter()
             except Empty: pass
-            image = display_queue.get(timeout=0.04)
+            image = undistort(display_queue.get(timeout=0.04))
             frame_buffer[:,220:1260,:] = \
-                cv2.cvtColor(cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC),BGR565)
+                cv2.cvtColor(cv2.resize(image[213:453,220:-220],FDIM,interpolation=LINEAR),BGR565)
             frame_buffer[:,:220,:] = cv2.cvtColor(image[8:488,:220],BGR565)
             frame_buffer[:,-340:-120,:] = cv2.cvtColor(image[:480,-220:],BGR565)
-            frame_buffer.flush()  # NOT NEEDED?
+           # frame_buffer.flush()  # NOT NEEDED?
             times.append(perf_counter()-start)
         except Empty: perf_counter()
         
