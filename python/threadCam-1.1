@@ -6,7 +6,7 @@ from threading  import Thread
 from queue import Empty, Full, SimpleQueue
 from time import sleep, localtime
 from ELM327 import ELM327
-from bv import bv_ViewBuilder as ViewBuilder
+from bv import bv_BackupViewer as BackupViewer
 
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
@@ -109,6 +109,7 @@ def main():
             thread.join()
 
 def get_image():
+    global psi_queue
     usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
     while not exit_flag:
         try:
@@ -119,7 +120,12 @@ def get_image():
             else:
                 logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
                 index = int(usb_capture_real_path.split("video")[-1])
-                Popen(args=(0,),executable="cv_alone.py",stdin=PIPE,stdout=PIPE,stderr=PIPE)
+                viewer = BackupViewer(index)
+                viewer.play()
+                while not exit_flag:
+                    try:
+                        viewer.psi(psi_queue.get(timeout=1))
+                    except Empty: pass
                 # wrap in script!!! somehow need to pipe cin to it 
                 # cin -> {ViewBuilder(index)}
         except Exception as e:    # TAB +1 w np fb
@@ -131,7 +137,6 @@ def get_image():
 
 def sidebar_builder():
     global psi_queue
-    global sidebar
     while not exit_flag:
         try:
             elm = ELM327()

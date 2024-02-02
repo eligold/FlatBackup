@@ -30,13 +30,17 @@ using namespace cv;
 
 namespace bv {
     typedef Point_<uint8_t> Pixel;
-    using InputCallback = function<void(const string&)>;
+    //using InputCallback = function<void(const string&)>;
     void kbi(int);
-    void inputThread(bv::InputCallback);
-    CV_EXPORTS_W void play(int);
+    //void inputThread(bv::InputCallback);
+    
+    // CV_EXPORTS_W void play(int);
     class CV_EXPORTS_W BackupViewer {
     public:
         CV_WRAP BackupViewer(int);
-        CV_WRAP BackupVIewer::update_psi(float);
+        CV_WRAP BackupViewer::update_psi(float);
+        CV_WRAP BackupViewer::play(int);
+    private:
+        int cameraIndex {};
     };
 }

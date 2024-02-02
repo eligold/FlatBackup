@@ -2,17 +2,18 @@
 
 namespace bv {
     atomic<bool> terminateThread(false);
+    atomic<float> psi(19.1);
     void kbi(int signum) {
         cout << "killing program...\nSIGNAL " << signum << endl;
         terminateThread.store(true);
     }
-    void inputThread(bv::InputCallback callback) {
-        string input;
-        while (!bv::terminateThread.load()) {
-            cin >> input;
-            callback(input);
-        }
-    }
+    // void inputThread(bv::InputCallback callback) {
+    //     string input;
+    //     while (!bv::terminateThread.load()) {
+    //         cin >> input;
+    //         callback(input);
+    //     }
+    // }
     struct Operator {
         void operator ()(Pixel &pixel, const int *position) const {
             if (position[1] > 160) {
@@ -27,15 +28,15 @@ namespace bv {
             }
         }
     };
-    void BackupViewer::play(int camIndex) {
+    BackupViewer::play(int camIndex) {
         string psi = "19.1";
         int err_idx = 4;
         signal(SIGINT, bv::kbi);
         signal(SIGTERM, bv::kbi);
-        auto onInputReceived = [&psi](const string& input) {
-            psi = input;
-        };
-        thread inputHandler(bv::inputThread, onInputReceived);
+        // auto onInputReceived = [&psi](const float& input) {
+        //     psi = input;
+        // };
+        // thread inputHandler(bv::inputThread, onInputReceived);
 
         Size inputSize(720, 576);
         const int index;
@@ -66,23 +67,31 @@ namespace bv {
         unsigned char* fb_ptr;
         VideoCapture cap(camIndex,CAP_V4L);
         if (cap.isOpened()) {
+            cout << err_idx << endl;
             err_idx--;
             Mat sidebar = sidebar_base.clone();
             fb = open("/dev/fb0",O_RDWR);
             if (fb != -1) {
+                cout << err_idx << endl;
                 err_idx--;
                 struct fb_var_screeninfo vinfo;
                 if (!ioctl(fb, FBIOGET_VSCREENINFO, &vinfo)) {
+                    cout << err_idx << endl;
                     err_idx--;
                     fb_ptr = (unsigned char*)mmap(
                             NULL, vinfo.yres_virtual * vinfo.xres_virtual * depth, 
                             PROT_READ | PROT_WRITE, MAP_SHARED, fb, 0);
                     if (fb_ptr != MAP_FAILED) {
+                        cout << err_idx << endl;
                         err_idx--;
                         Mat output;
+                        int display_width;
                         while(!bv::terminateThread.load()) {
                             cap >> frame;
+                            cout << "got frame!" << endl;
                             if (!frame.empty()) {
+                                cout << "made it" << endl;
+                                display_width = 1480;
                                 remap(frame, undistorted, undistortMapX, undistortMapY, INTER_CUBIC);
                                 resize(undistorted.rowRange(64,556), resized, Size(960,768));
                                 resize(resized(Rect(220,213,520,240)).clone(), middle, Size(1040,480));
@@ -93,9 +102,9 @@ namespace bv {
                                 panels.clear();
                                 cvtColor(recolor,panelView,COLOR_BGR2BGR565);
                                 
-                                if (psi != "19.1") {
-                                    putText(sidebar,psi,Point(4,57),FONT_HERSHEY_SIMPLEX,1.19,
-                                            Scalar(COLOR_NORMAL),3,LINE_AA);
+                                if (bv::psi.load() != 19.1) {
+                                    putText(sidebar,format("{:.1f}",psi),Point(4,57),
+                                            FONT_HERSHEY_SIMPLEX,1.19,Scalar(COLOR_NORMAL),3,LINE_AA);
                                     string units = "bar";
                                     float numericPSI = stof(psi);
                                     if (numericPSI > 0) { units = "PSI"; }
@@ -103,10 +112,10 @@ namespace bv {
                                             Scalar(COLOR_BAD),2,LINE_AA);
                                     for (int y = 0; y < height; ++y) {
                                         memcpy(fb_ptr + (y + vinfo.yoffset) * vinfo.xres_virtual * depth + 1480,
-                                                sidebar.at<uint8_t>(y), 120);
+                                                sidebar.at<uint8_t>(y), 120 * depth);
                                     }
                                     sidebar = sidebar_base.clone();
-                                    psi = "19.1";
+                                    psi = 19.1;
                                 }
                                 output = panelView.getMat(ACCESS_READ);
                                 for (int y = 0; y < height; ++y) {
@@ -125,15 +134,12 @@ namespace bv {
         if (cap.isOpened()) { cap.release(); }
         
         bv::terminateThread.store(true);
-        inputHandler.join();
+        //inputHandler.join();
         cout << err_idx << endl;
     }
-    float BackupViewer::psi;
     BackupViewer::update_psi(float pressure) {
-        // mutex???  -> if !mutex && new_psi<bool>
-        this.psi = pressure;
+        bv::psi.store(pressure);
     }
-    BackupViewer::BackupViewer(int cidx) {
-        this.play(cidx)
+    BackupViewer::BackupViewer(int cidx): cameraIndex {cidx} {
     }
 }
