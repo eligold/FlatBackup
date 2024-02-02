@@ -55,10 +55,14 @@ namespace bv {
                             PROT_READ | PROT_WRITE, MAP_SHARED, fb, 0);
                     if (fb_ptr != MAP_FAILED) {
                         err_idx--;
-                        Size inputSize(720, 576);
+                        Size inputSize(576, 720);
                         const int index;
-                        UMat undistorted, resized, middle, recolor, panelView;
-                        UMat frame(576,720,CV_8UC3);
+                        UMat undistorted(inputSize,CV_8UC3);
+                        UMat resized(Size(960,656),CV_8UC3);
+                        UMat middle(Size(480,1040),CV_8UC3);
+                        UMat frame(inputSize,CV_8UC3);
+                        UMat panelView(Size(480,1480),CV_8UC3);
+                        UMat recolor;
                         vector<UMat> panels;
                         Mat sidebar_base(480, 120, CV_8UC2, Scalar(COLOR_LOW));
                         sidebar_base.forEach<Pixel>(bv::Operator());
@@ -66,15 +70,12 @@ namespace bv {
                                 309.41085232860985, 0.0, 355.4094868125207,
                                 0.0, 329.90981352161924, 292.2015284112677,
                                 0.0, 0.0, 1.0);
-                        cout << "built camera matrix" << endl;
                         const Mat distortionCoefficients = (Mat_<double>(4,1) <<
                                 0.013301372417500422,
                                 0.03857464918863361,
                                 0.004117306147228716,
                                 -0.008896442339724364);
-                        cout << "built coeff mat" << endl;
                         Mat sidebar = sidebar_base.clone();
-                        cout << "cloned sidebar base" << endl;
                         Mat newCameraMatrix, undistortMapX, undistortMapY, output;
                         fisheye::estimateNewCameraMatrixForUndistortRectify(
                             cameraMatrix, distortionCoefficients, inputSize, Matx33d::eye(),newCameraMatrix);
@@ -87,7 +88,7 @@ namespace bv {
                             cap >> frame;
                             if (!frame.empty()) {
                                 remap(frame, undistorted, undistortMapX, undistortMapY, INTER_CUBIC);
-                                resize(undistorted.rowRange(64,556), resized, Size(960,768));
+                                resize(undistorted.rowRange(64,556),resized,Size(960,656),4/3,4/3,INTER_LINEAR);
                                 resize(resized(Rect(220,213,520,240)).clone(), middle, Size(1040,480));
                                 panels.push_back(resized(Rect(0,8,220,480)));
                                 panels.push_back(middle);
