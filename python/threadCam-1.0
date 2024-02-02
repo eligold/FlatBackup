@@ -231,14 +231,14 @@ def on_screen():
     while not exit_flag:
         try:
             start = perf_counter()
-            image = undistort(display_queue.get(timeout=0.057))
+            image,large = undistort(display_queue.get(timeout=0.057))
             proc_times.append(perf_counter()-start)
             if signal_queue.empty():
                 try: signal_queue.put(None)
                 except Full: pass
             else: logger.error("camera handshake signal not being received")
             if exit_flag: break
-            project_reverse_view(image)
+            project_reverse_view(image,large)
         except Empty: logger.error("nothing to display!")
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
@@ -263,18 +263,19 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     return camera
 
 def undistort(img): # MAYBE ALSO TRY mapx, mapy ?
-    image = cv2.remap(img,map1,map2,interpolation=LINEAR)
-    return cv2.resize(image,SDIM,interpolation=LINEAR)[64:556]
+    intermediate = cv2.remap(img,map1,map2,interpolation=LINEAR)
+    image = cv2.resize(intermediate,SDIM,interpolation=LINEAR)[64:556]
+    large = cv2.resize(image[213:453,220:-220],FDIM,interpolation=LINEAR)
+    return cv2.cvtColor(image,BGR565), cv2.cvtColor(large,BGR565)
 
-def project_reverse_view(image):
+def project_reverse_view(image, large):
     global frame_buffer
     global sidebar_queue
     global display_times
     start = perf_counter()
-    frame_buffer[:,220:1260,:] = \
-        cv2.cvtColor(cv2.resize(image[213:453,220:-220],FDIM,interpolation=LINEAR),BGR565)
-    frame_buffer[:,:220,:] = cv2.cvtColor(image[8:488,:220],BGR565)
-    frame_buffer[:,-340:-120,:] = cv2.cvtColor(image[:480,-220:],BGR565)
+    frame_buffer[:,220:1260,:] = large
+    frame_buffer[:,:220,:] = image[8:488,:220]
+    frame_buffer[:,-340:-120,:] = image[:480,-220:]
     try:
         frame_buffer[:,-120:] = sidebar_queue.get(block=False)
     except Empty: pass
