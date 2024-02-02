@@ -40,5 +40,6 @@ namespace bv {
         CV_WRAP BackupViewer();
         CV_WRAP int update_psi(float);
         CV_WRAP int play(int);
+        CV_WRAP int kill();
     };
 }

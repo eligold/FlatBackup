@@ -2,7 +2,7 @@
 
 namespace bv {
     atomic<bool> terminateThread(false);
-    atomic<float> psi(19.1);
+    atomic<float> psi(19.0);
     void kbi(int signum) {
         cout << "killing program...\nSIGNAL " << signum << endl;
         terminateThread.store(true);
@@ -59,7 +59,6 @@ namespace bv {
                         const int index;
                         UMat frame, undistorted, resized, middle, recolor, panelView;
                         vector<UMat> panels;
-                        bv::psi.store(19.0);
                         Mat sidebar_base(480, 120, CV_8UC2, Scalar(COLOR_LOW));
                         sidebar_base.forEach<Pixel>(bv::Operator());
                         const Mat cameraMatrix = (Mat_<double>(3,3) <<
@@ -136,13 +135,16 @@ namespace bv {
             }
             if (cap.isOpened()) { cap.release(); }
         }
-        bv::terminateThread.store(true);
+        //bv::terminateThread.store(true);
         //inputHandler.join();
-        cout << err_idx << endl;
         return err_idx;
     }
     BackupViewer::update_psi(float pressure) {
         bv::psi.store(pressure);
+        return 0;
+    }
+    BackupViewer::kill() {
+        bv::terminateThread.store(true);
         return 0;
     }
     BackupViewer::BackupViewer() {
