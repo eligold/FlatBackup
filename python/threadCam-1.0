@@ -122,7 +122,7 @@ def main():
     finally:
         logger.info(f"display queue: {display_queue.qsize()}")
         for times,label in ((cam_times,"read"),(proc_times,"proc"),(display_times,"disp")):
-            logger.info(f"[{label}] time stats:\nmin: {min(times)*1000:.1f}ms\tmax: {max(times)*1000:.0f}ms\t mode:{max(times,key=times.count)*1000:.0f}ms\nmean: {np.mean(times)*1000:.0f}ms\tmedian: {np.median(times)*1000:.0f}ms")
+            logger.info(f"[{label}] time stats:\nmin: {min(times)*1000:.1f}ms\tmax: {max(times)*1000:.1f}ms\t mode:{max(times,key=times.count)*1000:.1f}ms\nmean: {np.mean(times)*1000:.1f}ms\tmedian: {np.median(times)*1000:.1f}ms")
         exit_flag = True
         if dashcam_process:
             dashcam_process.terminate()
