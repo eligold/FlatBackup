@@ -4,7 +4,7 @@ from subprocess import run, Popen, PIPE
 from signal import SIGINT
 from threading  import Thread
 from queue import Empty, Full, SimpleQueue
-from time import sleep, time, localtime, perf_counter_ns as perf_counter
+from time import sleep, time, localtime, perf_counter
 from ELM327 import ELM327
 
 DASHCAM_FPS = 15
@@ -23,7 +23,7 @@ COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
 FPS = cv2.CAP_PROP_FPS
-CUBIC = cv2.INTER_CUBIC
+LINEAR = cv2.INTER_LINEAR
 FORMAT = cv2.CAP_PROP_FOURCC
 WIDTH = cv2.CAP_PROP_FRAME_WIDTH
 HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
@@ -43,9 +43,10 @@ D = np.array([
 # calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
+map1, map2 = cv2.convertMaps(mapx,mapy,cv2.CV_16SC2)
 
-display_queue = SimpleQueue(10)
-signal_queue = SimpleQueue(1)
+display_queue = SimpleQueue()
+signal_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
 
 sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120,2),COLOR_LOW,np.uint8)
@@ -61,8 +62,9 @@ frame_buffer[:,-120:,:] = sidebar_base
 
 exit_flag = False
 
-times = []
-sidebar_times = []
+cam_times = []
+proc_times = []
+display_times = []
 
 def bash(cmd:str,shell=True,capture_output=True,check=False):
     try:
@@ -118,7 +120,9 @@ def main():
         traceback.print_exc()
         logger.exception(ex)
     finally:
-        logger.info(f"time stats:\nmin: {min(times)/1000000:.0f}ms\tmax: {max(times)/1000000:.0f}ms\t mode:{max(times,key=times.count)/1000000:.0f}ms\nmean: {np.mean(times)/1000000:.0f}ms\tmedian: {np.median(times)/1000000:.0f}ms")
+        logger.info(f"display queue: {display_queue.qsize()}")
+        for times,label in ((cam_times,"read"),(proc_times,"proc"),(display_times,"disp")):
+            logger.info(f"[{label}] time stats:\nmin: {min(times)*1000:.1f}ms\tmax: {max(times)*1000:.1f}ms\t mode:{max(times,key=times.count)*1000:.1f}ms\nmean: {np.mean(times)*1000:.1f}ms\tmedian: {np.median(times)*1000:.1f}ms")
         exit_flag = True
         if dashcam_process:
             dashcam_process.terminate()
@@ -130,7 +134,7 @@ def main():
 
 def get_image():
     global display_queue, signal_queue
-    global times
+    global cam_times
     signal_queue.put(None)
     width, height = DIM
     usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
@@ -153,6 +157,7 @@ def get_image():
                 while camera.isOpened():
                     if exit_flag: break
                     try: 
+                        start = perf_counter()
                         signal_queue.get(timeout=0.095)
                         success, image = camera.read()
                         if success:
@@ -162,10 +167,12 @@ def get_image():
                                 project_reverse_view(image)
                                 signal_queue.put(None)
                                 logger.error("display queue full!")
+                            cam_times.append(perf_counter()-start)
                         else:
+                            perf_counter()
                             read_fail_count += 1
                     except Empty:
-                        logger.error("no signal to read from camera!")
+                        logger.error("no image read from camera!")
         except Exception as e:
             traceback.print_exc()
             logger.exception(e)
@@ -220,11 +227,16 @@ def touch_input(stdout):
 
 def on_screen():
     global display_queue, signal_queue
+    global proc_times
     while not exit_flag:
         try:
+            start = perf_counter()
             image = undistort(display_queue.get(timeout=0.057))
-            try: signal_queue.put(None)
-            except Full: logger.error("camera signal not being received")
+            proc_times.append(perf_counter()-start)
+            if signal_queue.empty():
+                try: signal_queue.put(None)
+                except Full: pass
+            else: logger.error("camera handshake signal not being received")
             if exit_flag: break
             project_reverse_view(image)
         except Empty: logger.error("nothing to display!")
@@ -250,24 +262,24 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     logger.info(f"camera brightness: {camera.get(BRIGHTNESS)}")
     return camera
 
-def undistort(image): # TODO should test timing of resizing here
-    img = cv2.remap(image,mapx,mapy,interpolation=CUBIC)
-    return cv2.resize(img,SDIM,interpolation=CUBIC)[64:556]
+def undistort(image): # MAYBE ALSO TRY mapx, mapy ?
+    return cv2.remap(image,map1,map2,interpolation=LINEAR)
 
-def project_reverse_view(image):
+def project_reverse_view(img): # MOVED RESIZE HERE
     global frame_buffer
     global sidebar_queue
+    global display_times
     start = perf_counter()
-   # image = undistort(img)
+    image = cv2.resize(img,SDIM,interpolation=LINEAR)[64:556]
     frame_buffer[:,220:1260,:] = \
-        cv2.cvtColor(cv2.resize(image[213:453,220:-220],FDIM,interpolation=CUBIC),BGR565)
+        cv2.cvtColor(cv2.resize(image[213:453,220:-220],FDIM,interpolation=LINEAR),BGR565)
     frame_buffer[:,:220,:] = cv2.cvtColor(image[8:488,:220],BGR565)
     frame_buffer[:,-340:-120,:] = cv2.cvtColor(image[:480,-220:],BGR565)
     try:
         frame_buffer[:,-120:] = sidebar_queue.get(block=False)
     except Empty: pass
    # frame_buffer.flush()
-    times.append(perf_counter()-start)
+    display_times.append(perf_counter()-start)
 
 def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
