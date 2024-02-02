@@ -1,1 +1,0 @@
-{"bv::ViewBuilder": [{"name": "cv.bv_ViewBuilder"}], "bv::ViewBuilder::ViewBuilder": [{"name": "cv.bv_ViewBuilder", "arg": "", "ret": "<bv_ViewBuilder object>"}], "bv::ViewBuilder::build": [{"name": "cv.bv_ViewBuilder.build", "arg": "image[, imview]", "ret": "imview"}]}
