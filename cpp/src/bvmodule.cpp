@@ -37,15 +37,15 @@ namespace bv {
         unsigned char* fb_ptr;
         VideoCapture cap(camIndex,CAP_V4L);
         if (cap.isOpened()) {
-            cout << err_idx << endl;
             err_idx--;
+            cap.set(CAP_PROP_FRAME_WIDTH,720.0);
+            cap.set(CAP_PROP_FRAME_HEIGHT,576.0);
+            cap.set(CAP_PROP_BRIGHTNESS,25.0);
             int fb = open("/dev/fb0",O_RDWR);
             if (fb != -1) {
-                cout << err_idx << endl;
                 err_idx--;
                 struct fb_var_screeninfo vinfo;
                 if (!ioctl(fb, FBIOGET_VSCREENINFO, &vinfo)) {
-                    cout << err_idx << endl;
                     err_idx--;
                     int width = 1600;
                     int height = 480;
@@ -54,7 +54,6 @@ namespace bv {
                             NULL, vinfo.yres_virtual * vinfo.xres_virtual * depth, 
                             PROT_READ | PROT_WRITE, MAP_SHARED, fb, 0);
                     if (fb_ptr != MAP_FAILED) {
-                        cout << err_idx << endl;
                         err_idx--;
                         Size inputSize(720, 576);
                         const int index;
@@ -83,9 +82,7 @@ namespace bv {
                         int pres;
                         while(!bv::terminateThread.load()) {
                             cap >> frame;
-                            cout << "got frame!" << endl;
                             if (!frame.empty()) {
-                                cout << "made it" << endl;
                                 remap(frame, undistorted, undistortMapX, undistortMapY, INTER_CUBIC);
                                 resize(undistorted.rowRange(64,556), resized, Size(960,768));
                                 resize(resized(Rect(220,213,520,240)).clone(), middle, Size(1040,480));
@@ -117,6 +114,7 @@ namespace bv {
                                 }
                             }
                         }
+                        cout << "capture errors: " << capErrors << endl;
                         munmap(fb_ptr, vinfo.yres_virtual * vinfo.xres_virtual * depth);
                         ~output;
                         ~undistortMapY;

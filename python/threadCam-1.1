@@ -120,11 +120,11 @@ def get_image():
             else:
                 logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
                 index = int(usb_capture_real_path.split("video")[-1])
-                viewer = BackupViewer(index)
-                viewer.play()
+                viewer = BackupViewer()
+                viewer.play(index)
                 while not exit_flag:
                     try:
-                        viewer.psi(psi_queue.get(timeout=1))
+                        viewer.update_psi(psi_queue.get(timeout=1))
                     except Empty: pass
                 # wrap in script!!! somehow need to pipe cin to it 
                 # cin -> {ViewBuilder(index)}
