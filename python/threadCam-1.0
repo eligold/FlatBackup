@@ -262,15 +262,15 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     logger.info(f"camera brightness: {camera.get(BRIGHTNESS)}")
     return camera
 
-def undistort(image): # MAYBE ALSO TRY mapx, mapy ?
-    return cv2.remap(image,map1,map2,interpolation=LINEAR)
+def undistort(img): # MAYBE ALSO TRY mapx, mapy ?
+    image = cv2.remap(img,map1,map2,interpolation=LINEAR)
+    return cv2.resize(image,SDIM,interpolation=LINEAR)[64:556]
 
-def project_reverse_view(img): # MOVED RESIZE HERE
+def project_reverse_view(image):
     global frame_buffer
     global sidebar_queue
     global display_times
     start = perf_counter()
-    image = cv2.resize(img,SDIM,interpolation=LINEAR)[64:556]
     frame_buffer[:,220:1260,:] = \
         cv2.cvtColor(cv2.resize(image[213:453,220:-220],FDIM,interpolation=LINEAR),BGR565)
     frame_buffer[:,:220,:] = cv2.cvtColor(image[8:488,:220],BGR565)
