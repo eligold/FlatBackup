@@ -265,16 +265,17 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
 def undistort(img): # MAYBE ALSO TRY mapx, mapy ?
     intermediate = cv2.remap(img,map1,map2,interpolation=LINEAR)
     image = cv2.resize(intermediate,SDIM,interpolation=LINEAR)[64:556]
-    return image, cv2.resize(image[213:453,220:-220],FDIM,interpolation=LINEAR)
+    large = cv2.resize(image[213:453,220:-220],FDIM,interpolation=LINEAR)
+    return cv2.cvtColor(image,BGR565), cv2.cvtColor(large,BGR565)
 
 def project_reverse_view(image, large):
     global frame_buffer
     global sidebar_queue
     global display_times
     start = perf_counter()
-    frame_buffer[:,220:1260,:] = cv2.cvtColor(large,BGR565)
-    frame_buffer[:,:220,:] = cv2.cvtColor(image[8:488,:220],BGR565)
-    frame_buffer[:,-340:-120,:] = cv2.cvtColor(image[:480,-220:],BGR565)
+    frame_buffer[:,220:1260,:] = large
+    frame_buffer[:,:220,:] = image[8:488,:220]
+    frame_buffer[:,-340:-120,:] = image[:480,-220:]
     try:
         frame_buffer[:,-120:] = sidebar_queue.get(block=False)
     except Empty: pass
