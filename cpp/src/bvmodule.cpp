@@ -11,58 +11,63 @@ namespace bv {
             0.004117306147228716,
             -0.008896442339724364);
     Mat newCameraMatrix, undistortMapX, undistortMapY;
+    Mat undistorted, resized, middle, recolor;
+    vector<Mat> panels;
+    UMat umat, undistortedU, resizedU, middleU, recolorU;
+    vector<UMat> panelsU;
     Size inputSize(720,576);
-    Size finalSize(1480,480);
 
-    BackupViewer::buildUMat(UMat &image) {
-        vector<UMat> panels;
-        UMat preout(1480,480,CV_8UC3);
-        remap(image, image, undistortMapX, undistortMapY, INTER_LINEAR);
-        resize(image(Range(64,556),Range::all()), image, Size(960,656), 4/3, 4/3, INTER_LINEAR);
-        resize(image(Rect(220,213,520,240)).clone(), preout, Size(1040,480), 2, 2, INTER_LINEAR);
-        panels.push_back(image(Rect(0,8,220,480)));
-        panels.push_back(preout);
-        panels.push_back(image(Rect(740,0,220,480)));
-        hconcat(panels,image);
+    void BackupViewer::buildU(InputOutputArray image) {
         try {
-            cvtColor(image,image,COLOR_BGR2BGR565,2);
-        } catch (exception &e) {
-            cout << e.what();
-        }
-    }
-    BackupViewer::buildMat(Mat &image) {
-        UMat frame = image.getUMat(ACCESS_RW);
-        buildUMat(frame);
-        image = frame.getMat(ACCESS_RW);
-    }
-    BackupViewer::buildNativeMat(Mat &image, OutputArray output) {
-        try {
-            vector<Mat> panels;
-            Mat proto(960,656,CV_8UC3,Scalar::all(0));
-            Mat middle(1040,480,CV_8UC3,Scalar::all(0));
-            Mat panelImage(1480,480,CV_8UC3,Scalar::all(0));
-            Mat left, right;
-            Mat out(1480,480,CV_8UC2,Scalar::all(0));
-            remap(image, image, undistortMapX, undistortMapY, INTER_LINEAR);
-            resize(image.rowRange(64,556), proto, Size(960,656), 4/3, 4/3, INTER_LINEAR);
-            resize(proto(Rect(220,213,520,240)), middle, Size(1040,480), 2, 2, INTER_LINEAR);
-            proto(Rect(0,8,220,480)).copyTo(left);
-            proto(Rect(740,0,220,480)).copyTo(right);
-            panels.push_back(left);
-            panels.push_back(middle);
-            panels.push_back(right);
-            hconcat(panels,panelImage);
-            cvtColor(panelImage,output,COLOR_BGR2BGR565,2);
-            ~proto;
-            ~middle;
-            ~panelImage;
-            ~left;
-            ~right;
-            ~out;
-        } catch (cv::Exception &exc) { cout << exc.what() << exc.err; }
+            if (image.isUMat()) {
+                cout << "input: " << image.cols() << "x" << image.rows() << "px" << endl;
+                remap(image, undistortedU, undistortMapX, undistortMapY, INTER_LINEAR);
+                resize(undistortedU(Range(64,556),Range::all()), resizedU, Size(960,656));
+                resize(resizedU(Rect(220,213,520,240)), middleU, Size(1040,480));
+                panelsU.push_back(resizedU(Rect(0,8,220,480)));
+                panelsU.push_back(middleU);
+                panelsU.push_back(resizedU(Rect(740,0,220,480)));
+                hconcat(panelsU,recolorU);
+                panelsU.clear();
+                cvtColor(recolorU,image,COLOR_BGR2BGR565);
+            } else { cout << "not a UMat" << endl; }
+        } 
+        catch (Exception &exc) { cout << exc.what() << exc.err; }
         catch (exception &e) { cout << e.what(); }
     }
-
+    void BackupViewer::buildMat(InputArray image, OutputArray output) {
+        remap(image, undistorted, undistortMapX, undistortMapY, INTER_LINEAR);
+        resize(undistorted.rowRange(64,556), resized, Size(960,656));
+        resize(resized(Rect(220,213,520,240)).clone(), middle, Size(1040,480));
+        panels.push_back(resized(Rect(0,8,220,480)));
+        panels.push_back(middle);
+        panels.push_back(resized(Rect(740,0,220,480)));
+        hconcat(panels,recolor);
+        panels.clear();
+        cvtColor(recolor,output,COLOR_BGR2BGR565);
+    }
+    void BackupViewer::build(InputArray image, OutputArray output) {
+        try {
+            if (image.cols() == 720 && image.rows() == 576 && image.channels() == 3) {
+                buildMat(image,output);
+                assert(output.channels() == 2);
+            } else { 
+                cout << "malformed image!\ninput: " << image.cols() << "x" << image.rows() << "px" << endl;
+            }
+        } 
+        catch (Exception &exc) { cout << exc.what() << exc.err; }
+        catch (exception &e) { cout << e.what(); }
+    }
+    void BackupViewer::buildUMat(InputArray image, OutputArray output) {
+        try {
+            cout << "input: " << image.cols() << "x" << image.rows() << "px" << endl;
+            UMat umat(image.getUMat());
+            buildU(umat);
+            output = umat.getMat(ACCESS_READ);
+        } 
+        catch (Exception &exc) { cout << exc.what() << exc.err; }
+        catch (exception &e) { cout << e.what(); }
+    }
     BackupViewer::BackupViewer() {
         fisheye::estimateNewCameraMatrixForUndistortRectify(
             cameraMatrix, distortionCoefficients, inputSize, Matx33d::eye(), newCameraMatrix);

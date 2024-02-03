@@ -8,8 +8,9 @@ namespace bv {
     class CV_EXPORTS_W BackupViewer {
     public:
         CV_WRAP BackupViewer();
-        CV_WRAP int buildMat(Mat&);
-        CV_WRAP int buildUMat(UMat&);
-        CV_WRAP int buildNativeMat(Mat&, OutputArray);
+        CV_WRAP void build(InputArray image, OutputArray output);
+        CV_WRAP void buildU(InputOutputArray image);
+        CV_WRAP void buildMat(InputArray image, OutputArray output);
+        CV_WRAP void buildUMat(InputArray image, OutputArray output);
     };
 }
