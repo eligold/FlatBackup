@@ -6,6 +6,7 @@ from threading  import Thread
 from queue import Empty, Full, SimpleQueue
 from time import sleep, time, localtime, perf_counter
 from ELM327 import ELM327
+from bv import bv_BackupViewer as vb
 
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
@@ -99,7 +100,7 @@ def main():
         for function, name in [
                 (get_image,"read"),
                 (on_screen,"show"),
-               # (touch_input,"taps"),
+               # (on_screen_vb,"shov"),
                 (sidebar_builder_w_touch,"data")]:
             thread = Thread(target=function,name=name)
             thread.start()          # start each thread
@@ -225,6 +226,23 @@ def touch_input(stdout):
                 if y > 239:
                     raise KeyboardInterrupt(f'exit:\ttouch input ( X: > , Y: v ) {x} , {y}')
 
+def on_screen_vb():
+    global display_queue, signal_queue
+    global proc_times
+    view_builder = vb()
+    while not exit_flag:
+        try:
+            start = perf_counter()
+            image = view_builder.build(display_queue.get(timeout=0.057))
+            proc_times.append(perf_counter()-start)
+            if signal_queue.empty():
+                try: signal_queue.put(None)
+                except Full: pass
+            else: logger.error("camera handshake signal not being received")
+            if exit_flag: break
+            project_vb(image)
+        except Empty: logger.error("nothing to display!")
+
 def on_screen():
     global display_queue, signal_queue
     global proc_times
@@ -280,6 +298,17 @@ def project_reverse_view(image, large):
         frame_buffer[:,-120:] = sidebar_queue.get(block=False)
     except Empty: pass
    # frame_buffer.flush()
+    display_times.append(perf_counter()-start)
+
+def project_vb(image):
+    global frame_buffer
+    global sidebar_queue
+    global display_times
+    start = perf_counter()
+    frame_buffer[:,:-120,:] = image
+    try:
+        frame_buffer[:,-120:] = sidebar_queue.get(block=False)
+    except Empty: pass
     display_times.append(perf_counter()-start)
 
 def putText(img, text, origin=(0,480), #bottom left
