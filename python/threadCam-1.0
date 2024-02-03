@@ -113,6 +113,7 @@ def main():
             logger.info("Bluetooth success?" if ret == 0 else f"BT return code: {ret}")
         while not exit_flag:
             dashcam_process = start_dash_cam()
+            dashcam_process.wait()
             for dash_line in dashcam_process.stdout.readlines():
                 logger.info(dash_line.decode())
             logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
@@ -125,13 +126,9 @@ def main():
         for times,label in ((cam_times,"read"),(proc_times,"proc"),(display_times,"disp")):
             logger.info(f"[{label}] time stats:\nmin: {min(times)*1000:.1f}ms\tmax: {max(times)*1000:.1f}ms\t mode:{max(times,key=times.count)*1000:.1f}ms\nmean: {np.mean(times)*1000:.1f}ms\tmedian: {np.median(times)*1000:.1f}ms")
         exit_flag = True
-        if dashcam_process:
-            dashcam_process.terminate()
-        if wifi_flag:
-           # manage BT conn here maybe
-            bash('ip link set wlan0 up',check=False)
-        for thread in threads:
-            thread.join()
+        if dashcam_process: dashcam_process.terminate()
+        if wifi_flag: bash('ip link set wlan0 up',check=False)
+        for thread in threads: thread.join()
 
 def get_image():
     global display_queue, signal_queue
@@ -270,7 +267,7 @@ def start_dash_cam(): # sets camera attributes for proper output size and format
     weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
     filepath = f"/media/usb/{'_'.join([date,clock_time,weekday])}.mjpeg"
     cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
-    return bash(cmd)
+    return shell(cmd)
 
 def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
     camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
