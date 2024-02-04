@@ -68,34 +68,34 @@ def main():
                 logger.info(dash_line.decode())
             logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
     except Exception as ex:
-        exit_flag = True
         traceback.print_exc()
         logger.exception(ex)
     finally:
+        exit_flag = True
         logger.info(f"display queue: {display_queue.qsize()}")
         for times,label in ((cam_times,"read"),(proc_times,"proc"),(display_times,"disp")):
-            logger.info(f"[{label}] time stats:\nmin: {min(times)*1000:.1f}ms\tmax: {max(times)*1000:.1f}ms\t mode:{max(times,key=times.count)*1000:.1f}ms\nmean: {np.mean(times)*1000:.1f}ms\tmedian: {np.median(times)*1000:.1f}ms")
-        exit_flag = True
+            if times: logger.info(f"[{label}] time stats:\nmin: {min(times)*1000:.1f}ms\tmax: {max(times)*1000:.1f}ms\t mode:{max(times,key=times.count)*1000:.1f}ms\nmean: {np.mean(times)*1000:.1f}ms\tmedian: {np.median(times)*1000:.1f}ms")
+            else: logger.error(f"timer {label} failed to init")
         if dashcam_process: dashcam_process.terminate()
         if wifi_flag: bash('ip link set wlan0 up',check=False)
         for thread in threads: thread.join()
 
 def sidebar_builder_touch():
-    elm = None
-    stdout = None
-    touch_process = None
     global sidebar_queue
+    touch_process = None
+    stdout = None
     touch_command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
+    car_conn = None
     while not exit_flag:
         try:
-            elm = ELM327()
+            car_conn = ELM327()
             touch_process = shell(touch_command)
             stdout = touch_process.stdout
             while not exit_flag:
-                make_sidebar(add_pressure(elm.psi()))
+                make_sidebar(add_pressure(car_conn.psi()))
                 touch_input(stdout)
         finally:
-            if elm: elm.close()
+            if car_conn: car_conn.close()
             if stdout: stdout.close()
             if touch_process: touch_process.terminate()
  
