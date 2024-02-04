@@ -132,7 +132,7 @@ A recently purchased [Clearmounts phone adapter](https://www.audiphoneholder.com
     After `rootwait` add `logo.nologo` to turn off the pi icon at boot, and `consoleblank=0` to shut off screen blanking and keep the display on. replace `splash` with `vt.global_cursor_default=0` for no blinky cursor and turn off default rainbow splash screen.
 1. Install dependencies:
     ```
-    apt install -y python3-opencv python3-pip fim git
+    apt install -y python3-opencv python3-pip python3-gpiozero fim git
     pip3 install obd
     ssh-keygen -t ed25519
     git clone git@github.com:eligold/FlatBackup.git
@@ -248,6 +248,7 @@ This project is wildly application specific but I welcome any feedback or sugges
 1. ] https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html
 
 git config --global alias.tree "log --graph --decorate --pretty=oneline --abbrev-commit"
+git clone --single-branch --branch code --depth 1 git@github.com:eligold/FlatBackup.git
 
 Image source: https://wall.alphacoders.com/big.php?i=474466
 [![y u no load 4rings](./assets/pi_files/IMG_5046.PNG?raw=true)](https://parts.audiusa.com/)
