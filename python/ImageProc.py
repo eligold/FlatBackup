@@ -1,12 +1,13 @@
 import traceback, cv2, os, numpy as np
-from collections import deque
-from time import sleep, perf_counter
-from threading import Empty, Full, SimpleQueue
+from queue import Empty, Full, SimpleQueue
 from cv2 import CAP_PROP_BRIGHTNESS as BRIGHTNESS
+from cv2 import CAP_PROP_FRAME_HEIGHT as HEIGHT
 from cv2 import CAP_PROP_FRAME_WIDTH as WIDTH
 from cv2 import COLOR_BGR2BGR565 as BGR565
 from cv2 import INTER_LINEAR as LINEAR
 from cv2 import CAP_PROP_FPS as FPS
+from collections import deque
+from time import perf_counter
 
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
