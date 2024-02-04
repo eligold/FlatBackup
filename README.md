@@ -247,7 +247,7 @@ This project is wildly application specific but I welcome any feedback or sugges
 1. ] https://opencvexamples.blogspot.com/2013/09/creating-matrix-in-different-ways.html
 1. ] https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html
 
-
+git config --global alias.tree "log --graph --decorate --pretty=oneline --abbrev-commit"
 
 Image source: https://wall.alphacoders.com/big.php?i=474466
 [![y u no load 4rings](./assets/pi_files/IMG_5046.PNG?raw=true)](https://parts.audiusa.com/)
