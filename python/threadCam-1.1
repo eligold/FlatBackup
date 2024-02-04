@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
-import os, traceback, logging
+import traceback, logging, numpy as np
 from subprocess import run, Popen, PIPE
-from signal import SIGINT
+from gpiozero import CPUTemperature
 from threading  import Thread
-from queue import Empty, Full, SimpleQueue
-from time import sleep, localtime
+from time import localtime
 from ELM327 import ELM327
-from bv import bv_BackupViewer as BackupViewer
+from ImageProc import *
 
-DASHCAM_FPS = 15
-DASHCAM_IMAGE_WIDTH = 2592
-DASHCAM_IMAGE_HEIGHT = 1944
-psi_queue = SimpleQueue()
-exit_flag = False
-times = []
+                                # 60.0
+intemp = CPUTemperature(threshold=20.0,event_delay=1.0)
+intemp.when_activated = sidebar_hot
+intemp.when_deactivated = sidebar_cool
+
+def add_pressure(pressure):
+    global psi_list
+    entry = int(pressure*PPPSI)
+    while(len(deque)>=PSI_BUFFER_DEPTH-1): psi_list.pop()
+    psi_list.appendleft(entry)
+    return pressure
 
 def bash(cmd:str,shell=True,capture_output=True,check=False):
-    try:
-        return run(cmd,shell=shell,capture_output=capture_output,check=check)
-    except Exception as e:
-        traceback.print_exc()
-        logger.exception(e)
+    try: return run(cmd,shell=shell,capture_output=capture_output,check=check)
+    except Exception as e: logger.exception(e)
 
 def shell(cmd:str,shell=True,stdout=PIPE,stderr=PIPE):
     return Popen(cmd,shell=shell,stdout=stdout,stderr=stderr)
 
 def main():
-    global exit_flag # signal for threads to end
+    global exit_flag
     wifi_flag = False
     threads = []
     with open("/root/.btmac","r") as file:
@@ -38,144 +39,84 @@ def main():
             'EOF']
     bluetooth_process = None
     dashcam_process = None
-    touch_command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
     try: # is the wifi connected?
         wifi_process = bash('cat /sys/class/net/wlan0/operstate')
-        if wifi_process.stdout == b'up\n':
-            pass # raise KeyboardInterrupt("wifi connected")
+        if wifi_process.stdout == b'up\n':# raise KeyboardInterrupt("wifi connected")
+            pass 
         else: # turn off radio, no need to waste power
             wifi_flag = shell('ip link set wlan0 down').wait() == 0
-        bluetooth_process = shell(f"bluetoothctl connect {mac}") # '\n'.join(bluetoothctl_lines))
+            bluetooth_process = shell('\n'.join(bluetoothctl_lines)) # f"bluetoothctl connect {mac}")
+        started_names = []
         for function, name in [
-                (sidebar_builder,"sdbr"),
-               # (undistort_and_panelize,"prcA"), # (undistort_and_panelize,"prcB"),
-               # (on_screen,"show"),
-                (get_image,"read")]:
+                (get_image,"read"),
+                (on_screen,"show"),
+                (sidebar_builder_touch,"data")]:
             thread = Thread(target=function,name=name)
             thread.start()          # start each thread
             threads.append(thread)  # store them for termination later
-            logger.info(f"started thread {name}")
-        stdout = None
-        touch_process = None
-        ret = bluetooth_process.wait()
-        for bt_line in bluetooth_process.stdout.readlines():
-            logger.info(bt_line.decode())
-        logger.info("Bluetooth success?" if ret == 0 else f"BT return code: {ret}")
-        dashcam_process = start_dash_cam()
+            started_names.append(name)
+        logger.info(f'threads started: {started_names}')
+        if bluetooth_process:
+            ret = bluetooth_process.wait()
+            for bt_line in bluetooth_process.stdout.readlines():
+                logger.info(bt_line.decode())
+            logger.info("Bluetooth success?" if ret == 0 else f"BT return code: {ret}")
         while not exit_flag:
-            try:
-                touch_process = shell(touch_command)
-                stdout = touch_process.stdout
-                while not exit_flag:
-                    sleep(0.19)                    # HI IM HERE
-                    line = stdout.readline().decode()
-                    if("POSITION_X" in line and "value" in line):
-                        x = int(line.split("value")[-1])
-                        if x >= 1480:
-                            line = stdout.readline().decode()
-                            y = int(line.split("value")[-1])
-                            if y > 239:
-                                logger.warning(f'exit:\ttouch input ( X: > , Y: v ) {x} , {y}')
-                                exit_flag = True  # MAYBE SHUTDOWN?
-                    if exit_flag: break
-                    if dashcam_process.returncode == 0:
-                        for dash_line in dashcam_process.stdout.readlines():
-                            logger.info(dash_line.decode())
-                        logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
-                        if exit_flag: break
-                        dashcam_process = start_dash_cam()
-            except Exception as e:
-                logger.exception(e)
+            dashcam_process = start_dash_cam()
+            dashcam_process.wait()
+            for dash_line in dashcam_process.stdout.readlines():
+                logger.info(dash_line.decode())
+            logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
     except Exception as ex:
         exit_flag = True
         traceback.print_exc()
         logger.exception(ex)
     finally:
+        logger.info(f"display queue: {display_queue.qsize()}")
+        for times,label in ((cam_times,"read"),(proc_times,"proc"),(display_times,"disp")):
+            logger.info(f"[{label}] time stats:\nmin: {min(times)*1000:.1f}ms\tmax: {max(times)*1000:.1f}ms\t mode:{max(times,key=times.count)*1000:.1f}ms\nmean: {np.mean(times)*1000:.1f}ms\tmedian: {np.median(times)*1000:.1f}ms")
         exit_flag = True
-        try:
-            if dashcam_process:
-                dashcam_process.terminate()
-            if stdout:
-                stdout.close()
-            if touch_process:
-                touch_process.terminate()
-        except Exception as e:
-            traceback.print_exc()
-            logger.exception(e)
-        if wifi_flag:
-           # manage BT conn here maybe
-            bash('ip link set wlan0 up',check=False)
-        for thread in threads:
-            thread.join()
+        if dashcam_process: dashcam_process.terminate()
+        if wifi_flag: bash('ip link set wlan0 up',check=False)
+        for thread in threads: thread.join()
 
-def get_image():
-    global psi_queue
-    usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
-    viewer = None
-    while not exit_flag:
-        try:
-            usb_capture_real_path = os.path.realpath(usb_capture_id_path)
-            if usb_capture_id_path == usb_capture_real_path:
-                logger.error("camera not found!\twaiting...")
-                sleep(2)
-            else:
-                logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
-                index = int(usb_capture_real_path.split("video")[-1])
-                viewer = BackupViewer()
-                viewer.play(index)
-                while not exit_flag:
-                    try:
-                        viewer.update_psi(psi_queue.get(timeout=1))
-                    except Empty: pass
-                # wrap in script!!! somehow need to pipe cin to it 
-                # cin -> {ViewBuilder(index)}
-        except Exception as e:    # TAB +1 w np fb
-            traceback.print_exc()
-            logger.exception(e)
-        finally:
-            logger.info("release camera resource")
-            if viewer: viewer.kill()
-           # camera_process.terminate()
-
-def sidebar_builder():
-    global psi_queue
+def sidebar_builder_touch():
+    elm = None
+    stdout = None
+    touch_process = None
+    global sidebar_queue
+    touch_command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
     while not exit_flag:
         try:
             elm = ELM327()
+            touch_process = shell(touch_command)
+            stdout = touch_process.stdout
             while not exit_flag:
-                psi_queue.put(elm.psi())
-        except Exception as e:
-            traceback.print_exc()
-            logger.exception(e)
+                make_sidebar(add_pressure(elm.psi()))
+                touch_input(stdout)
         finally:
-            elm.close()
-        if exit_flag: break
-        else: sleep(2)
-
-def dash_camera():
-    dashcam_process = None
-    try:
-        try:
-            dashcam_process = start_dash_cam()
-            while not exit_flag:
-                if dashcam_process.returncode is None:
-                    sleep(0.19)
-                else:
-                    if dashcam_process.returncode == 0:
-                        dashcam_process = start_dash_cam()
-                    else:
-                        raise Exception(f"dashcam process exit code {dashcam_process.returncode}")
-        except Exception as e:
-            logger.exception(e)
-    finally:
-        if dashcam_process:
-            dashcam_process.terminate()
+            if elm: elm.close()
+            if stdout: stdout.close()
+            if touch_process: touch_process.terminate()
+ 
+def touch_input(stdout):
+    global show_graph
+    for line in iter(stdout.readline,''):
+        line = line.decode()
+        if("POSITION_X" in line and "value" in line):
+            x = int(line.split("value")[-1])
+            if x >= FINAL_IMAGE_WIDTH:
+                line = stdout.readline().decode()
+                y = int(line.split("value")[-1])
+                if y > 239: raise KeyboardInterrupt(f'touch input ( X: > , Y: v ) {x} , {y}')
+                else: show_graph = ~show_graph
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     format = f"width={DASHCAM_IMAGE_WIDTH},height={DASHCAM_IMAGE_HEIGHT},pixelformat=MJPG"
     bash(f"v4l2-ctl -d {camPath} -v {format}",check=False)
+
     local_time = localtime()
     date = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
     clock_time = f"{local_time.tm_hour:02d}.{local_time.tm_min:02d}.{local_time.tm_sec:02d}"
@@ -185,12 +126,12 @@ def start_dash_cam(): # sets camera attributes for proper output size and format
     return shell(cmd)
 
 if __name__ == "__main__":
+    fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
     handler = logging.FileHandler("/root/runtime-carCam.log")
     handler.setLevel(logging.INFO)
-    handler.setFormatter(logging.Formatter('%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'))
+    handler.setFormatter(logging.Formatter(fmtString))
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
-    bash('echo none > /sys/class/leds/PWR/trigger')
-    bash('echo 0 > /sys/class/leds/PWR/brightness') # turn off red LED
+    logger.addHandler(handler) # turn off red LED
+    bash('echo none > /sys/class/leds/PWR/trigger; echo 0 > /sys/class/leds/PWR/brightness')
     main()
