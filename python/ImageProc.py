@@ -38,10 +38,9 @@ sidebar_base = np.full((FINAL_IMAGE_HEIGHT,SCREEN_WIDTH-FINAL_IMAGE_WIDTH,2),COL
 for i in range(160,FINAL_IMAGE_HEIGHT):
     for j in range(120):
         color = i*2&(i-255-j)
-       # high = np.uint8(color>>8)
-       # low = np.uint8(color)
-       # sidebar_base[i][j] = low, high
-        sidebar_base[i][j] = np.uint16(color)
+        high = np.uint8(color>>8)
+        low = np.uint8(color)
+        sidebar_base[i][j] = low, high
 
 frame_buffer[:,-SIDEBAR_WIDTH:] = sidebar_base
 frame_buffer[:,:-SIDEBAR_WIDTH] = \
@@ -90,7 +89,9 @@ def display_image(image):
 def on_screen():
     global display_queue, signal_queue
     global frame_buffer
+    global show_graph, exit_flag
     global proc_times
+
     frame_buffer[:,:-SIDEBAR_WIDTH] = \
         putText(frame_buffer[:,:-SIDEBAR_WIDTH],"Initializing..",(500,250),fontScale=3,thickness=4)
     while not exit_flag:
@@ -98,7 +99,7 @@ def on_screen():
         start = perf_counter()
         try:
             image = build_output_image(display_queue.get(timeout=0.057))
-            if show_graph: addOverlay(image)
+            if show_graph: image = addOverlay(image)
             image = cv2.cvtColor(image, BGR565)
 
             proc_times.append(perf_counter()-start)
@@ -108,11 +109,12 @@ def on_screen():
         except Empty:perf_counter()# pass
 
         else: display_image(image)
-
-    print("leaving onscreen")
+        if exit_flag: break
+    print("leaving on_screen")
 
 def get_image():
     global display_queue, signal_queue
+    global exit_flag
     global cam_times
     global logger
     signal_queue.put(None)
@@ -148,6 +150,7 @@ def get_image():
             logger.exception(e)
         finally:
             if camera: camera.release()
+        if exit_flag: break
 
     print("leaving get_image")
 

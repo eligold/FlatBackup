@@ -54,6 +54,7 @@ def main():
                         logger.error(f"dashcam command exit code: {dashcam_proc.returncode}")
                         for err_ln in dashcam_proc.stderr.readlines(): 
                             logger.error(err_ln.decode())
+                if exit_flag: break
     except Exception as ex:
         if dashcam_proc: dashcam_proc.terminate()
         traceback.print_exc()
@@ -72,6 +73,7 @@ def main():
 def sidebar_builder_touch():
     global sidebar_queue
     global frame_buffer
+    global exit_flag
     touch_process = None
     stdout = None
     car_conn = None
@@ -85,6 +87,8 @@ def sidebar_builder_touch():
             while not exit_flag:
                 make_sidebar(car_conn.psi())
                 touch_input(stdout)
+                if exit_flag: break
+        except KeyboardInterrupt as kbi: raise kbi
         except Exception as e:# logger.exception(e)
             traceback.print_exc()
             logger.exception(e)
@@ -93,18 +97,20 @@ def sidebar_builder_touch():
             if stdout: stdout.close()
             if touch_process: touch_process.terminate()
             if touch_process: touch_process.kill()
+        if exit_flag: break
  
 def touch_input(stdout):
     global show_graph
+    x = None
     for line in iter(stdout.readline,''):
         line = line.decode()
         if("POSITION_X" in line and "value" in line):
             x = int(line.split("value")[-1])
-            if x >= FINAL_IMAGE_WIDTH:
-                line = stdout.readline().decode()
-                y = int(line.split("value")[-1])
-                if y > 239: raise KeyboardInterrupt(f'touch input ( X: > , Y: v ) {x} , {y}')
-                else: show_graph = ~show_graph
+        elif x and x >= FINAL_IMAGE_WIDTH:
+            y = int(line.split("value")[-1])
+            if y < SCREEN_HEIGHT/2: show_graph = ~show_graph
+            else: raise KeyboardInterrupt(f'touch input ( X: > , Y: v ) {x} , {y}')
+        else: x = None
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30
