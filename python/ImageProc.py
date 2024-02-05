@@ -1,63 +1,25 @@
-import traceback, cv2, os, numpy as np
+import traceback, cv2, os
 from queue import Empty, Full, SimpleQueue
-from cv2 import CAP_PROP_BRIGHTNESS as BRIGHTNESS
-from cv2 import CAP_PROP_FRAME_HEIGHT as HEIGHT
-from cv2 import CAP_PROP_FRAME_WIDTH as WIDTH
-from cv2 import COLOR_BGR2BGR565 as BGR565
-from cv2 import INTER_LINEAR as LINEAR
-from cv2 import CAP_PROP_FPS as FPS
 from collections import deque
 from time import perf_counter
+from ImageConstants import *
 
-DASHCAM_FPS = 15
-DASHCAM_IMAGE_WIDTH = 2592
-DASHCAM_IMAGE_HEIGHT = 1944
-FINAL_IMAGE_WIDTH = 1480
-FINAL_IMAGE_HEIGHT = 480
-PSI_BUFFER_DEPTH = 740
-PPPSI = 30      # pixels per PSI and negative Bar
-DIM = (720,576) # PAL video dimensions
-SDIM = (960,768)
-FDIM = (1040,FINAL_IMAGE_HEIGHT)
-
-COLOR_REC = 0xfa00 # 0x58
-COLOR_GOOD = 0x871a
-COLOR_LOW = 0xc4e4
-COLOR_BAD = 0x8248
-COLOR_NORMAL = 0x19ae
-COLOR_LAYM = 0xbfe4
-COLOR_OVERLAY = (199,199,190)
-DOT = (255,0,0)
-SHADOW = (133,38,38)
-BLACK = (0,0,0)
-ALPHA = 0.57
-
-
+DOT = np.full((3,3,3),SHADOW,np.uint8)
+DOT[:2,:2] = (0xFF,0,0)
 # camera index by device mapper path
 usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
 usb_capture_real_path = os.path.realpath(usb_capture_id_path)
 assert usb_capture_id_path != usb_capture_real_path
 cameraIndex = int(usb_capture_real_path.split("video")[-1])
-expected_size = (DIM[:],30)
 
 # communications between threads:
 display_queue = SimpleQueue()
 signal_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
-psi_list = deque()
+psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 show_graph = False
 exit_flag = False
 
-# below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
-K = np.array([                                                               # phone screen. YMMV
-        [309.41085232860985,                0.0, 355.4094868125207],
-        [0.0,                329.90981352161924, 292.2015284112677],
-        [0.0,                               0.0,               1.0]])
-D = np.array([
-    [0.013301372417500422],
-    [0.03857464918863361],
-    [0.004117306147228716],
-    [-0.008896442339724364]])
 # calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
@@ -71,19 +33,24 @@ def putText(img, text, origin=(0,480), #bottom left
 no_signal_frame = putText(
         np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH,2),COLOR_BAD,np.uint8),
         "No Signal",(500,200))
-frame_buffer = np.memmap("/dev/fb0",dtype='uint8', shape=(480,1600,2))
-sidebar_base = np.full((FINAL_IMAGE_HEIGHT,120,2),COLOR_LOW,np.uint8)
+frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
+sidebar_base = np.full((FINAL_IMAGE_HEIGHT,SCREEN_WIDTH-FINAL_IMAGE_WIDTH,2),COLOR_LOW,np.uint8)
 for i in range(160,FINAL_IMAGE_HEIGHT):
     for j in range(120):
         color = i*2&(i-255-j)
-        high = np.uint8(color>>8)
-        low = np.uint8(color)
-        sidebar_base[i][j] = low, high
-frame_buffer[:,-120:,:] = sidebar_base
+       # high = np.uint8(color>>8)
+       # low = np.uint8(color)
+       # sidebar_base[i][j] = low, high
+        sidebar_base[i][j] = np.uint16(color)
 
-cam_times = []
-proc_times = []
-display_times = []
+frame_buffer[:,-SIDEBAR_WIDTH:] = sidebar_base
+frame_buffer[:,:-SIDEBAR_WIDTH] = \
+    putText(frame_buffer[:,:-120],"Initializing",(500,250),fontScale=3,thickness=4)
+
+############## DEBUG #############
+display_times = deque(maxlen=1000)
+proc_times = deque(maxlen=1000)
+cam_times = deque(maxlen=1000)
 
 def sidebar_hot():
     _change_sidebar(COLOR_REC)
@@ -93,76 +60,96 @@ def _change_sidebar(color):
     global sidebar_base
     sidebar_base[:160]=np.full((),color,np.uint8)
 
-def project_reverse_view(image):
+def make_sidebar(psi):
+    global psi_list
+    entry = int(psi*PPPSI)
+    psi_list.append(entry)
+
+    sidebar = sidebar_base.copy()
+    sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,
+            thickness=3)
+    sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
+    sidebar_queue.put(sidebar)
+
+def display_image(image):
     global frame_buffer
     global sidebar_queue
     global display_times
 
     start = perf_counter()
 
-    if show_graph: addOverlay(image)
-    frame_buffer[:,:-120,:] = image
-    try:
-        frame_buffer[:,-120:] = sidebar_queue.get(block=False)
+    frame_buffer[:,:-SIDEBAR_WIDTH] = image
+    try: frame_buffer[:,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
     except Empty: pass
     frame_buffer.flush()
+    try: signal_queue.put(None)
+    except Full: pass
 
     display_times.append(perf_counter()-start)
 
 def on_screen():
     global display_queue, signal_queue
+    global frame_buffer
     global proc_times
+    frame_buffer[:,:-SIDEBAR_WIDTH] = \
+        putText(frame_buffer[:,:-SIDEBAR_WIDTH],"Initializing..",(500,250),fontScale=3,thickness=4)
     while not exit_flag:
+
+        start = perf_counter()
         try:
-
-            start = perf_counter()
-
-            image = undistort(display_queue.get(timeout=0.057))
+            image = build_output_image(display_queue.get(timeout=0.057))
+            if show_graph: addOverlay(image)
+            image = cv2.cvtColor(image, BGR565)
 
             proc_times.append(perf_counter()-start)
 
-            if signal_queue.empty():
-                try: signal_queue.put(None)
-                except Full: pass
             if exit_flag: break
-            project_reverse_view(image)
-        except Empty: pass
+
+        except Empty:perf_counter()# pass
+
+        else: display_image(image)
+
+    print("leaving onscreen")
 
 def get_image():
     global display_queue, signal_queue
     global cam_times
+    global logger
     signal_queue.put(None)
     width, height = DIM
     camera = None
     read_fail_count = 0
+    frame_buffer[:,:-SIDEBAR_WIDTH] = \
+        putText(frame_buffer[:,:-SIDEBAR_WIDTH],"Initializing.",(500,250),fontScale=3,thickness=4)
     while not exit_flag:
         try:
             camera = get_camera(cameraIndex,width,height)
-            assert expected_size == (int(camera.get(WIDTH)), int(camera.get(HEIGHT)), int(camera.get(FPS)))
             camera.read()
             while camera.isOpened() and not exit_flag:
-                if exit_flag: break
-                try:
-                    start = perf_counter()
 
-                    signal_queue.get(timeout=0.095)
+                start = perf_counter()
+
+                try: signal_queue.get(timeout=0.095)
+
+                except Empty: perf_counter() # pass
+
+                else:
                     success, image = camera.read()
                     if success:
-                        try:
-                            display_queue.put(image)
-                        except Full:
-                            project_reverse_view(image)
-                            signal_queue.put(None)
+                        try: display_queue.put(image)
+                        except Full: display_image(image)
 
                         cam_times.append(perf_counter()-start)
-
-                    else:
+                    else: # read_fail_count += 1
                         perf_counter()
-
                         read_fail_count += 1
-                except Empty: pass
+        except Exception as e:
+            traceback.print_exc()
+            logger.exception(e)
         finally:
             if camera: camera.release()
+
+    print("leaving get_image")
 
 # make boost graph here ~+15psi to ~-1.5bar
 # add each point to new deque and increment position by one when reading current deque
@@ -182,13 +169,10 @@ def addOverlay(image):
     image[405:407,25:1456] = BLACK
     image[135:137,38:45] = BLACK
     image = putText(image,"10",(25,133),color=BLACK,fontScale=0.38,thickness=1)
-    for x in range(PSI_BUFFER_DEPTH-len(psi_list),PSI_BUFFER_DEPTH):
+    for x in range(PSI_BUFFER_DEPTH-len(graph_list),PSI_BUFFER_DEPTH):
         try:
-            x = x * 2
-            y = FDIM[1] - 2 * PPPSI - 15 - graph_list.pop()
-            image[y:y+2,x:x+2] = DOT
-            image[y+2,x:x+3] = SHADOW
-            image[y:y+3,x+2] = SHADOW
+            y = FDIM[1] - 2 * PPPSI - 15 - graph_list.popleft()
+            image[y:y+3,x-3:x] = DOT
         except IndexError: traceback.print_exc()
     return image
 
@@ -197,17 +181,14 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
     camera.set(WIDTH,width)
     camera.set(HEIGHT,height)
     camera.set(BRIGHTNESS,brightness)
+    assert EXPECTED_SIZE == (int(camera.get(WIDTH)),int(camera.get(HEIGHT)),int(camera.get(FPS)))
     return camera
 
-def undistort(img): # MAYBE ALSO TRY mapx, mapy ?
+def build_output_image(img): # MAYBE ALSO TRY mapx, mapy ?
     intermediate = cv2.remap(img,map1,map2,interpolation=LINEAR)
-    image = cv2.resize(intermediate,SDIM,interpolation=LINEAR)[64:556]
-    large = cv2.resize(image[213:453,220:-220],FDIM,interpolation=LINEAR)
-    return cv2.cvtColor(cv2.hconcat([image[8:488,:220],large,image[:480,-220:]]),BGR565)
-
-def make_sidebar(psi):
-    sidebar = sidebar_base.copy()
-    sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,
-            thickness=3)
-    sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
-    sidebar_queue.put(sidebar)
+    image = cv2.resize(intermediate,SDIM,interpolation=LINEAR)[66:558]
+    large = cv2.resize(image[213:453,EDGEBAR_WIDTH:-EDGEBAR_WIDTH],FDIM,interpolation=LINEAR)
+    return cv2.hconcat([
+            image[6:FINAL_IMAGE_HEIGHT+6,:EDGEBAR_WIDTH],
+            large,
+            image[:FINAL_IMAGE_HEIGHT,-EDGEBAR_WIDTH:]])

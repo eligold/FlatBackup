@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 import os, traceback, cv2, logging, numpy as np
-from subprocess import run, Popen, PIPE
+from subprocess import run, Popen, PIPE, TimeoutExpired
 from signal import SIGINT
 from threading  import Thread
 from queue import Empty, Full, SimpleQueue
 from time import sleep, time, localtime, perf_counter
 from ELM327 import ELM327
-from bv import bv_BackupViewer as vb
 
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
@@ -113,20 +112,25 @@ def main():
             logger.info("Bluetooth success?" if ret == 0 else f"BT return code: {ret}")
         while not exit_flag:
             dashcam_process = start_dash_cam()
-            dashcam_process.wait()
-            for dash_line in dashcam_process.stdout.readlines():
-                logger.info(dash_line.decode())
-            logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
+            while not exit_flag:
+                try: dashcam_process.wait(1)
+                except TimeoutExpired: pass
+                else: 
+                    for dash_line in dashcam_process.stdout.readlines():
+                        logger.info(dash_line.decode())
+                    logger.info(f"dashcam command exit code: {dashcam_process.returncode}")
     except Exception as ex:
         exit_flag = True
+        if dashcam_process: dashcam_process.terminate()
         traceback.print_exc()
         logger.exception(ex)
     finally:
+        exit_flag = True
         logger.info(f"display queue: {display_queue.qsize()}")
         for times,label in ((cam_times,"read"),(proc_times,"proc"),(display_times,"disp")):
             logger.info(f"[{label}] time stats:\nmin: {min(times)*1000:.1f}ms\tmax: {max(times)*1000:.1f}ms\t mode:{max(times,key=times.count)*1000:.1f}ms\nmean: {np.mean(times)*1000:.1f}ms\tmedian: {np.median(times)*1000:.1f}ms")
         exit_flag = True
-        if dashcam_process: dashcam_process.terminate()
+        if dashcam_process: dashcam_process.kill()
         if wifi_flag: bash('ip link set wlan0 up',check=False)
         for thread in threads: thread.join()
 
@@ -178,6 +182,7 @@ def get_image():
             logger.info("release camera resource")
             if camera: camera.release()
     logger.info(f"UVC read fail count: {read_fail_count}")
+    print("camera out")
 
 def sidebar_builder_w_touch():
     global sidebar_queue
@@ -211,6 +216,7 @@ def sidebar_builder_w_touch():
             if stdout: stdout.close()
             if touch_process: touch_process.terminate()
         if exit_flag: break
+    print("sidebar out")
  
 def touch_input(stdout):
     for line in iter(stdout.readline,''):
@@ -222,23 +228,6 @@ def touch_input(stdout):
                 y = int(line.split("value")[-1])
                 if y > 239:
                     raise KeyboardInterrupt(f'exit:\ttouch input ( X: > , Y: v ) {x} , {y}')
-
-def on_screen_vb():
-    global display_queue, signal_queue
-    global proc_times
-    view_builder = vb()
-    while not exit_flag:
-        try:
-            start = perf_counter()
-            image = view_builder.build(display_queue.get(timeout=0.057))
-            proc_times.append(perf_counter()-start)
-            if signal_queue.empty():
-                try: signal_queue.put(None)
-                except Full: pass
-            else: logger.error("camera handshake signal not being received")
-            if exit_flag: break
-            project_vb(image)
-        except Empty: logger.error("nothing to display!")
 
 def on_screen():
     global display_queue, signal_queue
@@ -255,6 +244,7 @@ def on_screen():
             if exit_flag: break
             project_reverse_view(image,large)
         except Empty: logger.error("nothing to display!")
+    print("display out")
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30
@@ -295,17 +285,6 @@ def project_reverse_view(image, large):
         frame_buffer[:,-120:] = sidebar_queue.get(block=False)
     except Empty: pass
    # frame_buffer.flush()
-    display_times.append(perf_counter()-start)
-
-def project_vb(image):
-    global frame_buffer
-    global sidebar_queue
-    global display_times
-    start = perf_counter()
-    frame_buffer[:,:-120,:] = image
-    try:
-        frame_buffer[:,-120:] = sidebar_queue.get(block=False)
-    except Empty: pass
     display_times.append(perf_counter()-start)
 
 def putText(img, text, origin=(0,480), #bottom left
