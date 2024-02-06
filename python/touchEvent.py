@@ -28,9 +28,9 @@ class touchEvent():
                     self.value = int(frame[-1].lstrip("value ").rstrip())
                     self.valid = True
                 else: self.code = frame[0]
-            except: self.value = f'error for line:\n{line}'
+            except: self.code = f'error for line:\n{line}'
 
-    def _sep_field(text, key):
+    def _sep_field(self, text, key):
         return text.lstrip(f"{key} ").rstrip(")").split(" (")
 
     def pretty(self):

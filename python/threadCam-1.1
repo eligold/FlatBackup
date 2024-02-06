@@ -102,20 +102,27 @@ def touch_input():
                 active = False # test for only code_id = 5 to detect press and hold
                 event = touchEvent(touch_process.stdout.readline())
                 if event.time > last_time + 0.19: active = True
-                try:
-                    while not "-- SYN_REPORT --" in event.code: # check .valid instead
-                        event = touchEvent(touch_process.stdout.readline())
-                        if active and event.isX:
-                            if event.value >= FINAL_IMAGE_WIDTH: x = event.value
-                            else:
-                                last_time = event.time
-                                active = False
-                        if active and event.isY:
-                            if event.value < SCREEN_HEIGHT/2: show_graph = ~show_graph
-                            else: raise KeyboardInterrupt(f'touch input(X →,Y ↓) -> {x},{event.value}')
-                        if event.code_id != 5: logger.info(event.pretty())
-                    if active: last_time = event.time
-                except: print(event.pretty())
+                while not "-- SYN_REPORT --" in event.code: # check .valid instead
+                    if active and event.isX:
+                        if event.value >= FINAL_IMAGE_WIDTH: x = event.value
+                        else:
+                            last_time = event.time
+                            active = False
+                    if active and event.isY:
+                        if event.value < SCREEN_HEIGHT/2:
+
+                            print(show_graph)
+                            show_graph = ~show_graph
+                            print(show_graph)
+
+                        else: raise KeyboardInterrupt(f'touch input(X →,Y ↓) -> {x},{event.value}')
+                    if event.code_id != 5: logger.info(event.pretty())
+                    event = touchEvent(touch_process.stdout.readline())
+
+                    print(event.valid)
+                    if not event.valid: print(event.code)
+
+                if active: last_time = event.time
                 x = None
                 if exit_flag: break
         except KeyboardInterrupt as kbi: raise kbi
