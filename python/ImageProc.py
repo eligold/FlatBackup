@@ -18,7 +18,11 @@ display_queue = SimpleQueue()
 signal_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
-show_graph = False
+
+## DEBUG ############################################################
+show_graph = True # False
+## /DEBUG ###########################################################
+
 exit_flag = False
 
 # calculate camera values to undistort image
