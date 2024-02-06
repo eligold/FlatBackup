@@ -8,7 +8,7 @@
 class touchEvent():
     isX = False
     isY = False
-    valid = True
+    valid = False
 
     def __init__(self, line):
             try:
@@ -17,23 +17,23 @@ class touchEvent():
                 self.time = float(segments[0].lstrip("Eventim: "))
                 frame = segments[1:]
                 if len(frame) > 1:
-                    event = frame[0].lstrip("type ").rstrip(")").split(" (")
+                    event = self._sep_field(frame[0],"type")
                     self.event_id = int(event[0])
                     self.event = event[1]
-                    code = frame[1].lstrip("code ").rstrip(")").split(" (")
-                    self.code_id = int(code[0])
-                    if code == 0:
-                        self.isX = True
-                    elif code == 1:
-                        self.isY = True
+                    code = self._sep_field(frame[1],"code")
                     self.code = code[1]
+                    self.code_id = int(code[0])
+                    if self.code_id == 0: self.isX = True
+                    elif self.code_id == 1: self.isY = True
                     self.value = int(frame[-1].lstrip("value ").rstrip())
-                else:
-                    self.code = frame[0]
-                    self.valid = False
+                    self.valid = True
+                else: self.code = frame[0]
             except: self.value = f'error for line:\n{line}'
+
+    def _sep_field(text, key):
+        return text.lstrip(f"{key} ").rstrip(")").split(" (")
 
     def pretty(self):
         if self.valid:
             return f'{self.event}[{self.event_id}]: {self.code}[#{self.code_id}] -> {self.value}'
-        return self.line
+        return self._line

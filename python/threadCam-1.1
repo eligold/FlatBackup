@@ -7,8 +7,6 @@ from touchEvent import touchEvent
 from ELM327 import ELM327
 from ImageProc import *
 
-touch_command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
-
 def main():
     global exit_flag
     wifi_flag = False
@@ -30,8 +28,10 @@ def main():
             started_names.append(name)
         logger.info(f'threads started: {started_names}')
         return_code = bluetooth_process.wait()
+## DEBUG ############################################################
         for bt_line in bluetooth_process.stdout.readlines(): logger.info(bt_line.rstrip())
         logger.info("Bluetooth success?" if return_code == 0 else f"BT return code: {return_code}")
+## /DEBUG ###########################################################
         while not exit_flag:
             return_code = 0
             dashcam_proc = start_dash_cam()
@@ -48,7 +48,7 @@ def main():
         traceback.print_exc()
         logger.exception(ex)
     finally:# leave(dashcam_proc,wifi_flag)
-## DEBUG ###|del ####################################################
+## DEBUG ## ↑ delete ################################################
         logger.info(f"display queue: {display_queue.qsize()}")
         for times,label in ((cam_times,"read"),(proc_times,"proc"),(display_times,"disp")):
             if times: logger.info(f"[{label}] time stats:\nmin: {min(times)*1000:.1f}ms\tmax: {max(times)*1000:.1f}ms\t mode:{max(times,key=times.count)*1000:.1f}ms\nmean: {np.mean(times)*1000:.1f}ms\tmedian: {np.median(times)*1000:.1f}ms")
@@ -80,7 +80,7 @@ def sidebar_builder():
             while not exit_flag:
                 make_sidebar(car_conn.psi())
         except Exception as e:# logger.exception(e)
-## DEBUG #####################|del ##################################
+## DEBUG #################### ↑ delete ##############################
             traceback.print_exc()
             logger.exception(e)
 ## /DEBUG ###########################################################
@@ -90,6 +90,7 @@ def sidebar_builder():
 
 def touch_input():
     global show_graph, exit_flag
+    touch_command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
     touch_process = None
     x = None
     last_time = time()
@@ -98,7 +99,7 @@ def touch_input():
             touch_process = shell(touch_command,text=True)
             while not "interrupt to exit" in touch_process.stdout.readline(): pass
             while not exit_flag:
-                active = False # test for code_id = 5 to detect press and hold
+                active = False # test for only code_id = 5 to detect press and hold
                 event = touchEvent(touch_process.stdout.readline())
                 if event.time > last_time + 0.19: active = True
                 while not "-- SYN_REPORT --" in event.code: # check .valid instead
@@ -110,13 +111,14 @@ def touch_input():
                             active = False
                     if active and event.isY:
                         if event.value < SCREEN_HEIGHT/2: show_graph = ~show_graph
-                        else: raise KeyboardInterrupt(f'touch input ( X: > , Y: v ) {x} , {event.value}')
+                        else: raise KeyboardInterrupt(f'touch input(X →,Y ↓) -> {x},{event.value}')
                     if event.code_id != 5: logger.info(event.pretty())
                 if active: last_time = event.time
                 x = None
+                if exit_flag: break
         except KeyboardInterrupt as kbi: raise kbi
         except Exception as e:# logger.exception(e)
-## DEBUG #####################|del ##################################
+## DEBUG #################### ↑ delete ##############################
             traceback.print_exc()
             logger.exception(e)
 ## /DEBUG ###########################################################
@@ -140,7 +142,7 @@ def start_dash_cam(): # sets camera attributes for proper output size and format
 def bash(cmd:str,shell=True,capture_output=True,check=False):
     try: return run(cmd,shell=shell,capture_output=capture_output,check=check)
     except Exception as e:# logger.exception(e)
-## DEBUG #################|del ######################################
+## DEBUG ################ ↑ delete ##################################
             traceback.print_exc()
             logger.exception(e)
 ## /DEBUG ###########################################################
