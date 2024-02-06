@@ -96,11 +96,12 @@ def touch_input():
     while not exit_flag:
         try:
             touch_process = shell(touch_command,text=True)
+            while not "interrupt to exit" in touch_process.stdout.readline(): pass
             while not exit_flag:
                 active = False # test for code_id = 5 to detect press and hold
                 event = touchEvent(touch_process.stdout.readline())
                 if event.time > last_time + 0.19: active = True
-                while not "-- SYN_REPORT --" in event.data:
+                while not "-- SYN_REPORT --" in event.code: # check .valid instead
                     event = touchEvent(touch_process.stdout.readline())
                     if active and event.isX:
                         if event.value >= FINAL_IMAGE_WIDTH: x = event.value

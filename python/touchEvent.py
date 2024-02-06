@@ -12,6 +12,7 @@ class touchEvent():
 
     def __init__(self, line):
             try:
+                self._line = line
                 segments = line.strip().split(", ")
                 self.time = float(segments[0].lstrip("Eventim: "))
                 frame = segments[1:]
@@ -28,10 +29,11 @@ class touchEvent():
                     self.code = code[1]
                     self.value = int(frame[-1].lstrip("value ").rstrip())
                 else:
-                    self.value = frame[0]
+                    self.code = frame[0]
                     self.valid = False
             except: self.value = f'error for line:\n{line}'
 
     def pretty(self):
         if self.valid:
             return f'{self.event}[{self.event_id}]: {self.code}[#{self.code_id}] -> {self.value}'
+        return self.line
