@@ -99,7 +99,7 @@ def touch_input():
             while not exit_flag:
                 active = False # test for code_id = 5 to detect press and hold
                 event = touchEvent(touch_process.stdout.readline())
-                if event.last_time > last_time + 0.19: active = True
+                if event.time > last_time + 0.19: active = True
                 while not "-- SYN_REPORT --" in event.data:
                     event = touchEvent(touch_process.stdout.readline())
                     if active and event.isX():
