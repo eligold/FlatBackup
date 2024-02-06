@@ -1,5 +1,6 @@
 import traceback, cv2, os
 from queue import Empty, Full, SimpleQueue
+from gpiozero import CPUTemperature
 from collections import deque
 from time import perf_counter
 from ImageConstants import *
@@ -58,6 +59,11 @@ def sidebar_cool():
 def _change_sidebar(color):
     global sidebar_base
     sidebar_base[:160]=np.full((),color,np.uint8)
+
+                                # 60.0
+intemp = CPUTemperature(threshold=20.0,event_delay=0.95)
+intemp.when_activated = sidebar_hot
+intemp.when_deactivated = sidebar_cool
 
 def make_sidebar(psi):
     global psi_list
