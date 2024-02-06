@@ -6,14 +6,8 @@ from time import localtime, time
 from touchEvent import touchEvent
 from ELM327 import ELM327
 from ImageProc import *
-#from ImageProc import exit_flag
-#from ImageProc import show_graph
-
-## DEBUG ############################################################
-show_graph = True # False
-## /DEBUG ###########################################################
-
-exit_flag = False
+from ImageProc import exit_flag
+from ImageProc import show_graph
 
 def main():
     global exit_flag
@@ -117,12 +111,7 @@ def touch_input():
                             last_time = event.time
                             active = False
                     if active and event.isY:
-                        if event.value < SCREEN_HEIGHT/2:
-
-                            print(show_graph)
-                            show_graph = ~show_graph
-                            print(show_graph)
-
+                        if event.value < SCREEN_HEIGHT/2: show_graph = not show_graph
                         else: raise KeyboardInterrupt(f'touch input(X →,Y ↓) -> {x},{event.value}')
                     if event.code_id != 5: logger.info(event.pretty())
                     event = touchEvent(touch_process.stdout.readline())

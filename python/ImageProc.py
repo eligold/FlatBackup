@@ -19,6 +19,12 @@ signal_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 
+## DEBUG ############################################################
+show_graph = True # False
+## /DEBUG ###########################################################
+
+exit_flag = False
+
 # calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
@@ -37,9 +43,7 @@ sidebar_base = np.full((FINAL_IMAGE_HEIGHT,SCREEN_WIDTH-FINAL_IMAGE_WIDTH,2),COL
 for i in range(160,FINAL_IMAGE_HEIGHT):
     for j in range(120):
         color = i*2&(i-255-j)
-        high = np.uint8(color>>8)
-        low = np.uint8(color)
-        sidebar_base[i][j] = low, high
+        sidebar_base[i][j] = np.uint8(color), np.uint8(color>>8)
 
 frame_buffer[:,-SIDEBAR_WIDTH:] = sidebar_base
 frame_buffer[:,:-SIDEBAR_WIDTH] = \
@@ -103,6 +107,9 @@ def on_screen():
         start = perf_counter()
         try:
             image = build_output_image(display_queue.get(timeout=0.057))
+
+            print(show_graph)
+
             if show_graph: image = addOverlay(image)
             image = cv2.cvtColor(image, BGR565)
 
