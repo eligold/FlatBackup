@@ -6,6 +6,14 @@ from time import localtime, time
 from touchEvent import touchEvent
 from ELM327 import ELM327
 from ImageProc import *
+#from ImageProc import exit_flag
+#from ImageProc import show_graph
+
+## DEBUG ############################################################
+show_graph = True # False
+## /DEBUG ###########################################################
+
+exit_flag = False
 
 def main():
     global exit_flag

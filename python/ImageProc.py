@@ -19,12 +19,6 @@ signal_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 
-## DEBUG ############################################################
-show_graph = True # False
-## /DEBUG ###########################################################
-
-exit_flag = False
-
 # calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
