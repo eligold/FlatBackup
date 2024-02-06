@@ -102,10 +102,12 @@ def touch_input():
                 if event.time > last_time + 0.19: active = True
                 while not "-- SYN_REPORT --" in event.data:
                     event = touchEvent(touch_process.stdout.readline())
-                    if active and event.isX():
+                    if active and event.isX:
                         if event.value >= FINAL_IMAGE_WIDTH: x = event.value
-                        else: active = False
-                    if active and event.isY():
+                        else:
+                            last_time = event.time
+                            active = False
+                    if active and event.isY:
                         if event.value < SCREEN_HEIGHT/2: show_graph = ~show_graph
                         else: raise KeyboardInterrupt(f'touch input ( X: > , Y: v ) {x} , {event.value}')
                     if event.code_id != 5: logger.info(event.pretty())
