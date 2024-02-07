@@ -65,7 +65,7 @@ def sidebar_cool():
     _change_sidebar(COLOR_LOW)
 def _change_sidebar(color):
     global sidebar_base
-    sidebar_base[:160]=np.full((),color,np.uint8)
+    sidebar_base[:160]=np.full((160,120,2),color,np.uint8)
 
                                 # 60.0
 intemp = CPUTemperature(threshold=20.0,event_delay=0.95)
@@ -253,7 +253,9 @@ def touch_input():
             while not exit_flag:
                 active = False # test for only code_id = 5 to detect press and hold
                 event = touchEvent(touch_process.stdout.readline())
-                if event.time > last_time + 0.19: active = True
+                try:
+                    if event.time > last_time + 0.19: active = True
+                except: print(event.code)
                 event_list = []
                 while not "-- SYN_REPORT --" in event.code: # check .valid instead
                     if active and event.isX:
