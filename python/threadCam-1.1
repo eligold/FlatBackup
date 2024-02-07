@@ -75,7 +75,7 @@ intemp.when_deactivated = sidebar_cool
 def data():
     global sidebar_queue
     global frame_buffer
-    global exit_flag
+   # global exit_flag
     wifi_flag = False
     bluetooth_process = None
     dashcam_proc = None
@@ -122,6 +122,7 @@ def data():
         if dashcam_proc: dashcam_proc.terminate()
         traceback.print_exc()
         logger.exception(ex)
+        print("here")
     finally:# leave(dashcam_proc,wifi_flag,car_conn)
 ## DEBUG ## ↑ delete ################################################
         logger.info(f"display queue: {display_queue.qsize()}")
@@ -129,6 +130,7 @@ def data():
             if times: logger.info(f"[{label}] time stats:\nmin: {min(times)*1000:.1f}ms\tmax: {max(times)*1000:.1f}ms\t mode:{max(times,key=times.count)*1000:.1f}ms\nmean: {np.mean(times)*1000:.1f}ms\tmedian: {np.median(times)*1000:.1f}ms")
             else: logger.error(f"timer {label} failed to init")
         leave(dashcam_proc,wifi_flag,car_conn)
+        print("out")
 ## /DEBUG ###########################################################
 
 def leave(dashcam_proc, wifi_flag, car_conn):
@@ -271,7 +273,9 @@ def touch_input():
                 if active: last_time = event.time
                 x = None
                 if exit_flag: break
-        except KeyboardInterrupt as kbi: raise kbi
+        except KeyboardInterrupt as kbi: 
+            exit_flag = True
+            raise kbi
         except Exception as e:# logger.exception(e)
 ## DEBUG #################### ↑ delete ##############################
             traceback.print_exc()
