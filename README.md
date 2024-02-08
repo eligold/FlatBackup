@@ -2,7 +2,7 @@
 
 
 <p align="center">
-    <img src="./assets/doc/Raspberry_Pi_Logo.ico?raw=true" alt="pi image failed to load"> <nbsp> <nbsp>
+    <img src="./assets/doc/Raspberry_Pi_Logo.ico" alt="pi image failed to load"> <nbsp> <nbsp>
     <img src="./assets/doc/pythonlogo.png?raw=true" alt="python image failed to load" width="71px" height="64px"> <nbsp> <nbsp>
     <img src="./assets/doc/opencvlogo.png?raw=true" alt="opencv image failed to load" width="72px" height="64px">
 </p>
