@@ -33,6 +33,9 @@ SHADOW = (133,38,38)
 BLACK = (0,0,0)
 ALPHA = 0.57
 
+DOT = np.full((3,3,3),SHADOW,np.uint8)
+DOT[:2,:2] = (0xFF,0,0) # Blue (B,G,R)
+
 # below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
 K = np.array([                                                               # phone screen. YMMV
         [309.41085232860985,                0.0, 355.4094868125207],
