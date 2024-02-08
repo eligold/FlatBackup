@@ -23,7 +23,7 @@ psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 
 show_graph = False
 exit_flag = False
-modifying_flag = False
+sidebar_lock = False
 # calculate camera values to undistort image
 new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
@@ -53,11 +53,11 @@ def sidebar_cool():
     _change_sidebar(COLOR_LOW)
 def _change_sidebar(color):
     global sidebar_base
-    global modifying_flag
-    while modifying_flag: pass
-    modifying_flag = True
+    global sidebar_lock
+    while sidebar_lock: pass
+    sidebar_lock = True
     sidebar_base[:160]=np.full((160,120,2),color,np.uint8)
-    modifying_flag = False
+    sidebar_lock = False
 
 intemp = CPUTemperature(threshold=60.0,event_delay=0.95)
 intemp.when_activated = sidebar_hot
@@ -122,13 +122,13 @@ def leave(dashcam_proc, wifi_flag, car_conn):
 
 def make_sidebar(psi):
     global psi_list
-    global modifying_flag
+    global sidebar_lock
     entry = int(psi*PPPSI)
     psi_list.append(entry)
-    while modifying_flag: pass
-    modifying_flag = True
+    while sidebar_lock: pass
+    sidebar_lock = True
     sidebar = sidebar_base.copy()
-    modifying_flag = False
+    sidebar_lock = False
     sidebar = putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
     sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
     sidebar_queue.put(sidebar)
