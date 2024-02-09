@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-import traceback, logging, traceback, cv2, os
-from subprocess import run, Popen, PIPE, STDOUT, TimeoutExpired
-from time import localtime, time
+import logging, os
+from subprocess import TimeoutExpired
+from time import time
 from queue import Empty, Full, SimpleQueue
 from gpiozero import CPUTemperature
 from collections import deque
@@ -24,15 +24,6 @@ psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 show_graph = False
 exit_flag = False
 sidebar_lock = False
-# calculate camera values to undistort image
-new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
-mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
-map1, map2 = cv2.convertMaps(mapx,mapy,cv2.CV_16SC2) # fixed point maps run faster
-
-def putText(img, text, origin=(0,480), #bottom left
-            color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=1,thickness=2,lineType=cv2.LINE_AA):
-    return cv2.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
 no_signal_frame = putText(
         np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH,2),COLOR_BAD,np.uint8),
@@ -66,6 +57,7 @@ intemp.when_deactivated = sidebar_cool
 def data():
     global sidebar_queue
     global frame_buffer
+    global exit_flag
     started_names = []
     wifi_flag = False
     bluetooth_process = None
@@ -96,13 +88,13 @@ def data():
             dashcam_proc = start_dash_cam()
             car_conn = ELM327()
             while not exit_flag:
-                make_sidebar(car_conn.psi())
+                make_sidebar(car_conn.psi(), psi_list)
+                if exit_flag: break
                 try: dashcam_proc.wait(0.095)
                 except TimeoutExpired: pass
-                else:
-                    for dash_ln in dashcam_proc.stdout.readlines(): logger.info(dash_ln)
-                if exit_flag: break
+                else: logger.info(dashcam_proc.stdout.readlines())
             if exit_flag: break
+    except KeyboardInterrupt: exit_flag = True
     except Exception as ex:
         if dashcam_proc: dashcam_proc.terminate()
         traceback.print_exc()
@@ -118,20 +110,22 @@ def leave(dashcam_proc, wifi_flag, car_conn):
     else: exit_flag = True
     if car_conn: car_conn.close()
     if dashcam_proc: dashcam_proc.kill()
-    if wifi_flag: bash('ip link set wlan0 up',check=False)
+    if wifi_flag: bash('ip link set wlan0 up')
 
 def make_sidebar(psi):
     global psi_list
     global sidebar_lock
-    entry = int(psi*PPPSI)
-    psi_list.append(entry)
-    while sidebar_lock: pass
-    sidebar_lock = True
-    sidebar = sidebar_base.copy()
-    sidebar_lock = False
-    sidebar = putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
-    sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
-    sidebar_queue.put(sidebar)
+    try:
+        entry = int(psi*PPPSI)
+        psi_list.append(entry)
+        while sidebar_lock: pass
+        sidebar_lock = True
+        sidebar = sidebar_base.copy()
+        sidebar_lock = False
+        sidebar = putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
+        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
+        sidebar_queue.put(sidebar)
+    except Exception as e: logger.exception(e)
 
 def on_screen():
     global display_queue, signal_queue
@@ -146,18 +140,21 @@ def on_screen():
             image = cv2.cvtColor(image, BGR565)
             if exit_flag: break
         except Empty: pass
+        except Exception as e: logger.exception(e)
         else: display_image(image)
         if exit_flag: break
 
 def display_image(image):
     global frame_buffer
     global sidebar_queue
-    frame_buffer[:,:-SIDEBAR_WIDTH] = image
-    try: frame_buffer[:,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
-    except Empty: pass
-    frame_buffer.flush()
-    try: signal_queue.put(None)
-    except Full: pass
+    try:
+        frame_buffer[:,:-SIDEBAR_WIDTH] = image
+        try: frame_buffer[:,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
+        except Empty: pass
+        frame_buffer.flush()
+        try: signal_queue.put(None)
+        except Full: pass
+    except Exception as e: logger.exception(e)
 
 def get_image():
     global display_queue, signal_queue
@@ -194,7 +191,7 @@ def touch_input():
     while not exit_flag:
         x = None
         try:
-            touch_process = shell(touch_command,text=True)
+            touch_process = shell(touch_command, text=True)
             while not "interrupt to exit" in touch_process.stdout.readline(): pass
             while not exit_flag:
                 active = False # test for only code_id = 5 to detect press and hold
@@ -226,66 +223,6 @@ def touch_input():
 ## /DEBUG ###########################################################
         finally:
             if touch_process: touch_process.terminate()
-
-# make boost graph here ~+15psi to ~-1.5bar
-# add each point to new deque and increment position by one when reading current deque
-def addOverlay(image):
-    h,w = image.shape[:2]
-    radius,offset = 19,38
-    overlay_image = image.copy()
-    graph_list = psi_list.copy()
-    overlay_image[20:461,39:1442] = COLOR_OVERLAY
-    overlay_image[39:442,20:1461] = COLOR_OVERLAY
-    overlay_image = cv2.circle(overlay_image,(offset,offset),radius,COLOR_OVERLAY,-1)
-    overlay_image = cv2.circle(overlay_image,(offset,h-offset),radius,COLOR_OVERLAY,-1)
-    overlay_image = cv2.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
-    overlay_image = cv2.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
-    cv2.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
-    image[25:455,44:46] = BLACK
-    image[405:407,25:1456] = BLACK
-    image[135:137,38:45] = BLACK
-    image = putText(image,"10",(25,133),color=BLACK,fontScale=0.38,thickness=1)
-    for x in range(PSI_BUFFER_DEPTH-len(graph_list),PSI_BUFFER_DEPTH):
-        try:
-            y = FDIM[1] - 2 * PPPSI - 15 - graph_list.popleft()
-            image[y:y+3,x-3:x] = DOT
-        except IndexError: traceback.print_exc()
-    return image
-
-def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
-    camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
-    camera.set(WIDTH,width)
-    camera.set(HEIGHT,height)
-    camera.set(BRIGHTNESS,brightness)
-    assert EXPECTED_SIZE == (int(camera.get(WIDTH)),int(camera.get(HEIGHT)),int(camera.get(FPS)))
-    return camera
-
-def build_output_image(img): # MAYBE ALSO TRY mapx, mapy ?
-    height, width = FINAL_IMAGE_HEIGHT, EDGEBAR_WIDTH
-    intermediate = cv2.remap(img,map1,map2,interpolation=LINEAR)
-    image = cv2.resize(intermediate,SDIM,interpolation=LINEAR)[66:558]
-    large = cv2.resize(image[213:453,width:-width],FDIM,interpolation=LINEAR)
-    return cv2.hconcat([image[6:height+6,:width], large, image[:height,-width:]])
-
-def start_dash_cam(): # sets camera attributes for proper output size and format before running
-    runtime = DASHCAM_FPS * 60 * 30
-    camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    format = f"width={DASHCAM_IMAGE_WIDTH},height={DASHCAM_IMAGE_HEIGHT},pixelformat=MJPG"
-    bash(f"v4l2-ctl -d {camPath} -v {format}",check=False)
-    local_time = localtime()
-    date = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
-    clock_time = f"{local_time.tm_hour:02d}.{local_time.tm_min:02d}.{local_time.tm_sec:02d}"
-    weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
-    filepath = f"/media/usb/{'_'.join([date,clock_time,weekday])}.mjpeg"
-    cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
-    return shell(cmd,stderr=STDOUT,text=True)
-
-def bash(cmd:str,shell=True,capture_output=True,check=False):
-    try: return run(cmd,shell=shell,capture_output=capture_output,check=check)
-    except Exception as e: logger.exception(e)
-
-def shell(cmd:str,shell=True,stdout=PIPE,stderr=PIPE,**kwargs):
-    return Popen(cmd,shell=shell,stdout=stdout,stderr=stderr,**kwargs)
 
 if __name__ == "__main__":
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
