@@ -39,8 +39,10 @@ frame_buffer[:,:-SIDEBAR_WIDTH] = \
             color=COLOR_LAYM, fontScale=3, thickness=4)
 
 def sidebar_hot():
+    logger.warning("temp over 60C")
     _change_sidebar(COLOR_REC)
 def sidebar_cool():
+    logger.info("temperature below 60C")
     _change_sidebar(COLOR_LOW)
 def _change_sidebar(color):
     global sidebar_base
@@ -88,7 +90,7 @@ def data():
             dashcam_proc = start_dash_cam()
             car_conn = ELM327()
             while not exit_flag:
-                make_sidebar(car_conn.psi(), psi_list)
+                make_sidebar(car_conn.psi())
                 if exit_flag: break
                 try: dashcam_proc.wait(0.095)
                 except TimeoutExpired: pass

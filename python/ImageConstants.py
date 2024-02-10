@@ -6,6 +6,7 @@ from cv2 import INTER_LINEAR as LINEAR
 from cv2 import CAP_PROP_FPS as FPS
 from subprocess import run, Popen, PIPE, STDOUT
 import cv2, traceback, numpy as np
+from time import localtime
 
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
