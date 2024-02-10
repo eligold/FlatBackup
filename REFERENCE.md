@@ -75,6 +75,13 @@
 1. ] https://cplusplus.com/reference/cstdio/scanf/
 1. ] https://opencvexamples.blogspot.com/2013/09/creating-matrix-in-different-ways.html
 1. ] https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html
+1. ] https://stackoverflow.com/questions/600079/how-do-i-clone-a-subdirectory-only-of-a-git-repository/73254328#73254328
+    ```
+    $ git clone --filter=blob:none --sparse  %your-git-repo-url%
+    $ cd %the repository directory%
+    $ git sparse-checkout add %subdirectory-to-be-cloned%
+    $ cd %your-subdirectory%
+    ```
 
 git config --global alias.tree "log --graph --decorate --pretty=oneline --abbrev-commit"
 git clone --single-branch --branch code --depth 1 git@github.com:eligold/FlatBackup.git
