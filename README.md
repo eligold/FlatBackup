@@ -9,16 +9,15 @@
 
 <h2 align="center"> Fisheye Image Correction and <br>OBDII Boost Gauge <br></h2>
 
+![Side by side image of undistortion failed to load!](./assets/doc/Side-by-side.png)
+
 ### Overview
-
-__SIDE BY SIDE OF FLATTENED AND ORIGINAL TO INTRODUCE PROJECT__
-
-Welcome to my fisheye backup camera image correction and automotive data processing project! This GitHub repository contains the code underlying my efforts to develop a solution for enhancing my custom car backup camera installation. The project evolved from a desire to cut my teeth with a powerful tool I had only had peripheral experience with both academically and professionally, OpenCV. When I installed an Audi original backup camera into my car, the image projected to a standard 4:3 ration NTSC resolution screen was heavily distorted from the fisheye lens and I knew that was something I could rectify using the power of Python and OpenCV. With a knock-off Easy-Cap adapter to digitize the signal I am able to process it on a Raspberry Pi and display the corrected image on an HDMI screen. An ELM327 USB OBDII adapter allows me to calculate and display turbocharger boost pressure from real-time car sensor data.
+Welcome to my fisheye backup camera image correction and automotive data processing project! This GitHub repository contains the code underlying my efforts to develop a solution for enhancing my custom car backup camera installation. The project evolved from a desire to cut my teeth with a powerful tool I had only had peripheral experience with both academically and professionally, OpenCV. When I installed an Audi original backup camera into my car, the image projected to a standard 4:3 ratio NTSC resolution screen was heavily distorted from the fisheye lens and I knew that was something I could rectify using the power of Python and OpenCV. With a knock-off Easy-Cap adapter to digitize the signal I am able to process the video stream on a Raspberry Pi and display the corrected image on an HDMI screen. An ELM327 USB OBDII adapter allows me to calculate and display turbocharger boost pressure from real-time car sensor data.
 
 ## Background
 Opportunity to learn 
-1. c++
-1. openCV
+1. C++
+1. OpenCV
 1. python builtin libraries
 1. explore inheritence and project organization
 
@@ -70,14 +69,14 @@ Video is carried through a Fakra antenna connector which come with many differen
  __a heatsink with fan to keep things cool. A Meanwell DC/DC converter steps the car voltage down to 5V__
 
 __FIXME__
-Wiring involved removing the interior trim of the rear hatch and running wires along the existing harnesses. There exists a channel for routing the factory harness from the roof through a hose protecting them from the elements. The hose was too tight to push a stiff wire through so the power and video cables run out of the trim and through the cabin in a way that is noticeable but unobtrusive
-although I wasn't able to get the wires through the weatherproof articulated tube in which the stock harnesses are run and I ended up taking out more inner body panels off than I should have. Getting everything back together necessitated pulling all the rest of the trim panels from the trunk before reinstalling everything properly. If I were to go back and do it again I would try to vacuum a string through the existing wire tube to pull my cables with. The Fakra system is essentially an easily removable shell around an SMB connector, which is a small RF connector similar to BNC or SMA but with no retention features.
+Wiring involved removing the interior trim of the rear hatch and running wires along the existing harnesses. There exists a channel for routing the factory harness from the roof through a hose protecting them from the elements. The hose was too tight to push a stiff wire through so the power and video cables run out of the trim and through the cabin in a way that is noticeable but unobtrusive. 
+<br>although I wasn't able to get the wires through the weatherproof articulated tube in which the stock harnesses are run and I ended up taking out more inner body panels off than I should have. Getting everything back together necessitated pulling all the rest of the trim panels from the trunk before reinstalling everything properly. If I were to go back and do it again I would try to vacuum a string through the existing wire tube to pull my cables with. The Fakra system is essentially an easily removable shell around an SMB connector, which is a small RF connector similar to BNC or SMA but with no retention features.
 
  As it is a small loop of wires exits the top of the hatch with enough slack to reach the headliner trim while the hatch is fully open. It is visible but unobtrusive and proper cable management helps keep it from moving much while driving.
 __picture of progress, picture of final wire arrangement__
 
-I connected the 12V power supply in-line with harness wires for the trunk 12V accesory plug using some high current waterproof connectors I had on hand keeping nearly the entire wire run out of the cabin. I left a small loop with a pair of connectors running through some vent slots in the side panel as a quick disconnect in case any work needs to be done with the wiring down the line. With the trim removed I also took the oppotunity to wire up some high power Philips LEDs on custom-made aluminum PCBs to replace the pathetically dim single incandescent bulb that used to illuminate my trunk. Even at night it's always bright and sunny in there now!
-<img src="./assets/doc/hatch_light_inset.png" alt="trunk light image failed to load" width="75%">
+I connected the 12V power supply in-line with harness wires for the trunk 12V accesory plug using some high current waterproof connectors I had on hand keeping nearly the entire wire run out of the cabin. I left a small loop with a pair of connectors running through some vent slots in the side panel as a quick disconnect in case any work needs to be done with the wiring down the line. With the trim removed I also took the oppotunity to wire up some high power Philips LEDs on custom-made aluminum PCBs to replace the pathetically dim single incandescent bulb that used to illuminate my trunk. As you might imagine from the below image, I don't think I'll have much trouble finding anything back there ever again.
+<img src="./assets/doc/hatch_light_inset.png" alt="trunk light image failed to load" width="57%">
 
 A recently purchased [Clearmounts phone adapter](https://www.audiphoneholder.com/product/78/clearmounts-bracket-low-profile-magnetic-holder-part-8p-low), pictured below, serves to conveniently and robustly secure my homebrew solution between the two centermost vents on my dashboard. After removing the simple magnetic holder that came with it I installed an articulated Scosche handsfree wireless charging mount similar to one that previously mounted to my windshield with a suction cup. I realized this model would be unsuitable for adapting to my project only after disassembling it completely so I purchased the articulated vent-mount model, securing a length of scrap aluminum angle extrusion to the back with the ball joint retaining screw through the Clearmounts adapter. Using a small L-bracket and some fastening hardware I mounted a second length of extrusion with holes drilled out to match the mounting pattern of my new widescreen display. It's practical but I'd like to replace it with something a bit more attractive down the line, perhaps in the vein of the beautiful custom devices built by [DIY Perks on YouTube](https://www.youtube.com/c/diyperks).
 
@@ -86,36 +85,32 @@ A recently purchased [Clearmounts phone adapter](https://www.audiphoneholder.com
 ## SETUP
 
 1. flash buster or bullseye with pi imager, add login/wifi details
-1. enter god mode
-    chaos ensues
+1. Use `sudo` to login as root
     ```
     sudo su -
     ```
-1. do I have to mess with program?
-    ```
-    raspi-config -> locale, keyboard
-    ```
-1. Turn off swap file to spare the SD card and trim some fat
+1. With `raspi-config` I changed the system locale from en-GB UTF8 to en-US UTF8, and set the keyboard to an American layout.
+1. Turn off swap file to spare the SD card from repeated writes and trim some fat by disabling Modem Manager
     ```
     dphys-swapfile swapoff
     systemctl disable dphys-swapfile.service
     systemctl disable ModemManager.service
     apt autoremove -y modemmanager
     ```
-1. get some tools and make sure the system is up to date in the background so you can do other things
+1. Get some tools and make sure the system is up to date in the background so you can do other things
     ```
     apt install -y vim screen
     apt update && screen -d -m apt upgrade -y
     ```
-1. add this line to `/etc/fstab`. I like to use `vim` but you can use `nano` if you're not an elite hacker:
+1. To automate mounting the external drive I added this line to `/etc/fstab`. I like to use `vim` but you can use `nano` if you're not an elite hacker:
     ```
     LABEL=[label] /[mount/location/] [fs type] nofail      0       0
     ```
-1. add the following to rc.local:
+1. To start the program in a screen instance at boot, add the following to `/etc/rc.local` before the `exit 0` statement:
     ```
     screen -d -m /root/carCam.py
     ```
-1. add the following lines to config.txt
+1. Add the following lines to `config.txt`:
     ```
     disable_splash=1
     dtparam=i2c_arm=on

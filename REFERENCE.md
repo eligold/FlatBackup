@@ -82,6 +82,9 @@
     $ git sparse-checkout add %subdirectory-to-be-cloned%
     $ cd %your-subdirectory%
     ```
+1. ] https://stackoverflow.com/a/5354644
+    `git config --global alias.tree "log --graph --decorate --pretty=oneline --abbrev-commit"`
 
-git config --global alias.tree "log --graph --decorate --pretty=oneline --abbrev-commit"
-git clone --single-branch --branch code --depth 1 git@github.com:eligold/FlatBackup.git
+Additional resources regarding the generation of python bindings for custom C++ OpenCV modules using OpenCV4 can be found [in the cpp subdirectory](./cpp/README.md)
+
+ git clone --single-branch --branch code --depth 1 git@github.com:eligold/FlatBackup.git
