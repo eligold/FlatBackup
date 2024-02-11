@@ -34,15 +34,15 @@ def sidebar_hot():
     _change_sidebar(COLOR_REC)
 def sidebar_cool():
     logger.info("temperature below 60C")
-    _change_sidebar(COLOR_LOW)
-def _change_sidebar(color):
+    _change_sidebar()
+def _change_sidebar(color=COLOR_LOW):
     global sidebar_base
     global sidebar_lock
     while sidebar_lock: pass
     sidebar_lock = True
     sidebar_base=np.full((SIDEBAR_HEIGHT,SIDEBAR_WIDTH,2),color,np.uint8)
     sidebar_lock = False
-sidebar_cool()
+_change_sidebar()
 
 intemp = CPUTemperature(threshold=50.0,event_delay=1.9)
 intemp.when_activated = sidebar_hot
@@ -51,7 +51,7 @@ intemp.when_deactivated = sidebar_cool
 # img = np.fromfunction((lambda i,j,_: (np.uint8(j*i*2&(i-199-j)))),(480,1600,2),dtype=np.uint8)
 frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
 for i in range(FINAL_IMAGE_HEIGHT):
-    for j in range(FINAL_IMAGE_WIDTH): frame_buffer[i][j] = np.uint8(j*i*2&(i-199-j)),np.uint8((i*3&(i-255-j))>>8)
+    for j in range(SCREEN_WIDTH): frame_buffer[i][j] = np.uint8(j*i*2&(i-199-j)),np.uint8((i*3&(i-255-j))>>8)
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
 frame_buffer[:,:-SIDEBAR_WIDTH] = \
     putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
