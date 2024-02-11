@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import logging, os
-from subprocess import TimeoutExpired
-from time import time
 from queue import Empty, Full, SimpleQueue
+from subprocess import TimeoutExpired
 from gpiozero import CPUTemperature
 from collections import deque
 from threading  import Thread
+from time import time
 
 from ImageConstants import *
 from ELM327 import ELM327
@@ -50,8 +50,13 @@ intemp.when_deactivated = sidebar_cool
 
 # img = np.fromfunction((lambda i,j,_: (np.uint8(j*i*2&(i-199-j)))),(480,1600,2),dtype=np.uint8)
 frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
-for i in range(FINAL_IMAGE_HEIGHT):
-    for j in range(SCREEN_WIDTH): frame_buffer[i][j] = np.uint8(j*i*2&(i-199-j)),np.uint8((i*3&(i-255-j))>>8)
+frame_buffer = \
+    np.array(list(map(
+            lambda x,y: (np.uint8(time()*x*2&(x-199-y)),
+                            np.uint8((time()*x*3&(x-250-y))>>8)),
+                    range(SCREEN_HEIGHT),range(SCREEN_WIDTH))))
+# for i in range(SCREEN_HEIGHT):
+#     for j in range(SCREEN_WIDTH): frame_buffer[i][j] = 
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
 frame_buffer[:,:-SIDEBAR_WIDTH] = \
     putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
