@@ -28,15 +28,6 @@ sidebar_lock = False
 no_signal_frame = putText(
         np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH,2),COLOR_BAD,np.uint8),
         "No Signal",(500,200))
-sidebar_base = np.full((FINAL_IMAGE_HEIGHT,SCREEN_WIDTH-FINAL_IMAGE_WIDTH,2),COLOR_LOW,np.uint8)
-for i in range(160,FINAL_IMAGE_HEIGHT):
-    for j in range(120): sidebar_base[i][j] = np.uint8(i*2&(i-255-j)), np.uint8((i*2&(i-255-j))>>8)
-
-frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
-frame_buffer[:,-SIDEBAR_WIDTH:] = sidebar_base
-frame_buffer[:,:-SIDEBAR_WIDTH] = \
-    putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
-            color=COLOR_LAYM, fontScale=3, thickness=4)
 
 def sidebar_hot():
     logger.warning("temp over 60C")
@@ -49,12 +40,22 @@ def _change_sidebar(color):
     global sidebar_lock
     while sidebar_lock: pass
     sidebar_lock = True
-    sidebar_base[:160]=np.full((160,120,2),color,np.uint8)
+    sidebar_base=np.full((SIDEBAR_HEIGHT,SIDEBAR_WIDTH,2),color,np.uint8)
     sidebar_lock = False
+sidebar_cool()
 
-intemp = CPUTemperature(threshold=60.0,event_delay=0.95)
+intemp = CPUTemperature(threshold=50.0,event_delay=1.9)
 intemp.when_activated = sidebar_hot
 intemp.when_deactivated = sidebar_cool
+
+# img = np.fromfunction((lambda i,j,_: (np.uint8(j*i*2&(i-199-j)))),(480,1600,2),dtype=np.uint8)
+frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
+for i in range(FINAL_IMAGE_HEIGHT):
+    for j in range(FINAL_IMAGE_WIDTH): frame_buffer[i][j] = np.uint8(j*i*2&(i-199-j)),np.uint8((i*3&(i-255-j))>>8)
+frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
+frame_buffer[:,:-SIDEBAR_WIDTH] = \
+    putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
+            color=COLOR_LAYM, fontScale=3, thickness=4)
 
 def data():
     global sidebar_queue
@@ -80,7 +81,7 @@ def data():
             putText(frame_buffer[:,:-SIDEBAR_WIDTH], "Initializing...", (500,250),
                     color=COLOR_LAYM, fontScale=3, thickness=4)
         logger.info(f'threads started: {started_names}')
-        bluetooth_process = shell(f"bluetoothctl connect {mac}", text=True)
+        bluetooth_process = shell(f"bluetoothctl << EOF\npair {mac}\nconnect {mac}\nEOF", text=True)
         return_code = bluetooth_process.wait()
 ## DEBUG ############################################################
         for bt_line in bluetooth_process.stdout.readlines(): logger.info(bt_line.rstrip())
@@ -124,7 +125,8 @@ def make_sidebar(psi):
         sidebar_lock = True
         sidebar = sidebar_base.copy()
         sidebar_lock = False
-        sidebar = putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
+        sidebar = \
+                putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
         sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
         sidebar_queue.put(sidebar)
     except Exception as e: logger.exception(e)
@@ -151,7 +153,7 @@ def display_image(image):
     global sidebar_queue
     try:
         frame_buffer[:,:-SIDEBAR_WIDTH] = image
-        try: frame_buffer[:,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
+        try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
         except Empty: pass
         frame_buffer.flush()
         try: signal_queue.put(None)
