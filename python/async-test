@@ -1,0 +1,138 @@
+import asyncio, os
+from collections import deque
+from time import perf_counter_ns as perf_counter
+from evdev import InputDevice, categorize, ecodes
+from v4l2py import Device, VideoCapture
+from gpiozero import CPUTemperature
+
+from ImageConstants import *
+from ELM327 import ELM327
+
+frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(480,1600,2))
+try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("newSidebar.png")
+except: pass
+
+touch_input_device = InputDevice("/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00")
+
+usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
+usb_capture_real_path = os.path.realpath(usb_capture_id_path)
+assert usb_capture_id_path != usb_capture_real_path
+cameraIndex = int(usb_capture_real_path.split("video")[-1])
+
+cameraIndex = 0 ## DEBUG!!! ##########
+
+car_conn = ELM327()
+
+exit_flag = False
+show_graph = False
+
+display_times = []
+psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
+
+psi = 19.1
+speed = 0.0
+
+def sidebar_hot():
+   # logger.warning("temp over 60C")
+    _change_sidebar(COLOR_REC)
+def sidebar_cool():
+   # logger.info("temperature below 60C")
+    _change_sidebar()
+def _change_sidebar(color=COLOR_LOW):
+    global sidebar_base
+    global sidebar_lock
+    while sidebar_lock: pass
+    sidebar_lock = True
+    sidebar_base=np.full((SIDEBAR_HEIGHT,SIDEBAR_WIDTH,2),color,np.uint8)
+    sidebar_lock = False
+_change_sidebar()
+
+intemp = CPUTemperature(threshold=60.0,event_delay=1.9)
+intemp.when_activated = sidebar_hot
+intemp.when_deactivated = sidebar_cool
+
+async def touch_input(): ## DEBUG!!! ##########
+    #global exit_flag, show_graph 
+    async for event in touch_input_device.async_read_loop():
+        if event.type == ecodes.EV_ABS:
+            print(event.value)
+            print(event.code)
+            print(categorize(event))
+
+async def get_image(cameraIndex=cameraIndex,width=720,height=576,format_string="YUYV"):
+    global start
+    with Device.from_id(cameraIndex) as cam:
+        c = VideoCapture(cam)
+        c.set_format(width,height,format_string)
+        with c as stream:
+            async for frame in stream:
+                start = perf_counter()
+                yield cv.imdecode(np.frombuffer(frame.data,dtype="uint8"),cv.IMREAD_COLOR)
+
+async def process_image():
+    async for image in get_image():#height=480,format_string="MJPG"): # local testing only
+        image = build_output_image(image)
+        yield cv.cvtColor(addOverlay(image) if show_graph else image, BGR565)
+
+async def onscreen2():
+    async for image in get_image():
+        frame_buffer[:,:1480] = await asyncio.create_task(build_output_image(image))
+
+async def on_screen():
+    global frame_buffer
+    async for image in process_image():
+        frame_buffer[:,:1480] = image
+        display_times.append(perf_counter()-start)
+
+async def obd_data():
+    global psi, speed
+    async with car_conn as elm: # while not exit_flag:?
+        psi = elm.psi()
+        entry = int(psi*PPPSI)
+        psi_list.append(entry)
+        yield psi
+
+async def sidebar_builder():
+    global frame_buffer
+    async for psi in obd_data():
+        while sidebar_lock: pass
+        sidebar_lock = True
+        sidebar = sidebar_base.copy()
+        sidebar_lock = False
+        sidebar = \
+            putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
+        frame_buffer[:160,-SIDEBAR_WIDTH:] = \
+            putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
+
+async def get_dashcam_image():
+    width, height = DASHCAM_IMAGE_WIDTH, DASHCAM_IMAGE_HEIGHT
+    usb_capture_id_path = \
+        "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+    usb_capture_real_path = os.path.realpath(usb_capture_id_path)
+    assert usb_capture_id_path != usb_capture_real_path
+    dashcam_index = int(usb_capture_real_path.split("video")[-1])
+
+    dashcam_index = 2 ## DEBUG!!! ##########
+
+    async for image in get_image(dashcam_index,width,height,"MJPG"):
+        yield putText(image,f"{speed} mph",(10,1934))
+
+async def run_dashcam():
+    local_time = localtime()
+    fourcc = cv.VideoWriter_fourcc(*'H264') #*'MJPG')
+    width, height = DASHCAM_IMAGE_WIDTH, DASHCAM_IMAGE_HEIGHT
+    date = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
+    clock_time = f"{local_time.tm_hour:02d}.{local_time.tm_min:02d}.{local_time.tm_sec:02d}"
+    weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
+    filepath = f"/media/usb/{'_'.join([date,clock_time,weekday])}.avi"
+    output = cv.VideoWriter(filepath,fourcc,15,(width, height))
+    async for image in get_dashcam_image():
+        output.write(image)
+
+def ms(num):
+    return f"{num/1000000.0:.1f}"
+
+#try: asyncio.run(on_screen)
+try: asyncio.run(asyncio.gather(on_screen,touch_input,run_dashcam))
+except: pass
+print(f"time stats:\nmin: {ms(min(display_times))}ms\tmax: {ms(max(display_times))}ms\tmode: {ms(max(display_times,display_times.count))}\nmean: {ms(np.mean(display_times))}ms\tmedian: {ms(np.median(display_times))}ms")

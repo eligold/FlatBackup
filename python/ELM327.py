@@ -1,14 +1,17 @@
+import os, logging
+from obd import OBD, OBDCommand, commands
+from obd.utils import bytes_to_int
+from obd.protocols import ECU
 from time import sleep, time
-import obd, os, logging
 
 from OBDData import OBDData
 
-TEMP = obd.commands.INTAKE_TEMP
-RPM = obd.commands.RPM
-MAF = obd.commands.MAF
-BPS = obd.commands.BAROMETRIC_PRESSURE
-VOLT = obd.commands.ELM_VOLTAGE
-
+TEMP = commands.INTAKE_TEMP
+RPM = commands.RPM
+MAF = commands.MAF
+BPS = commands.BAROMETRIC_PRESSURE
+VOLT = commands.ELM_VOLTAGE
+MPH = commands.SPEED
 #TODO Define exception if not found
 class ELM327:
     wait = True
@@ -17,6 +20,11 @@ class ELM327:
     checktime = None
     obdd = OBDData()
     logger = logging.getLogger()
+    def gear(messages):
+        """ decoder for gear select """
+        return bytes_to_int(messages[0].data[2:]) / 1000.0
+    gear_command = OBDCommand("GEAR","Gear Select",b"01A4",4,gear,ECU.ENGINE,False)
+
     def __init__(self,portstr="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"):
         logger = self.logger
         self.close()
@@ -28,7 +36,7 @@ class ELM327:
             logger.warning("ELM327 not found!")
         else:
             logger.info(f"ELM327 port: {portstr.split('/')[-1]} -> {port}")
-        elm = obd.OBD(port)
+        elm = OBD(port)
         if elm.is_connected():
             voltage = elm.query(VOLT)
             if not voltage.is_null() and voltage.value.magnitude > 12.1:
@@ -37,6 +45,23 @@ class ELM327:
         else:
             self.elm327 = None
             self.checktime = time() + 30
+
+    def speed(self):
+        elm = self.elm327
+        if elm is not None:
+            vr = elm.query(MPH)
+            if not vr.is_null():
+                return vr.value.magnitude
+        elif time() > self.checktime:
+            self.__init__()
+            return self.speed()
+        return 0.0
+
+    def gear(self):
+        elm = self.elm327
+        if self.carOn:
+            return elm.query(self.gear_command,force=True)
+        return None
 
     def psi(self):
         elm = self.elm327

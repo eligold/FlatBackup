@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import logging, os
 from queue import Empty, Full, SimpleQueue
+from v4l2py import Device, VideoCapture
 from subprocess import TimeoutExpired
 from gpiozero import CPUTemperature
 from collections import deque
@@ -44,20 +45,20 @@ def _change_sidebar(color=COLOR_LOW):
     sidebar_lock = False
 _change_sidebar()
 
-intemp = CPUTemperature(threshold=50.0,event_delay=1.9)
+intemp = CPUTemperature(threshold=60.0,event_delay=1.9)
 intemp.when_activated = sidebar_hot
 intemp.when_deactivated = sidebar_cool
 
 # img = np.fromfunction((lambda i,j,_: (np.uint8(j*i*2&(i-199-j)))),(480,1600,2),dtype=np.uint8)
 frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
-frame_buffer = \
-    np.array(list(map(
-            lambda x,y: (np.uint8(time()*x*2&(x-199-y)),
-                            np.uint8((time()*x*3&(x-250-y))>>8)),
-                    range(SCREEN_HEIGHT),range(SCREEN_WIDTH))))
+# frame_buffer = \
+#     np.array(list(map(lambda x,y: (np.uint8(int(time())*x*2&(x-199-y)), np.uint8((int(time())*x*3&(x-250-y))>>8)), range(SCREEN_HEIGHT),range(SCREEN_WIDTH))))
+# np.array(list(map(lambda x,y: np.uint8(int(time())*x*2&(x-199-y)), range(SCREEN_HEIGHT),range(SCREEN_WIDTH))))
 # for i in range(SCREEN_HEIGHT):
 #     for j in range(SCREEN_WIDTH): frame_buffer[i][j] = 
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
+try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("newSidebar.png")
+except: pass
 frame_buffer[:,:-SIDEBAR_WIDTH] = \
     putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
             color=COLOR_LAYM, fontScale=3, thickness=4)
@@ -86,7 +87,7 @@ def data():
             putText(frame_buffer[:,:-SIDEBAR_WIDTH], "Initializing...", (500,250),
                     color=COLOR_LAYM, fontScale=3, thickness=4)
         logger.info(f'threads started: {started_names}')
-        bluetooth_process = shell(f"bluetoothctl << EOF\npair {mac}\nconnect {mac}\nEOF", text=True)
+        bluetooth_process = shell(f"bluetoothctl << EOF\npower on\ndiscoverable on\nconnect {mac}\ndiscoverable off\nEOF", text=True)
         return_code = bluetooth_process.wait()
 ## DEBUG ############################################################
         for bt_line in bluetooth_process.stdout.readlines(): logger.info(bt_line.rstrip())
@@ -100,7 +101,9 @@ def data():
                 if exit_flag: break
                 try: dashcam_proc.wait(0.095)
                 except TimeoutExpired: pass
-                else: logger.info(dashcam_proc.stdout.readlines())
+                else:
+                    logger.info(dashcam_proc.stdout.readlines())
+                    dashcam_proc = start_dash_cam()
             if exit_flag: break
     except KeyboardInterrupt: exit_flag = True
     except Exception as ex:
@@ -146,7 +149,7 @@ def on_screen():
         try:
             image = build_output_image(display_queue.get(timeout=0.057))
             if show_graph: image = addOverlay(image)
-            image = cv2.cvtColor(image, BGR565)
+            image = cv.cvtColor(image, BGR565)
             if exit_flag: break
         except Empty: pass
         except Exception as e: logger.exception(e)
@@ -164,6 +167,24 @@ def display_image(image):
         try: signal_queue.put(None)
         except Full: pass
     except Exception as e: logger.exception(e)
+
+def get_image_v4l2py():
+    global display_queue, signal_queue
+    width,height = DIM
+    while not exit_flag:
+        signal_queue.put(None)
+        try:
+            with Device.from_id(cameraIndex) as cam:
+                VideoCapture(cam).set_format(width,height,"YUYV")
+                for frame in cam:
+                    while not exit_flag:
+                        try: signal_queue.get()
+                        except Empty: pass
+                        else: break
+                    display_queue.put(cv.imdecode(np.frombuffer(frame.data, dtype="uint8"), COLOR))
+                    if exit_flag: break
+        except Exception as e: logger.exception(e)
+        if exit_flag: break
 
 def get_image():
     global display_queue, signal_queue

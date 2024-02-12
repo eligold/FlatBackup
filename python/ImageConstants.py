@@ -1,11 +1,14 @@
+from cv2 import VideoCapture, CAP_V4L2 as V4L2
 from cv2 import CAP_PROP_BRIGHTNESS as BRIGHTNESS
 from cv2 import CAP_PROP_FRAME_HEIGHT as HEIGHT
 from cv2 import CAP_PROP_FRAME_WIDTH as WIDTH
 from cv2 import COLOR_BGR2BGR565 as BGR565
 from cv2 import INTER_LINEAR as LINEAR
+from cv2 import IMREAD_COLOR as COLOR
 from cv2 import CAP_PROP_FPS as FPS
+
 from subprocess import run, Popen, PIPE, STDOUT
-import cv2, traceback, numpy as np
+import cv2 as cv, traceback, numpy as np
 from time import localtime
 
 DASHCAM_FPS = 15
@@ -25,7 +28,7 @@ SDIM = (960,768)
 FDIM = (1040,FINAL_IMAGE_HEIGHT)
 EXPECTED_SIZE = (*DIM,30)
 
-COLOR_REC = (0xfa,0x00) # 0x00, 0x58?
+COLOR_REC = (0x00,0x58) # 0x00, 0xfa?
 COLOR_GOOD = 0x871a
 COLOR_LOW = (0xc4,0xe4)
 COLOR_BAD = 0x8248
@@ -50,9 +53,9 @@ D = np.array([
     [0.004117306147228716],
     [-0.008896442339724364]])
 # calculate camera values to undistort image
-new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
-mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
-map1, map2 = cv2.convertMaps(mapx,mapy,cv2.CV_16SC2) # fixed point maps run faster
+new_K = cv.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
+mapx, mapy = cv.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv.CV_32FC1)
+map1, map2 = cv.convertMaps(mapx,mapy,cv.CV_16SC2) # fixed point maps run faster
 
 ### Example evtest touch input frame:
 # Event: time 1707153627.150887, type 3 (EV_ABS), code 53 (ABS_MT_POSITION_X), value 1057
@@ -95,9 +98,9 @@ class touchEvent():
         return self._line
 
 def putText(img, text, origin=(0,480), #bottom left
-            color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=1,thickness=2,lineType=cv2.LINE_AA):
-    return cv2.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
+            color=(0xc5,0x9e,0x21),fontFace=cv.FONT_HERSHEY_SIMPLEX,
+            fontScale=1,thickness=2,lineType=cv.LINE_AA):
+    return cv.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
 # make boost graph here ~+15psi to ~-1.5bar
 # add each point to new deque and increment position by one when reading current deque
@@ -108,11 +111,11 @@ def addOverlay(image, psi_list):
     graph_list = psi_list.copy()
     overlay_image[20:461,39:1442] = COLOR_OVERLAY
     overlay_image[39:442,20:1461] = COLOR_OVERLAY
-    overlay_image = cv2.circle(overlay_image,(offset,offset),radius,COLOR_OVERLAY,-1)
-    overlay_image = cv2.circle(overlay_image,(offset,h-offset),radius,COLOR_OVERLAY,-1)
-    overlay_image = cv2.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
-    overlay_image = cv2.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
-    cv2.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
+    overlay_image = cv.circle(overlay_image,(offset,offset),radius,COLOR_OVERLAY,-1)
+    overlay_image = cv.circle(overlay_image,(offset,h-offset),radius,COLOR_OVERLAY,-1)
+    overlay_image = cv.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
+    overlay_image = cv.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
+    cv.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
     image[25:455,44:46] = BLACK
     image[405:407,25:1456] = BLACK
     image[135:137,38:45] = BLACK
@@ -124,8 +127,8 @@ def addOverlay(image, psi_list):
         except IndexError: traceback.print_exc()
     return image
 
-def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=25) -> cv2.VideoCapture:
-    camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
+def get_camera(camIndex:int,width,height,apiPreference=V4L2,brightness=25) -> VideoCapture:
+    camera = VideoCapture(camIndex,apiPreference=apiPreference)
     camera.set(WIDTH,width)
     camera.set(HEIGHT,height)
     camera.set(BRIGHTNESS,brightness)
@@ -134,10 +137,10 @@ def get_camera(camIndex:int,width,height,apiPreference=cv2.CAP_V4L2,brightness=2
 
 def build_output_image(img): # MAYBE ALSO TRY mapx, mapy ?
     height, width = FINAL_IMAGE_HEIGHT, EDGEBAR_WIDTH
-    intermediate = cv2.remap(img,map1,map2,interpolation=LINEAR)
-    image = cv2.resize(intermediate,SDIM,interpolation=LINEAR)[66:558]
-    large = cv2.resize(image[213:453,width:-width],FDIM,interpolation=LINEAR)
-    return cv2.hconcat([image[6:height+6,:width], large, image[:height,-width:]])
+    intermediate = cv.remap(img,map1,map2,interpolation=LINEAR)
+    image = cv.resize(intermediate,SDIM,interpolation=LINEAR)[66:558]
+    large = cv.resize(image[213:453,width:-width],FDIM,interpolation=LINEAR)
+    return cv.hconcat([image[6:height+6,:width], large, image[:height,-width:]])
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30
