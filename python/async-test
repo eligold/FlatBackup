@@ -25,6 +25,7 @@ car_conn = ELM327()
 
 exit_flag = False
 show_graph = False
+sidebar_lock = False
 
 display_times = []
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
