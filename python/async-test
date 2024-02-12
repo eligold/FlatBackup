@@ -84,8 +84,13 @@ async def on_screen():
         frame_buffer[:,:1480] = image
         display_times.append(perf_counter()-start)
 
+async def get_speed():
+    global speed
+    async with car_conn as elm: # while not exit_flag:?
+        speed = elm.speed()
+
 async def obd_data():
-    global psi, speed
+    global psi
     async with car_conn as elm: # while not exit_flag:?
         psi = elm.psi()
         entry = int(psi*PPPSI)
@@ -115,7 +120,7 @@ async def get_dashcam_image():
     dashcam_index = 2 ## DEBUG!!! ##########
 
     async for image in get_image(dashcam_index,width,height,"MJPG"):
-        yield putText(image,f"{speed} mph",(10,1934))
+        yield putText(image,f"{speed} mph",(10,1934)) if speed else image
 
 async def run_dashcam():
     local_time = localtime()
@@ -133,6 +138,6 @@ def ms(num):
     return f"{num/1000000.0:.1f}"
 
 #try: asyncio.run(on_screen)
-try: asyncio.run(asyncio.gather(on_screen,touch_input,run_dashcam))
+try: asyncio.run(asyncio.gather(on_screen,touch_input,run_dashcam,get_speed))
 except: pass
 print(f"time stats:\nmin: {ms(min(display_times))}ms\tmax: {ms(max(display_times))}ms\tmode: {ms(max(display_times,display_times.count))}\nmean: {ms(np.mean(display_times))}ms\tmedian: {ms(np.median(display_times))}ms")
