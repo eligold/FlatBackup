@@ -74,23 +74,20 @@ async def get_image(cameraIndex=cameraIndex, width=720, height=576, format_strin
         c.set_format(width,height,format_string)
         with c as stream:
             async for frame in stream:
+                if format_string == "MJPG": yield cv.imdecode(frame.array,cv.IMREAD_ANYCOLOR)
+                else: yield cv.cvtColor(frame.array.reshape(height,width,2),cv.COLOR_YUV2BGR_YUYV)
                 if exit_flag: break
 
+                if start: display_times.append(perf_counter()-start)
                 start = perf_counter()
 
-                if format_string == "YUYV":
-                    raw = np.frombuffer(frame.data, dtype="uint8", count=width*height*2)
-                    yield cv.cvtColor(raw.reshape(height,width,2), cv.COLOR_YUV2BGR_YUYV)
-                else:
-                    yield cv.imdecode(np.frombuffer(frame.data,dtype="uint8"),cv.IMREAD_ANYCOLOR)
-
 async def process_image():
-    async for image in get_image():#height=480,format_string="MJPG"): # local testing only
+    async for image in get_image():
         if image is not None:
             image = build_output_image(image)
-            if exit_flag: break
             yield cv.cvtColor(addOverlay(image) if show_graph else image, BGR565)
         else: print("empty image!")
+        if exit_flag: break
 
 async def on_screen():
     global frame_buffer
@@ -102,14 +99,14 @@ async def on_screen():
 
         display_times.append(perf_counter()-start)
 
-async def get_speed():
-    async with car_conn as elm: # while not exit_flag:?
-        try: yield elm.speed()
-        except: traceback.print_exc()
-
 async def obd_data():
-    async with car_conn as elm: # while not exit_flag:?
-        try: psi = elm.psi()
+    global speed
+    speed = 0.0
+    while not exit_flag:
+        try: speed = car_conn.speed()
+        except: traceback.print_exc()
+        if exit_flag: break
+        try: psi = car_conn.psi()
         except: traceback.print_exc()
         entry = int(psi*PPPSI)
         psi_list.append(entry)
@@ -118,16 +115,15 @@ async def obd_data():
 async def sidebar_builder():
     global frame_buffer
     async for psi in obd_data():
+        if exit_flag: break
         while sidebar_lock: pass
         sidebar_lock = True
         sidebar = sidebar_base.copy()
         sidebar_lock = False
         sidebar = \
             putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
-        try: frame_buffer[:160,-SIDEBAR_WIDTH:] = \
+        frame_buffer[:160,-SIDEBAR_WIDTH:] = \
             putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
-        except: traceback.print_exc()
-        if exit_flag: break
 
 async def get_dashcam_image():
     width, height = DASHCAM_IMAGE_WIDTH, DASHCAM_IMAGE_HEIGHT
@@ -136,10 +132,10 @@ async def get_dashcam_image():
     usb_capture_real_path = os.path.realpath(usb_capture_id_path)
     assert usb_capture_id_path != usb_capture_real_path
     dashcam_index = int(usb_capture_real_path.split("video")[-1])
-
     async for image in get_image(dashcam_index,width,height,"MJPG"):
-        speed = await get_speed()
-        yield putText(image,f"{speed} mph",(10,1934)) if speed else image
+        if speed: image = putText(image,f"{speed} mph",(10,1934))
+        yield image
+        if exit_flag: break
 
 async def run_dashcam():
     local_time = localtime()
@@ -160,8 +156,9 @@ def ms(num):
     return f"{num/1000000.0:.1f}"
 
 async def main():
-    await asyncio.gather(run_dashcam(),touch_input(),on_screen(),sidebar_builder()) # ,get_speed())
+    await asyncio.gather(run_dashcam(),touch_input(),on_screen(),sidebar_builder())
 #try: asyncio.run(on_screen)
 try: asyncio.run(main())
-except: pass
-print(f"time stats:\nmin: {ms(min(display_times))}ms\tmax: {ms(max(display_times))}ms\tmode: {ms(max(display_times,display_times.count))}\nmean: {ms(np.mean(display_times))}ms\tmedian: {ms(np.median(display_times))}ms")
+except KeyboardInterrupt: exit_flag = True
+except: traceback.print_exc()
+if display_times: print(f"time stats:\nmin: {ms(min(display_times))}ms\tmax: {ms(max(display_times))}ms\tmode: {ms(max(display_times,display_times.count))}\nmean: {ms(np.mean(display_times))}ms\tmedian: {ms(np.median(display_times))}ms")
