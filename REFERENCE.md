@@ -2,6 +2,7 @@
 
 1. ] https://www.first-sensor.com/cms/upload/appnotes/AN_Massflow_E_11153.pdf
 1. ] https://github.com/brendan-w/python-OBD/
+1. ] https://thinkingtoasters.com/2021/05/24/yuv422-to-rgb/
 1. ] https://github.com/wjwwood/serial/
 1. ] https://github.com/nholthaus/units
 1. ] https://github.com/tmckay1/pi_bluetooth_auto_connect
