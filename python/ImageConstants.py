@@ -1,4 +1,3 @@
-from cv2 import VideoCapture, CAP_V4L2 as V4L2
 from cv2 import CAP_PROP_BRIGHTNESS as BRIGHTNESS
 from cv2 import CAP_PROP_FRAME_HEIGHT as HEIGHT
 from cv2 import CAP_PROP_FRAME_WIDTH as WIDTH
@@ -6,10 +5,11 @@ from cv2 import COLOR_BGR2BGR565 as BGR565
 from cv2 import INTER_LINEAR as LINEAR
 from cv2 import IMREAD_COLOR as COLOR
 from cv2 import CAP_PROP_FPS as FPS
+from cv2 import CAP_V4L2 as V4L2
 
 from subprocess import run, Popen, PIPE, STDOUT
-import cv2 as cv, traceback, numpy as np
-from time import localtime
+import traceback, cv2 as cv, numpy as np
+from time import localtime, time
 
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
@@ -31,6 +31,7 @@ EXPECTED_SIZE = (*DIM,30)
 COLOR_REC = (0x00,0x58) # 0x00, 0xfa?
 COLOR_GOOD = 0x871a
 COLOR_LOW = (0xc4,0xe4)
+COLOR_NEW = (0x91,0x93)
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
@@ -127,8 +128,8 @@ def addOverlay(image, psi_list):
         except IndexError: traceback.print_exc()
     return image
 
-def get_camera(camIndex:int,width,height,apiPreference=V4L2,brightness=25) -> VideoCapture:
-    camera = VideoCapture(camIndex,apiPreference=apiPreference)
+def get_camera(camIndex:int,width,height,apiPreference=V4L2,brightness=25) -> cv.VideoCapture:
+    camera = cv.VideoCapture(camIndex,apiPreference=apiPreference)
     camera.set(WIDTH,width)
     camera.set(HEIGHT,height)
     camera.set(BRIGHTNESS,brightness)
