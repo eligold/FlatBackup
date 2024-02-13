@@ -114,6 +114,7 @@ async def obd_data():
 
 async def sidebar_builder():
     global frame_buffer
+    global sidebar_lock
     async for psi in obd_data():
         if exit_flag: break
         while sidebar_lock: pass
