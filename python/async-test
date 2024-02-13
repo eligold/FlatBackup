@@ -10,7 +10,7 @@ from ImageConstants import *
 from ELM327 import ELM327
 
 frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(480,1600,2))
-try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("newSidebar.png")
+try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")
 except: pass
 
 touch_input_device = InputDevice("/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00")
@@ -30,10 +30,10 @@ sidebar_lock = False
 display_times = []
 
 def sidebar_hot():
-   # logger.warning("temp over 60C")
+    print("temp over 60C") # logger.warning(
     _change_sidebar(COLOR_REC)
 def sidebar_cool():
-   # logger.info("temperature below 60C")
+    print("temperature below 60C") # logger.info(
     _change_sidebar()
 def _change_sidebar(color=COLOR_NEW): # COLOR_LOW
     global sidebar_base
@@ -67,7 +67,7 @@ async def touch_input():
                     last_time = time()
         if exit_flag: break
 
-async def get_image(cameraIndex=cameraIndex,width=720,height=576,format_string="YUYV"):
+async def get_image(cameraIndex=cameraIndex, width=720, height=576, format_string="YUYV"):
     global start
     with Device.from_id(cameraIndex) as cam:
         c = VideoCapture(cam)
@@ -78,13 +78,19 @@ async def get_image(cameraIndex=cameraIndex,width=720,height=576,format_string="
 
                 start = perf_counter()
 
-                yield cv.imdecode(np.frombuffer(frame.data,dtype="uint8"),cv.IMREAD_COLOR)
+                if format_string == "YUYV":
+                    raw = np.frombuffer(frame.data, dtype="uint8", count=width*height*2)
+                    yield cv.cvtColor(raw.reshape(height,width,2), cv.COLOR_YUV2BGR_YUYV)
+                else:
+                    yield cv.imdecode(np.frombuffer(frame.data,dtype="uint8"),cv.IMREAD_ANYCOLOR)
 
 async def process_image():
     async for image in get_image():#height=480,format_string="MJPG"): # local testing only
-        image = build_output_image(image)
-        if exit_flag: break
-        yield cv.cvtColor(addOverlay(image) if show_graph else image, BGR565)
+        if image is not None:
+            image = build_output_image(image)
+            if exit_flag: break
+            yield cv.cvtColor(addOverlay(image) if show_graph else image, BGR565)
+        else: print("empty image!")
 
 async def on_screen():
     global frame_buffer
