@@ -148,7 +148,7 @@ def on_screen():
     while not exit_flag:
         try:
             image = build_output_image(display_queue.get(timeout=0.057))
-            if show_graph: image = addOverlay(image)
+            if show_graph: image = addOverlay(image,psi_list)
             image = cv.cvtColor(image, BGR565)
             if exit_flag: break
         except Empty: pass
@@ -237,7 +237,7 @@ def touch_input():
                             active = False
                     if active and event.isY and x is not None:
                         if event.value < SCREEN_HEIGHT/2: show_graph = not show_graph
-                        else: raise KeyboardInterrupt(f'touch input(X →,Y ↓) -> {x},{event.value}')
+                        else: raise KeyboardInterrupt(f'touch input(X ⇁,Y ⇃) -> {x},{event.value}')
                     if event.code_id != 5: logger.info(event.pretty())
                     event = touchEvent(touch_process.stdout.readline())
                 if active: last_time = event.time

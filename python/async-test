@@ -9,25 +9,16 @@ from gpiozero import CPUTemperature
 from ImageConstants import *
 from ELM327 import ELM327
 
-frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(480,1600,2))
-try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")
-except: pass
-
-touch_input_device = InputDevice("/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00")
-
-usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
-usb_capture_real_path = os.path.realpath(usb_capture_id_path)
-assert usb_capture_id_path != usb_capture_real_path
-cameraIndex = int(usb_capture_real_path.split("video")[-1])
-
-car_conn = ELM327()
-psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
-
 exit_flag = False
 show_graph = False
-sidebar_lock = False
+sidebar_lock = False # probably not needed...
 
-display_times = []
+psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
+frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
+try: frame_buffer[160:SCREEN_HEIGHT,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")
+except: pass
+
+display_times = [] ## ← DEBUG ###############
 
 def sidebar_hot():
     print("temp over 60C") # logger.warning(
@@ -49,117 +40,178 @@ intemp.when_activated = sidebar_hot
 intemp.when_deactivated = sidebar_cool
 
 async def touch_input():
-    global exit_flag, show_graph
+    global show_graph
     x = None
     last_time = time()
-    async for event in touch_input_device.async_read_loop():
-        print(categorize(event))
-        if time() > last_time + 0.38 and event.type == ecodes.EV_ABS:
-            if event.code == 0 and event.value > FINAL_IMAGE_WIDTH:
-                x = event.value
-            else:
-                if x is not None and event.code == 1:
-                    if event.value > SCREEN_HEIGHT/2: 
-                        exit_flag = True
-                        break
-                    else: show_graph = not show_graph
-                    x = None
-                    last_time = time()
-        if exit_flag: break
+    touch_input_device = None
+    while not exit_flag:
+        try:
+            touch_input_device = InputDevice("/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00")
+            async for event in touch_input_device.async_read_loop():
 
-async def get_image(cameraIndex=cameraIndex, width=720, height=576, format_string="YUYV"):
-    global start
-    with Device.from_id(cameraIndex) as cam:
-        c = VideoCapture(cam)
-        c.set_format(width,height,format_string)
-        with c as stream:
-            async for frame in stream:
-                if format_string == "MJPG": yield cv.imdecode(frame.array,cv.IMREAD_ANYCOLOR)
-                else: yield cv.cvtColor(frame.array.reshape(height,width,2),cv.COLOR_YUV2BGR_YUYV)
+                print(categorize(event))
+
+                if time() > last_time + 0.38 and event.type == ecodes.EV_ABS:
+                    if event.code == 0 and event.value > FINAL_IMAGE_WIDTH:
+                        x = event.value
+                    else:
+                        if x is not None and event.code == 1:
+                            if event.value > SCREEN_HEIGHT/2:
+                                cleanup(KeyboardInterrupt( \
+                                    f'touch input(X ⇁,Y ⇃) -> {x},{event.value}'))
+                            else: show_graph = not show_graph
+                            x = None
+                            last_time = time()
                 if exit_flag: break
+        except KeyboardInterrupt as kbi: cleanup(kbi)
+        except: traceback.print_exc()
+        finally:
+            if touch_input_device: touch_input_device.close()
 
-                if start: display_times.append(perf_counter()-start)
-                start = perf_counter()
+async def get_image(cameraIndex, width=720, height=576, format_string="YUYV"):
+    global start ## ← DEBUG ###############
+    while not exit_flag:
+        try:
+            with Device.from_id(cameraIndex) as cam:
+                video_capture = VideoCapture(cam)
+                video_capture.set_format(width,height,format_string)
+                print(video_capture.get_format())
+                with video_capture as image_stream:
+                    async for frame in image_stream:
+                        if format_string == "MJPG": yield cv.imdecode(frame.array,cv.IMREAD_COLOR)
+                        elif exit_flag: break
+                        else: yield cv.cvtColor(frame.array.reshape(height,width,2),YUYV)
+
+                        if start: display_times.append(perf_counter()-start)
+                        start = perf_counter() ## ← ALSO DEBUG ###############
+
+        except KeyboardInterrupt as kbi: cleanup(kbi)
+        except: traceback.print_exc()
 
 async def process_image():
-    async for image in get_image():
-        if image is not None:
-            image = build_output_image(image)
-            yield cv.cvtColor(addOverlay(image) if show_graph else image, BGR565)
-        else: print("empty image!")
-        if exit_flag: break
+    while not exit_flag:
+        usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
+        usb_capture_real_path = os.path.realpath(usb_capture_id_path)
+        assert usb_capture_id_path != usb_capture_real_path
+        cameraIndex = int(usb_capture_real_path.split("video")[-1])
+        try:
+            async for image in get_image(cameraIndex):
+                image = build_output_image(image)
+                yield cv.cvtColor(addOverlay(image) if show_graph else image, BGR565)
+                if exit_flag: break
+        except KeyboardInterrupt as kbi: cleanup(kbi)
+        except: traceback.print_exc()
 
 async def on_screen():
     global frame_buffer
-    async for image in process_image():
-        try: frame_buffer[:,:1480] = image
+    while not exit_flag:
+        try:
+            async for image in process_image():
+                frame_buffer[:,:1480] = image
+                frame_buffer.flush()
+                if exit_flag: break
+        except KeyboardInterrupt as kbi: cleanup(kbi)
         except: traceback.print_exc()
-        frame_buffer.flush()
-        if exit_flag: break
-
-        display_times.append(perf_counter()-start)
 
 async def obd_data():
     global speed
-    speed = 0.0
+    speed = None
+    car_conn = None
     while not exit_flag:
-        try: speed = car_conn.speed()
+        car_conn = ELM327()
+        try:
+            speed = car_conn.speed()
+            if exit_flag: break
+            psi = car_conn.psi()
+            entry = int(psi*PPPSI)
+            psi_list.append(entry)
+            yield psi
+        except KeyboardInterrupt as kbi: cleanup(kbi)
         except: traceback.print_exc()
-        if exit_flag: break
-        try: psi = car_conn.psi()
-        except: traceback.print_exc()
-        entry = int(psi*PPPSI)
-        psi_list.append(entry)
-        yield psi
+        finally:
+            if car_conn: car_conn.close()
 
 async def sidebar_builder():
-    global frame_buffer
-    global sidebar_lock
-    async for psi in obd_data():
-        if exit_flag: break
-        while sidebar_lock: pass
-        sidebar_lock = True
-        sidebar = sidebar_base.copy()
-        sidebar_lock = False
-        sidebar = \
-            putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
-        frame_buffer[:160,-SIDEBAR_WIDTH:] = \
-            putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
+    global frame_buffer, sidebar_lock
+    while not exit_flag:
+        try:
+            async for psi in obd_data():
+                if exit_flag: break
+                while sidebar_lock: pass
+                sidebar_lock = True
+                sidebar = sidebar_base.copy()
+                sidebar_lock = False
+                sidebar = \
+                    putText(sidebar, f"{psi:.1f}", (4,57), color=COLOR_NORMAL, thickness=3)
+                frame_buffer[:160,-SIDEBAR_WIDTH:] = \
+                    putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
+        except KeyboardInterrupt as kbi: cleanup(kbi)
+        except: traceback.print_exc()
 
-async def get_dashcam_image():
+def sidebar_builder_normal():
+    global frame_buffer, speed
+    car_conn = None
+    while not exit_flag:
+        try:
+            car_conn = ELM327()
+            while not exit_flag:
+                speed = car_conn.speed()
+                if exit_flag: break
+                psi = car_conn.psi()
+                entry = int(psi*PPPSI)
+                psi_list.append(entry)
+                if exit_flag: break
+                sidebar = sidebar_base.copy()
+                sidebar = \
+                    putText(sidebar, f"{psi:.1f}", (4,57), color=COLOR_NORMAL, thickness=3)
+                frame_buffer[:160,-SIDEBAR_WIDTH:] = \
+                    putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
+        except KeyboardInterrupt as kbi: cleanup(kbi)
+        except: traceback.print_exc()
+        finally:
+            if car_conn: car_conn.close()
+
+async def run_dashcam():
     width, height = DASHCAM_IMAGE_WIDTH, DASHCAM_IMAGE_HEIGHT
     usb_capture_id_path = \
         "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    usb_capture_real_path = os.path.realpath(usb_capture_id_path)
-    assert usb_capture_id_path != usb_capture_real_path
-    dashcam_index = int(usb_capture_real_path.split("video")[-1])
-    async for image in get_image(dashcam_index,width,height,"MJPG"):
-        if speed: image = putText(image,f"{speed} mph",(10,1934))
-        yield image
-        if exit_flag: break
-
-async def run_dashcam():
-    local_time = localtime()
-    fourcc = cv.VideoWriter_fourcc(*'H264') #*'MJPG')
-    width, height = DASHCAM_IMAGE_WIDTH, DASHCAM_IMAGE_HEIGHT
-    date = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
-    clock_time = f"{local_time.tm_hour:02d}.{local_time.tm_min:02d}.{local_time.tm_sec:02d}"
-    weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
-    filepath = f"/media/usb/{'_'.join([date,clock_time,weekday])}.mkv"
-    output = cv.VideoWriter(filepath,fourcc,15,(width, height))
-    async for image in get_dashcam_image():
-        try: output.write(image)
+    while not exit_flag:
+        try:
+            usb_capture_real_path = os.path.realpath(usb_capture_id_path)
+            assert usb_capture_id_path != usb_capture_real_path
+            dashcam_index = int(usb_capture_real_path.split("video")[-1])
+            local_time = localtime()
+            fourcc = cv.VideoWriter_fourcc(*'H264') #*'MJPG')
+            width, height = DASHCAM_IMAGE_WIDTH, DASHCAM_IMAGE_HEIGHT
+            date = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
+            clock_time = f"{local_time.tm_hour:02d}.{local_time.tm_min:02d}.{local_time.tm_sec:02d}"
+            weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
+            filepath = f"/media/usb/{'_'.join([date,clock_time,weekday])}.mkv"
+            output = cv.VideoWriter(filepath,fourcc,15,(width, height))
+            async for image in get_image(dashcam_index,width,height,"MJPG"):
+                if speed: image = putText(image,f"{speed} mph",(10,1934))
+                output.write(image)
+                if exit_flag: break
+        except KeyboardInterrupt as kbi: cleanup(kbi)
         except: traceback.print_exc()
-        if exit_flag: break
-    output.release()
+        finally:
+            if output: output.release()
+
+def cleanup(kbi):
+    global exit_flag
+    exit_flag = True
+    raise kbi
 
 def ms(num):
     return f"{num/1000000.0:.1f}"
 
 async def main():
-    await asyncio.gather(run_dashcam(),touch_input(),on_screen(),sidebar_builder())
+    await asyncio.gather(run_dashcam(),touch_input(),on_screen()) # ,sidebar_builder())
+
 #try: asyncio.run(on_screen)
-try: asyncio.run(main())
+try: 
+    asyncio.run(main())
+    sidebar_builder_normal()
 except KeyboardInterrupt: exit_flag = True
 except: traceback.print_exc()
 if display_times: print(f"time stats:\nmin: {ms(min(display_times))}ms\tmax: {ms(max(display_times))}ms\tmode: {ms(max(display_times,display_times.count))}\nmean: {ms(np.mean(display_times))}ms\tmedian: {ms(np.median(display_times))}ms")

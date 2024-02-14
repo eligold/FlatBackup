@@ -1,6 +1,7 @@
 from cv2 import CAP_PROP_BRIGHTNESS as BRIGHTNESS
 from cv2 import CAP_PROP_FRAME_HEIGHT as HEIGHT
 from cv2 import CAP_PROP_FRAME_WIDTH as WIDTH
+from cv2 import COLOR_YUV2BGR_YUYV as YUYV
 from cv2 import COLOR_BGR2BGR565 as BGR565
 from cv2 import INTER_LINEAR as LINEAR
 from cv2 import IMREAD_COLOR as COLOR
@@ -14,6 +15,8 @@ from time import localtime, time
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
 DASHCAM_IMAGE_HEIGHT = 1944
+# /sys/class/graphics/fb0/modes
+# /sys/class/graphics/fb0/stride
 SCREEN_HEIGHT = 480
 SCREEN_WIDTH = 1600
 FINAL_IMAGE_WIDTH = 1480
@@ -31,7 +34,7 @@ EXPECTED_SIZE = (*DIM,30)
 COLOR_REC = (0x00,0x58) # 0x00, 0xfa?
 COLOR_GOOD = 0x871a
 COLOR_LOW = (0xc4,0xe4)
-COLOR_NEW = (0x91,0x93)
+COLOR_NEW = (0xe4,0xc4)
 COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
@@ -100,7 +103,7 @@ class touchEvent():
 
 def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv.FONT_HERSHEY_SIMPLEX,
-            fontScale=1,thickness=2,lineType=cv.LINE_AA):
+            fontScale=1.19,thickness=2,lineType=cv.LINE_AA):
     return cv.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
 # make boost graph here ~+15psi to ~-1.5bar
