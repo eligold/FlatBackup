@@ -29,6 +29,8 @@ The output from my newly installed camera was initially displayed on a cheap fli
 <img src="./assets/doc/flipscreen.jpg" alt="flip screen image failed to load" width="55%">
 
 ### Project Components
+
+__link to setup__ [Setup](./SETUP.md)
 #### > Touchscreen and Raspberry Pi
 My solution runs on a Raspberry Pi, serving as the central hub for image correction and OBDII data processing. Python scripts handle the integration of these components with multi-threaded processing to promote seamless operation. In order to maximize the useable regions of the undistorted image this project required an extra wide screen and luckily I found a screen on amazon that provided the optimal aspect ratio and even integrated support for mounting the pi directly to it. This exact screen is no longer available but [this unit from amazon](https://www.amazon.com/dp/B087CNJYB4/ref=sspa_dk_detail_0) is nearly identical and there are [many](https://www.amazon.com/ElecLab-Touchscreen-Capacitive-1280x480-10-3-inch-hdmi-1280x480/dp/B0BWSSKDV4/ref=sr_1_2) [other](https://www.amazon.com/gp/product/B09SVDCSQJ/ref=ox_sc_act_title_2) [options](https://www.amazon.com/ElecLab-Raspberry-Touchscreen-Capacitive-1280x400/dp/B09YJ37SBH/ref=sr_1_3) to choose from depending on your application. Touch input was the last piece of the puzzle, and after a failed attempt to implement it in pure python using the `async` library I instead opted to pipe the output of the shell command `evtest` through the `Popen` construct of the `Subprocess` python module to a queue that is handled in the main thread.
 <img src="./assets/doc/pi.screen.jpg" alt="pi screen image failed to load">
@@ -81,78 +83,6 @@ I connected the 12V power supply in-line with harness wires for the trunk 12V ac
 A recently purchased [Clearmounts phone adapter](https://www.audiphoneholder.com/product/78/clearmounts-bracket-low-profile-magnetic-holder-part-8p-low), pictured below, serves to conveniently and robustly secure my homebrew solution between the two centermost vents on my dashboard. After removing the simple magnetic holder that came with it I installed an articulated Scosche handsfree wireless charging mount similar to one that previously mounted to my windshield with a suction cup. I realized this model would be unsuitable for adapting to my project only after disassembling it completely so I purchased the articulated vent-mount model, securing a length of scrap aluminum angle extrusion to the back with the ball joint retaining screw through the Clearmounts adapter. Using a small L-bracket and some fastening hardware I mounted a second length of extrusion with holes drilled out to match the mounting pattern of my new widescreen display. It's practical but I'd like to replace it with something a bit more attractive down the line, perhaps in the vein of the beautiful custom devices built by [DIY Perks on YouTube](https://www.youtube.com/c/diyperks).
 
 <img src="./assets/doc/clearmounts.png" alt="clearmounts image failed to load" width="50%">
-
-## SETUP
-
-1. flash buster or bullseye with pi imager, add login/wifi details
-1. Use `sudo` to login as root
-    ```
-    sudo su -
-    ```
-1. With `raspi-config` I changed the system locale from en-GB UTF8 to en-US UTF8, and set the keyboard to an American layout.
-1. Turn off swap file to spare the SD card from repeated writes and trim some fat by disabling Modem Manager
-    ```
-    dphys-swapfile swapoff
-    systemctl disable dphys-swapfile.service
-    systemctl disable ModemManager.service
-    apt autoremove -y modemmanager
-    ```
-1. Get some tools and make sure the system is up to date in the background so you can do other things
-    ```
-    apt install -y vim screen
-    apt update && screen -d -m apt upgrade -y
-    ```
-1. To automate mounting the external drive I added this line to `/etc/fstab`. I like to use `vim` but you can use `nano` if you're not an elite hacker:
-    ```
-    LABEL=[label] /[mount/location/] [fs type] nofail      0       0
-    ```
-1. To start the program in a screen instance at boot, add the following to `/etc/rc.local` before the `exit 0` statement:
-    ```
-    screen -d -m /root/carCam.py
-    ```
-1. Add the following lines to `config.txt`:
-    ```
-    disable_splash=1
-    dtparam=i2c_arm=on
-    framebuffer_width=1600
-    framebuffer_height=480
-    hdmi_force_hotplug=1
-    hdmi_group=2
-    hdmi_mode=87
-    hdmi_ignore_edid=0xa5000080
-    hdmi_cvt 1600 480 60 6 0 0 0
-    hdmi_drive=2
-    hdmi_enable_4kp60=1
-    gpu_mem=128
-    dtoverlay=gpio-fan,gpiopin=14,temp=60000
-    ```
-1. By default `\etc\cmdline.txt` will look something like this:
-    `console=serial0,115200 console=tty1 root=PARTUUID=[xxxxxxxx]-0[n] rootfstype=ext4 fsck.repair=yes rootwait quiet splash plymouth.ignore-serial-consoles`
-    After `rootwait` add `logo.nologo` to turn off the pi icon at boot, and `consoleblank=0` to shut off screen blanking and keep the display on. replace `splash` with `vt.global_cursor_default=0` for no blinky cursor and turn off default rainbow splash screen.
-1. Install dependencies:
-    ```
-    apt install -y python3-opencv python3-pip python3-gpiozero fim git
-    pip3 install obd
-    ssh-keygen -t ed25519
-    git clone git@github.com:eligold/FlatBackup.git
-    ```
-1. Install a new service to show the splashscreen at boot. Make sure to copy the image to the root directory. `vim /etc/systemctl/system/splashscreen.service` opens an editor to create the service. Press the `i` key and type the following lines:
-    ```
-    [Unit]
-    Description=custom splash screen
-    DefaultDependencies=no
-    After=local-fs.target
-
-    [Service]
-                    NOT GOOD \/
-    ExecStart=/usr/bin/fim -d /dev/fb0 -q -T 1 -1 /root/splash_img.png 
-    StandardInput=tty
-    StandardOutput=tty
-
-    [Install]
-    WantedBy=sysinit.target
-    ```
-    Hit `esc` and type `:` followed by `wq` and mash that `enter` key to write the service file. A quick `systemctl enable splashscreen` and `systemctl start splashscreen` are all that remains to register and begin the service.
 
 ## Future Development Goals
 
