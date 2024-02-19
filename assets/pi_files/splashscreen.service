@@ -2,9 +2,10 @@
 Description=Splash screen
 DefaultDependencies=no
 After=local-fs.target
+Requires=local-fs.target
 
 [Service]
-ExecStart=/usr/bin/fbi -d /dev/fb0 --noverbose -t 3 -1 /root/splash_img.png
+ExecStart=/usr/bin/fim -d /dev/fb0 -q /root/splash_image.png
 StandardInput=tty
 StandardOutput=tty
 
