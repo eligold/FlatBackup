@@ -5,7 +5,7 @@ After=local-fs.target
 Requires=local-fs.target
 
 [Service]
-ExecStart=/usr/bin/fim -d /dev/fb0 -q /root/splash_image.png
+ExecStart=/usr/bin/fim -d /dev/fb0 -q /root/splash_img.png
 StandardInput=tty
 StandardOutput=tty
 
