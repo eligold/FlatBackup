@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+import logging, asyncio
+from evdev import InputDevice, categorize, ecodes
+from queue import Empty, Full, SimpleQueue
+from v4l2py import Device, VideoCapture
+from subprocess import TimeoutExpired
+from gpiozero import CPUTemperature
+from time import localtime, time
+from collections import deque
+from threading  import Thread
+
+from ImageConstants import *
+from ELM327 import ELM327
+
+# communications between threads:
+dash_signal_queue = SimpleQueue()
+dashcam_queue = SimpleQueue()
+display_queue = SimpleQueue()
+sidebar_queue = SimpleQueue()
+signal_queue = SimpleQueue()
+
+psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
+show_graph = False
+exit_flag = False
+
+no_signal_base = np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH,2),COLOR_BAD,np.uint8)
+no_signal_frame = putText(no_signal_base,"No Signal",(500,200))
+
+frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
+frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
+try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")
+except: pass
+
+def _display_message(text,location=(500,250),color=COLOR_LAYM,fontScale=3,thickness=4):
+    global frame_buffer
+    frame_buffer[:,:-SIDEBAR_WIDTH] = \
+        putText(frame_buffer[:,:-SIDEBAR_WIDTH],text,location,color,fontScale,thickness)
+_display_message("Welcome back sir",location=(500,190))
+
+def sidebar_hot():
+    logger.warning("temp over 60C")
+    _change_sidebar(COLOR_REC)
+def sidebar_cool():
+    logger.info("temperature below 60C")
+    _change_sidebar()
+def _change_sidebar(color=COLOR_LOW):
+    global sidebar_base
+    sidebar_base=np.full((SIDEBAR_HEIGHT,SIDEBAR_WIDTH,2),color,np.uint8)
+_change_sidebar()
+
+intemp = CPUTemperature(threshold=60.0,event_delay=1.9)
+intemp.when_activated = sidebar_hot
+intemp.when_deactivated = sidebar_cool
+
+def data():
+    global sidebar_queue
+    global exit_flag
+    global speed, gear
+    speed, gear, car_conn = None
+    started_names = []
+    wifi_flag = False ## DEBUG ######
+    try:                               
+        _display_message("Initializing") #                            \\ YOOHOO //
+        if bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n': pass
+           # raise KeyboardInterrupt("wifi connected") # else turn off radio to save power
+        else: wifi_flag = shell('ip link set wlan0 down').wait() == 0
+        asyncio.run(touch_input())
+        for function, name in [
+                (get_image,"read"),
+                (on_screen,"show"),
+                (dashcam,"dash"),
+                (save_video,"save")]:
+            Thread(target=function, name=name, daemon=True).start()
+            started_names.append(name)
+        _display_message("Stay frosty",location=(500,380))
+        while not exit_flag:
+            try:
+                car_conn = ELM327()
+
+                count = 0
+
+                while not exit_flag:
+                    make_sidebar(car_conn.psi())
+                    speed = car_conn.speed()
+                    gear = car_conn.gear()
+
+                    if count > 99:
+                        print(gear)
+                        count = 0
+                    else: count += 1
+
+            finally:
+                if car_conn: car_conn.close()
+    except KeyboardInterrupt: exit_flag = True
+    except Exception as ex: logger.exception(ex)
+    finally:
+        if exit_flag: print("exit flag set!")
+        else: exit_flag = True
+        if car_conn: car_conn.close()
+        if wifi_flag: bash('ip link set wlan0 up')
+
+def make_sidebar(psi):
+    global psi_list
+    try:
+        entry = int(psi*PPPSI)
+        psi_list.append(entry)
+        sidebar = sidebar_base.copy()
+        sidebar = \
+                putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, thickness=3)
+        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
+        sidebar_queue.put(sidebar)
+    except Exception as e: logger.exception(e)
+
+def on_screen(display_queue=display_queue):
+    _display_message("Initializing..")
+    while not exit_flag:
+        try:
+            image = build_output_image(display_queue.get(timeout=0.057))
+            if show_graph: image = addOverlay(image)
+            image = cv.cvtColor(image, BGR565)
+            if exit_flag: break
+        except Empty: pass
+        except Exception as e: logger.exception(e)
+        else: display_image(image)
+
+def build_graph(frame_buffer=frame_buffer):
+    graph_list = psi_list.copy()
+    for x in range(PSI_BUFFER_DEPTH-len(graph_list),PSI_BUFFER_DEPTH):
+        try:
+            y = FDIM[1] - 2 * PPPSI - 15 - graph_list.popleft()
+            if y < 3: y = 3
+            frame_buffer[y-3:y,x:x+3] = DOT
+        except IndexError: traceback.print_exc()
+
+def display_image(image,frame_buffer=frame_buffer):
+    global sidebar_queue, signal_queue
+    try:
+        frame_buffer[:,:-SIDEBAR_WIDTH] = image
+        try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
+        except Empty: pass
+        if show_graph: build_graph()
+        frame_buffer.flush()
+        try: signal_queue.put(None)
+        except Full: pass
+    except Exception as e: logger.exception(e)
+
+def save_video(queue=dashcam_queue,signal_queue=dash_signal_queue,camera=None,
+               width=DASHCAM_IMAGE_WIDTH,height=DASHCAM_IMAGE_HEIGHT,fps=15):
+    fourcc = cv.VideoWriter_fourcc(*'H264')
+    breakout = False
+    if camera is None: _display_message("Initializing....")
+    while not (exit_flag and breakout):
+        try:
+            with cv.VideoWriter(get_video_path(camera),fourcc,fps,(width, height)) as output:
+                while not exit_flag:
+                    try: 
+                        image = queue.get(timeout=0.076)
+                        breakout = image is None and camera is not None
+                        if speed: image = putText(image,f'{speed:.0f} mph',(2500,1900),
+                                                  color=COLOR_LAYM,fontScale=3)
+                        output.write(image)
+                        if breakout: break
+                        if camera is None:
+                            try: signal_queue.put(None)
+                            except Full: pass
+                    except Empty: pass
+        except Exception as e: logger.exception(e)
+
+def get_video_path(explicit_camera=None):
+    local_time = localtime()
+    date = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
+    clock_time = f"{local_time.tm_hour:02d}.{local_time.tm_min:02d}.{local_time.tm_sec:02d}"
+    weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
+    join_list = [date,clock_time,weekday]
+    if explicit_camera is not None: join_list.append(explicit_camera) # e.g. "backup", "cabin"
+    return f"/media/usb/{'_'.join(join_list)}.mkv"
+
+def get_image(camera_path=usb_capture_id_path,width=DIM[0],height=DIM[1],video_format="YUYV",
+                     queue=display_queue,signal_queue=signal_queue):
+    if video_format == "YUYV": _display_message("Initializing.")
+    while not exit_flag:
+        signal_queue.put(None)
+        try:
+            with Device.from_id(extract_index(camera_path)) as cam:
+                video_capture = VideoCapture(cam)
+                video_capture.set_format(width,height,video_format)
+                with video_capture as stream:
+                    for frame in stream:
+                        while not exit_flag:
+                            try: signal_queue.get(timeout=0.095)
+                            except Empty: pass
+                            else: break
+                        if exit_flag: break
+                        if video_format == "MJPG": image = cv.imdecode(frame.array,COLOR)
+                        else: image = cv.cvtColor(frame.array.reshape(height,width,2),YUYV)
+                        queue.put(image)
+        except Exception as e: logger.exception(e)
+
+def dashcam(width=DASHCAM_IMAGE_WIDTH,height=DASHCAM_IMAGE_HEIGHT):
+    global dash_signal_queue, dashcam_queue
+    camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+    _display_message("Initializing...")
+    get_image(extract_index(camPath),width,height,"MJPG",dashcam_queue,dash_signal_queue)
+
+async def touch_input(show_graph=show_graph):
+    x = None
+    last_time = time()
+    touch_input_device = None
+    while not exit_flag:
+        try:
+            touch_input_device = InputDevice("/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00")
+            async for event in touch_input_device.async_read_loop():
+                if time() > last_time + 0.38 and event.type == ecodes.EV_ABS:
+                    if event.code == 0 and event.value > FINAL_IMAGE_WIDTH: x = event.value
+                    else:
+                        if x is not None and event.code == 1:
+                            if event.value > SCREEN_HEIGHT/2:
+                                raise KeyboardInterrupt(f'touch input(X ⇁,Y ⇃) -> {x},{event.value}')
+                            else: show_graph = not show_graph
+                            x = None
+                            last_time = time()
+                if exit_flag: break
+        except KeyboardInterrupt as kbi: raise kbi
+        except Exception as e: logger.exception(e)
+        finally:
+            if touch_input_device: touch_input_device.close()
+
+if __name__ == "__main__":
+    fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
+    handler = logging.FileHandler("/root/runtime-carCam.log")
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter(fmtString))
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler) # turn off red LED
+    bash('echo none > /sys/class/leds/PWR/trigger; echo 0 > /sys/class/leds/PWR/brightness')
+    data()

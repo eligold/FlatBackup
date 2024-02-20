@@ -57,7 +57,7 @@ frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WI
 # for i in range(SCREEN_HEIGHT):
 #     for j in range(SCREEN_WIDTH): frame_buffer[i][j] = 
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
-try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("newSidebar.png")
+try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")
 except: pass
 frame_buffer[:,:-SIDEBAR_WIDTH] = \
     putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
@@ -139,9 +139,8 @@ def make_sidebar(psi):
         sidebar_queue.put(sidebar)
     except Exception as e: logger.exception(e)
 
-def on_screen():
+def on_screen(frame_buffer=frame_buffer):
     global display_queue, signal_queue
-    global frame_buffer
     frame_buffer[:,:-SIDEBAR_WIDTH] = \
         putText(frame_buffer[:,:-SIDEBAR_WIDTH],"Initializing..",(500,250),
                 color=COLOR_LAYM,fontScale=3,thickness=4)
@@ -156,13 +155,21 @@ def on_screen():
         else: display_image(image)
         if exit_flag: break
 
-def display_image(image):
-    global frame_buffer
-    global sidebar_queue
+def build_graph(frame_buffer=frame_buffer):
+    graph_list = psi_list.copy()
+    for x in range(PSI_BUFFER_DEPTH-len(graph_list),PSI_BUFFER_DEPTH):
+        try:
+            y = FDIM[1] - 2 * PPPSI - 15 - graph_list.popleft()
+            frame_buffer[y:y+3,x:x+3] = DOT
+        except IndexError: traceback.print_exc()
+
+def display_image(image,frame_buffer=frame_buffer):
+    global sidebar_queue, signal_queue
     try:
         frame_buffer[:,:-SIDEBAR_WIDTH] = image
         try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
         except Empty: pass
+        if show_graph: build_graph()
         frame_buffer.flush()
         try: signal_queue.put(None)
         except Full: pass
@@ -181,7 +188,7 @@ def get_image_v4l2py():
                         try: signal_queue.get()
                         except Empty: pass
                         else: break
-                    display_queue.put(cv.imdecode(np.frombuffer(frame.data, dtype="uint8"), COLOR))
+                    display_queue.put(cv.imdecode(frame.array, COLOR))
                     if exit_flag: break
         except Exception as e: logger.exception(e)
         if exit_flag: break
@@ -197,20 +204,18 @@ def get_image():
     while not exit_flag:
         signal_queue.put(None)
         try:
-            camera = get_camera(cameraIndex,width,height)
-            camera.read()
-            while camera.isOpened() and not exit_flag:
-                try: signal_queue.get(timeout=0.095)
-                except Empty: pass
-                else:
-                    success, image = camera.read()
-                    if success: # SimpleQueue never blocks
-                        try: display_queue.put(image)
-                        except Full: display_image(image)
-                    else: read_fail_count += 1
+            with get_camera(cameraIndex,width,height) as camera:
+                camera.read()
+                while camera.isOpened() and not exit_flag:
+                    try: signal_queue.get(timeout=0.095)
+                    except Empty: pass
+                    else:
+                        success, image = camera.read()
+                        if success: # SimpleQueue never blocks
+                            try: display_queue.put(image)
+                            except Full: display_image(image)
+                        else: read_fail_count += 1
         except Exception as e: logger.exception(e)
-        finally:
-            if camera: camera.release()
         if exit_flag: break
 
 def touch_input():

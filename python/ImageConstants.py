@@ -9,8 +9,9 @@ from cv2 import CAP_PROP_FPS as FPS
 from cv2 import CAP_V4L2 as V4L2
 
 from subprocess import run, Popen, PIPE, STDOUT
+from os.path import realpath
+from time import localtime
 import traceback, cv2 as cv, numpy as np
-from time import localtime, time
 
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
@@ -29,7 +30,7 @@ PPPSI = 30      # pixels per PSI and negative Bar
 DIM = (720,576) # PAL video dimensions
 SDIM = (960,768)
 FDIM = (1040,FINAL_IMAGE_HEIGHT)
-EXPECTED_SIZE = (*DIM,30)
+EXPECTED_SIZE = (*DIM,30) # 25?
 
 COLOR_REC = (0x00,0x58) # 0x00, 0xfa?
 COLOR_GOOD = 0x871a
@@ -60,6 +61,8 @@ D = np.array([
 new_K = cv.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv.CV_32FC1)
 map1, map2 = cv.convertMaps(mapx,mapy,cv.CV_16SC2) # fixed point maps run faster
+
+usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
 
 ### Example evtest touch input frame:
 # Event: time 1707153627.150887, type 3 (EV_ABS), code 53 (ABS_MT_POSITION_X), value 1057
@@ -106,13 +109,17 @@ def putText(img, text, origin=(0,480), #bottom left
             fontScale=1.19,thickness=2,lineType=cv.LINE_AA):
     return cv.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
+def extract_index(fully_qualified_path=usb_capture_id_path):
+    usb_capture_real_path = realpath(fully_qualified_path)
+    assert usb_capture_id_path != usb_capture_real_path
+    return int(usb_capture_real_path.split("video")[-1])
+
 # make boost graph here ~+15psi to ~-1.5bar
 # add each point to new deque and increment position by one when reading current deque
-def addOverlay(image, psi_list):
+def addOverlay(image):
     h,w = image.shape[:2]
     radius,offset = 19,38
     overlay_image = image.copy()
-    graph_list = psi_list.copy()
     overlay_image[20:461,39:1442] = COLOR_OVERLAY
     overlay_image[39:442,20:1461] = COLOR_OVERLAY
     overlay_image = cv.circle(overlay_image,(offset,offset),radius,COLOR_OVERLAY,-1)
@@ -123,16 +130,10 @@ def addOverlay(image, psi_list):
     image[25:455,44:46] = BLACK
     image[405:407,25:1456] = BLACK
     image[135:137,38:45] = BLACK
-    image = putText(image,"10",(25,133),color=BLACK,fontScale=0.38,thickness=1)
-    for x in range(PSI_BUFFER_DEPTH-len(graph_list),PSI_BUFFER_DEPTH):
-        try:
-            y = FDIM[1] - 2 * PPPSI - 15 - graph_list.popleft()
-            image[y:y+3,x-3:x] = DOT
-        except IndexError: traceback.print_exc()
-    return image
+    return putText(image,"10",(25,133),color=BLACK,fontScale=0.38,thickness=1)
 
-def get_camera(camIndex:int,width,height,apiPreference=V4L2,brightness=25) -> cv.VideoCapture:
-    camera = cv.VideoCapture(camIndex,apiPreference=apiPreference)
+def get_camera(cam_index:int,width,height,apiPreference=V4L2,brightness=25) -> cv.VideoCapture:
+    camera = cv.VideoCapture(cam_index,apiPreference=apiPreference)
     camera.set(WIDTH,width)
     camera.set(HEIGHT,height)
     camera.set(BRIGHTNESS,brightness)
@@ -142,9 +143,9 @@ def get_camera(camIndex:int,width,height,apiPreference=V4L2,brightness=25) -> cv
 def build_output_image(img): # MAYBE ALSO TRY mapx, mapy ?
     height, width = FINAL_IMAGE_HEIGHT, EDGEBAR_WIDTH
     intermediate = cv.remap(img,map1,map2,interpolation=LINEAR)
-    image = cv.resize(intermediate,SDIM,interpolation=LINEAR)[66:558]
+    image = cv.resize(intermediate,SDIM,interpolation=LINEAR)[64:556]
     large = cv.resize(image[213:453,width:-width],FDIM,interpolation=LINEAR)
-    return cv.hconcat([image[6:height+6,:width], large, image[:height,-width:]])
+    return cv.hconcat([image[8:height+8,:width], large, image[4:height+4,-width:]])
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30
