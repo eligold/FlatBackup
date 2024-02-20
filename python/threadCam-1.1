@@ -204,18 +204,20 @@ def get_image():
     while not exit_flag:
         signal_queue.put(None)
         try:
-            with get_camera(cameraIndex,width,height) as camera:
-                camera.read()
-                while camera.isOpened() and not exit_flag:
-                    try: signal_queue.get(timeout=0.095)
-                    except Empty: pass
-                    else:
-                        success, image = camera.read()
-                        if success: # SimpleQueue never blocks
-                            try: display_queue.put(image)
-                            except Full: display_image(image)
-                        else: read_fail_count += 1
+            camera = get_camera(cameraIndex,width,height)
+            camera.read()
+            while camera.isOpened() and not exit_flag:
+                try: signal_queue.get(timeout=0.095)
+                except Empty: pass
+                else:
+                    success, image = camera.read()
+                    if success: # SimpleQueue never blocks
+                        try: display_queue.put(image)
+                        except Full: display_image(image)
+                    else: read_fail_count += 1
         except Exception as e: logger.exception(e)
+        finally:
+            if camera: camera.release()
         if exit_flag: break
 
 def touch_input():
