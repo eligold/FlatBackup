@@ -160,6 +160,15 @@ def start_dash_cam(): # sets camera attributes for proper output size and format
     cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
     return shell(cmd,stderr=STDOUT,text=True)
 
+def get_video_path(explicit_camera=None):
+    local_time = localtime()
+    date = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
+    clock_time = f"{local_time.tm_hour:02d}.{local_time.tm_min:02d}.{local_time.tm_sec:02d}"
+    weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
+    join_list = [date,clock_time,weekday]
+    if explicit_camera is not None: join_list.append(explicit_camera) # e.g. "backup", "cabin"
+    return f"/media/usb/{'_'.join(join_list)}.mkv"
+
 def bash(cmd:str,shell=True,capture_output=True,check=False):
     return run(cmd,shell=shell,capture_output=capture_output,check=check)
 
