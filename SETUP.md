@@ -62,10 +62,10 @@ The connection to the pi is facilitated by setting my phone hotspot credentials 
     Description=custom splash screen
     DefaultDependencies=no
     After=local-fs.target
+    Requires=local-fs.target
 
     [Service]
-                    NOT GOOD \/
-    ExecStart=/usr/bin/fim -d /dev/fb0 -q -T 1 -1 /root/splash_img.png 
+    ExecStart=/usr/bin/fim -d /dev/fb0 -q /root/splash_img.png 
     StandardInput=tty
     StandardOutput=tty
 
