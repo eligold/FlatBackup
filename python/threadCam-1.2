@@ -52,7 +52,7 @@ def data():
     global sidebar_queue
     global exit_flag
     global speed, gear
-    speed, gear, car_conn = None
+    speed, gear, car_conn = None, None, None
     started_names = []
     wifi_flag = False ## DEBUG ######
     try:                               
@@ -61,7 +61,7 @@ def data():
            # raise KeyboardInterrupt("wifi connected") # else turn off radio to save power
         else: wifi_flag = shell('ip link set wlan0 down').wait() == 0
         for function, name in [
-                (touch_runner,"touch")
+                (touch_runner,"touch"),
                 (get_image, "read"),
                 (on_screen, "show"),
                 (dashcam, "dash"),
