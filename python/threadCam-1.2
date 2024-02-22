@@ -49,9 +49,7 @@ def touch_runner():
     asyncio.run(touch_input())
 
 def data():
-    global sidebar_queue
-    global exit_flag
-    global speed, gear
+    global sidebar_queue, exit_flag, speed, gear
     speed, gear, car_conn = None, None, None
     started_names = []
     wifi_flag = False ## DEBUG ######
@@ -143,12 +141,21 @@ def save_video(queue=dashcam_queue, signal_queue=dash_signal_queue, camera=None,
     breakout = False
     if camera is None: _display_message("Initializing....")
     while not (exit_flag and breakout):
+
+        print("start dashcam")
+
         try:
             with cv.VideoWriter(get_video_path(camera), fourcc, fps, (width, height)) as output:
                 while not exit_flag:
+                    while True:
+                        try:
+                            image = queue.get()
+                            if image is None: raise Empty
+                        except Empty: pass
+                        else: break
                     try: 
                         image = queue.get(timeout=0.076)
-                        breakout = image is None and camera is not None
+                        breakout = image == "stop" and camera is not None
                         if speed: image = putText(image, f'{speed:.0f} mph', (2500,1900),
                                                   color=COLOR_LAYM, fontScale=3)
                         output.write(image)
