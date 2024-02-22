@@ -25,20 +25,15 @@ exit_flag = False
 no_signal_frame = np.full((FINAL_IMAGE_HEIGHT, FINAL_IMAGE_WIDTH, 2), COLOR_BAD, np.uint8)
 no_signal_frame = putText(no_signal_frame, "No Signal", (500,200))
 
-def sidebar_hot():
-    logger.warning("temp over 60C")
-    _change_sidebar(COLOR_REC)
-def sidebar_cool():
-    logger.info("temperature below 60C")
-    _change_sidebar()
 def _change_sidebar(color=COLOR_LOW):
     global sidebar_base
-    sidebar_base=np.full((SIDEBAR_HEIGHT, SIDEBAR_WIDTH, 2), color, np.uint8)
+    sidebar_base = np.full((SIDEBAR_HEIGHT, SIDEBAR_WIDTH, 2), color, np.uint8)
+def _sidebar_hot(): _change_sidebar(COLOR_REC)
 _change_sidebar()
 
-intemp = CPUTemperature(threshold=60.0,event_delay=1.9)
-intemp.when_activated = sidebar_hot
-intemp.when_deactivated = sidebar_cool
+intemp = CPUTemperature(threshold=65.0,event_delay=1.9)
+intemp.when_activated = _sidebar_hot
+intemp.when_deactivated = _change_sidebar
 
 frame_buffer = np.memmap("/dev/fb0", dtype='uint8', shape=(SCREEN_HEIGHT, SCREEN_WIDTH, 2))
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
@@ -46,8 +41,12 @@ try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")
 except: pass
 
 def _display_message(text,loc=(500,250),color=COLOR_LAYM,fontScale=3,thickness=4,fb=frame_buffer):
-    fb[:,:-SIDEBAR_WIDTH] = putText(fb[:,:-SIDEBAR_WIDTH], text, loc, color, fontScale, thickness)
-_display_message("Welcome back sir", loc=(500,190))
+    fb[:,:-SIDEBAR_WIDTH] = putText(fb[:,:-SIDEBAR_WIDTH], text, loc, color,
+                                    fontScale=fontScale, thickness=thickness)
+_display_message("Welcome back sir", (500,135))
+
+def touch_runner():
+    asyncio.run(touch_input())
 
 def data():
     global sidebar_queue
@@ -61,15 +60,15 @@ def data():
         if bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n': pass
            # raise KeyboardInterrupt("wifi connected") # else turn off radio to save power
         else: wifi_flag = shell('ip link set wlan0 down').wait() == 0
-        asyncio.run(touch_input())
         for function, name in [
+                (touch_runner,"touch")
                 (get_image, "read"),
                 (on_screen, "show"),
                 (dashcam, "dash"),
                 (save_video, "save")]:
             Thread(target=function, name=name, daemon=True).start()
             started_names.append(name)
-        _display_message("Stay frosty", location=(500,380))
+        _display_message("Stay frosty", (500,380))
         while not exit_flag:
             try:
                 car_conn = ELM327()
