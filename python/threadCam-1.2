@@ -37,7 +37,7 @@ intemp.when_deactivated = _change_sidebar
 
 frame_buffer = np.memmap("/dev/fb0", dtype='uint8', shape=(SCREEN_HEIGHT, SCREEN_WIDTH, 2))
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
-try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")
+try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.cvtColor(cv.imread("/root/newSidebar.png"),BGR565)
 except: pass
 
 def _display_message(text,loc=(500,250),color=COLOR_LAYM,fontScale=3,thickness=4,fb=frame_buffer):
@@ -53,7 +53,7 @@ def data():
     speed, gear, car_conn = None, None, None
     started_names = []
     wifi_flag = False ## DEBUG ######
-    try:                               
+    try:
         _display_message("Initializing") #                            \\ YOOHOO //
         if bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n': pass
            # raise KeyboardInterrupt("wifi connected") # else turn off radio to save power
@@ -139,32 +139,31 @@ def save_video(queue=dashcam_queue, signal_queue=dash_signal_queue, camera=None,
                width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT,fps=15):
     fourcc = cv.VideoWriter_fourcc(*'H264')
     breakout = False
+    output = None
     if camera is None: _display_message("Initializing....")
     while not (exit_flag and breakout):
-
-        print("start dashcam")
-
         try:
-            with cv.VideoWriter(get_video_path(camera), fourcc, fps, (width, height)) as output:
-                while not exit_flag:
-                    while True:
-                        try:
-                            image = queue.get()
-                            if image is None: raise Empty
-                        except Empty: pass
-                        else: break
-                    try: 
-                        image = queue.get(timeout=0.076)
-                        breakout = image == "stop" and camera is not None
-                        if speed: image = putText(image, f'{speed:.0f} mph', (2500,1900),
-                                                  color=COLOR_LAYM, fontScale=3)
-                        output.write(image)
-                        if breakout: break
-                        if camera is None:
-                            try: signal_queue.put(None)
-                            except Full: pass
+            output = cv.VideoWriter(get_video_path(camera), fourcc, fps, (width, height))
+            while not exit_flag:
+                while True:
+                    try:
+                        image = queue.get()
+                        if image is None: raise Empty
                     except Empty: pass
+                    else: break
+                try:
+                    image = queue.get(timeout=0.076)
+                    breakout = image == "stop" and camera is not None
+                   # if speed: pass # (speed,frame_num) -> csv file
+                    if image: output.write(image)
+                    if breakout: break
+                    if camera is None:
+                        try: signal_queue.put(None)
+                        except Full: pass
+                except Empty: pass
         except Exception as e: logger.exception(e)
+        finally:
+            if output: output.release()
 
 def get_image(camera_path=usb_capture_id_path, width=DIM[0], height=DIM[1], video_format="YUYV",
                      queue=display_queue, signal_queue=signal_queue):
@@ -193,10 +192,9 @@ def dashcam(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT):
     _display_message("Initializing...")
     get_image(camPath, width, height, "MJPG", dashcam_queue, dash_signal_queue)
 
-async def touch_input(show_graph=show_graph):
-    x = None
+async def touch_input(show_graph=show_graph,exit_flag=exit_flag):
     last_time = time()
-    touch_input_device = None
+    x, touch_input_device = None, None
     while not exit_flag:
         try:
             touch_input_device = InputDevice("/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00")
@@ -208,10 +206,12 @@ async def touch_input(show_graph=show_graph):
                             if event.value > SCREEN_HEIGHT/2:
                                 raise KeyboardInterrupt(f'touch input(X ⇁,Y ⇃) -> {x},{event.value}')
                             else: show_graph = not show_graph
-                            x = None
-                            last_time = time()
+                        x = None
+                        last_time = time()
                 if exit_flag: break
-        except KeyboardInterrupt as kbi: raise kbi
+        except KeyboardInterrupt as kbi:
+            exit_flag = True
+            logger.info(kbi.msg)
         except Exception as e: logger.exception(e)
         finally:
             if touch_input_device: touch_input_device.close()
