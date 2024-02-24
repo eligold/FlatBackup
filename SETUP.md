@@ -56,6 +56,7 @@ The connection to the pi is facilitated by setting my phone hotspot credentials 
     ssh-keygen -t ed25519
     git clone git@github.com:eligold/FlatBackup.git
     ```
+1. Copy the new systemctl services `splashscreen.service` and `bluetooth_connect.service` from `assets/pi_files/` to 
 1. Install a new service to show the splashscreen at boot. Make sure to copy the image to the root directory. `vim /etc/systemctl/system/splashscreen.service` opens an editor to create the service. Press the `i` key and type the following lines:
     ```
     [Unit]

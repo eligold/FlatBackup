@@ -26,7 +26,10 @@ if [ -d "$HOME/.local/bin" ] ; then
     PATH="$HOME/.local/bin:$PATH"
 fi
 alias got="git"
+alias gti="git"
 alias shutdown="sudo shutdown -h now"
+export DISPLAY=:0.0
+# make the screen black
 set PS1=""
 setterm -cursor off
 clear

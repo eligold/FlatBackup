@@ -85,6 +85,8 @@
     ```
 1. ] https://stackoverflow.com/a/5354644
     `git config --global alias.tree "log --graph --decorate --pretty=oneline --abbrev-commit"`
+1. ] https://github.com/opencv/opencv/issues/18461#issuecomment-750523958
+    `export DISPLAY=:0.0`
 
 Additional resources regarding the generation of python bindings for custom C++ OpenCV modules using OpenCV4 can be found [in the cpp subdirectory](./cpp/README.md)
 
