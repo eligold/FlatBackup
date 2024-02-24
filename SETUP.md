@@ -1,5 +1,6 @@
 # SETUP
 Project details can be found in the [Readme](./README.md)
+
 [visit this page for helpful references](./REFERENCE.md)
 
 The connection to the pi is facilitated by setting my phone hotspot credentials to reflect those saved in the `wpa_supplicant.conf` file as defined when flashing new SD card images using the [Raspberry Pi Imager](https://www.raspberrypi.com/software/). It is also possible to use plain old wifi or even a UART connection, instructions for which are outside the scope of this document.
