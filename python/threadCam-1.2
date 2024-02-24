@@ -99,7 +99,7 @@ def make_sidebar(psi, psi_list=psi_list):
         sidebar = sidebar_base.copy()
         sidebar = \
                 putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, thickness=3)
-        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
+        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (57,76), color=COLOR_BAD)
         sidebar_queue.put(sidebar)
     except Exception as e: logger.exception(e)
 
@@ -144,17 +144,19 @@ def save_video(queue=dashcam_queue, signal_queue=dash_signal_queue, camera=None,
     while not (exit_flag and breakout):
         try:
             output = cv.VideoWriter(get_video_path(camera), fourcc, fps, (width, height))
+            while True:
+                try:
+                    image = queue.get()
+                    try: signal_queue.put(None)
+                    except Full: pass
+                    if image is None: raise Empty
+                except Empty: pass
+                else: break
             while not exit_flag:
-                while True:
-                    try:
-                        image = queue.get()
-                        if image is None: raise Empty
-                    except Empty: pass
-                    else: break
                 try:
                     image = queue.get(timeout=0.076)
                     breakout = image == "stop" and camera is not None
-                   # if speed: pass # (speed,frame_num) -> csv file
+                # if speed: pass # (speed,frame_num) -> csv file
                     if image: output.write(image)
                     if breakout: break
                     if camera is None:
