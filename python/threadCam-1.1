@@ -49,7 +49,7 @@ intemp = CPUTemperature(threshold=60.0,event_delay=1.9)
 intemp.when_activated = sidebar_hot
 intemp.when_deactivated = sidebar_cool
 
-# img = np.fromfunction((lambda i,j,_: (np.uint8(j*i*2&(i-199-j)))),(480,1600,2),dtype=np.uint8)
+# img = np.fromfunction((lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
 frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
 # frame_buffer = \
 #     np.array(list(map(lambda x,y: (np.uint8(int(time())*x*2&(x-199-y)), np.uint8((int(time())*x*3&(x-250-y))>>8)), range(SCREEN_HEIGHT),range(SCREEN_WIDTH))))
