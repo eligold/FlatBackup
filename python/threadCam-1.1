@@ -58,7 +58,7 @@ frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WI
 #     for j in range(SCREEN_WIDTH): frame_buffer[i][j] = 
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
 try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")
-except: pass
+except: print("couldn't find sidebar!")
 frame_buffer[:,:-SIDEBAR_WIDTH] = \
     putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
             color=COLOR_LAYM, fontScale=3, thickness=4)
@@ -243,7 +243,9 @@ def touch_input():
                             last_time = event.time
                             active = False
                     if active and event.isY and x is not None:
-                        if event.value < SCREEN_HEIGHT/2: show_graph = not show_graph
+                        if event.value < SCREEN_HEIGHT/2: 
+                            show_graph = not show_graph
+                            print(show_graph)
                         else: raise KeyboardInterrupt(f'touch input(X ⇁,Y ⇃) -> {x},{event.value}')
                     if event.code_id != 5: logger.info(event.pretty())
                     event = touchEvent(touch_process.stdout.readline())

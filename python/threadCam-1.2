@@ -36,7 +36,7 @@ intemp.when_activated = _sidebar_hot
 intemp.when_deactivated = _change_sidebar
 
 frame_buffer = np.memmap("/dev/fb0", dtype='uint8', shape=(SCREEN_HEIGHT, SCREEN_WIDTH, 2))
-frame_buffer = np.fromfunction((lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
+frame_buffer[:] = np.fromfunction((lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
 try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.cvtColor(cv.imread("/root/newSidebar.png"),BGR565)
 except: pass
@@ -152,14 +152,17 @@ def save_video(queue=dashcam_queue, signal_queue=dash_signal_queue, camera=None,
                 else: break
             while not exit_flag:
                 try:
-                    print("wtf mate")
                     image = queue.get(timeout=0.076)
-                    breakout = image == "stop" and camera is not None
+                    breakout = (image is None and camera is not None)
                 # if speed: pass # (speed,frame_num) -> csv file
-                    if image: output.write(image)
+                    if image is not None:
+                        print("w",end="")
+                        output.write(image)
                     if breakout: break
                     if camera is None:
-                        try: signal_queue.put(None)
+                        try:
+                            print("s",end="")
+                            signal_queue.put(None)
                         except Full: pass
                 except Empty: pass
         except Exception as e: logger.exception(e)
