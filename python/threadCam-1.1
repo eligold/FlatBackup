@@ -135,7 +135,7 @@ def make_sidebar(psi):
         sidebar_lock = False
         sidebar = \
                 putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
-        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (60,95), color=COLOR_BAD)
+        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (38,95), color=COLOR_BAD)
         sidebar_queue.put(sidebar)
     except Exception as e: logger.exception(e)
 
@@ -147,7 +147,7 @@ def on_screen(frame_buffer=frame_buffer):
     while not exit_flag:
         try:
             image = build_output_image(display_queue.get(timeout=0.057))
-            if show_graph: image = addOverlay(image,psi_list)
+            if show_graph: image = addOverlay(image)
             image = cv.cvtColor(image, BGR565)
             if exit_flag: break
         except Empty: pass

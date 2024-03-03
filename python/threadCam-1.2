@@ -53,6 +53,7 @@ def data():
     global sidebar_queue, exit_flag, speed, gear
     speed, gear, car_conn = None, None, None
     started_names = []
+    start_time = time()
     wifi_flag = False ## DEBUG ######
     try:
         _display_message("Initializing") #                            \\ YOOHOO //
@@ -71,19 +72,13 @@ def data():
         while not exit_flag:
             try:
                 car_conn = ELM327()
-
-                count = 0
-
                 while not exit_flag:
                     make_sidebar(car_conn.psi())
                     speed = car_conn.speed()
-                    gear = car_conn.gear()
-
-                    if count > 99:
-                        print(gear)
-                        count = 0
-                    else: count += 1
-
+                    if start_time is not None and time() < start_time + 7:
+                        bash("bluetoothctl connect `cat ~/.btmac`")
+                        start_time = None
+            except Exception as e: logger.exception(e)
             finally:
                 if car_conn: car_conn.close()
     except KeyboardInterrupt: exit_flag = True
@@ -110,6 +105,7 @@ def on_screen(display_queue=display_queue):
         try:
             image = build_output_image(display_queue.get(timeout=0.057))
             if show_graph: image = addOverlay(image)
+           # if alt_view: image = view_both(image,)
             image = cv.cvtColor(image, BGR565)
             if exit_flag: break
         except Empty: pass
@@ -145,8 +141,9 @@ def save_video(queue=dashcam_queue, signal_queue=dash_signal_queue, camera=None,
     while not (exit_flag and breakout):
         try:
             output = cv.VideoWriter(get_video_path(camera), fourcc, fps, (width, height))
-            while True:
+            while not exit_flag:
                 try:
+                    print("here")
                     image = queue.get()
                     try: signal_queue.put(None)
                     except Full: pass
@@ -155,6 +152,7 @@ def save_video(queue=dashcam_queue, signal_queue=dash_signal_queue, camera=None,
                 else: break
             while not exit_flag:
                 try:
+                    print("wtf mate")
                     image = queue.get(timeout=0.076)
                     breakout = image == "stop" and camera is not None
                 # if speed: pass # (speed,frame_num) -> csv file
