@@ -6,7 +6,7 @@ ConditionPathIsDirectory=/sys/class/bluetooth
 [Service]
 Type=dbus
 BusName=org.bluez
-ExecStart=/usr/libexec/bluetooth/bluetoothd --noplugin=sap
+ExecStart=/usr/libexec/bluetooth/bluetoothd --noplugin=sap,avrcp
 #ExecStartPost=/usr/bin/sdptool add SP # needs -C on bluetoothd
 NotifyAccess=main
 #WatchdogSec=10
@@ -19,3 +19,9 @@ ProtectSystem=full
 [Install]
 WantedBy=bluetooth.target
 Alias=dbus-org.bluez.service
+
+
+#override.conf:
+#ExecStart=
+#ExecStart=/usr/libexec/bluetooth/bluetoothd --noplugin=sap,avrcp
+#ExecStartPost=

@@ -11,7 +11,7 @@
     ```
     v4l2-ctl -v width=2592,height=1944,pixelformat=MJPG
     v4l2-ctl --stream-mmap=3 --stream-count=100 --stream-to=unique_path.mjpeg
-    cvlc --demux=mjpeg --mjpeg-fps=15 unique_path.mjpeg
+    [c]vlc --demux=mjpeg --mjpeg-fps=15 unique_path.mjpeg
     ```
 1. ] https://stackoverflow.com/questions/11436502/closing-all-threads-with-a-keyboard-interrupt h/t [Paul Seeb](https://stackoverflow.com/a/11436603)
     ```
@@ -88,7 +88,9 @@
     `git config --global alias.tree "log --graph --decorate --pretty=oneline --abbrev-commit"`
 1. ] https://github.com/opencv/opencv/issues/18461#issuecomment-750523958
     `export DISPLAY=:0.0`
-
+1. ] https://forums.raspberrypi.com/viewtopic.php?t=291358
+    `select-editor`
+    `update-alternatives --config editor`
 Additional resources regarding the generation of python bindings for custom C++ OpenCV modules using OpenCV4 can be found [in the cpp subdirectory](./cpp/README.md)
 
  git clone --single-branch --branch code --depth 1 git@github.com:eligold/FlatBackup.git

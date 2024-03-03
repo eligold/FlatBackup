@@ -9,9 +9,29 @@
 
 <h2 align="center"> Fisheye Image Correction and <br>OBDII Boost Gauge <br></h2>
 
-![Side by side image of undistortion failed to load!](./assets/doc/Side-by-side.png)
+
 
 ### Overview
+This project came about amidst a fruitless search for an aftermarket car backup camera solution. Some cursory internet sleuthing led me to conclude that the 8P generation of the Audi A3 was not offered with a backup camera as an option so I initially wrote off an OEM solution, opting instead for chintzy license plate bulb holder or rear latch replacements because the majority of aftermarket solutions involve gaudy license plate brackets or even drilling through sheet metal which I refuse to do to my baby. 
+It eventually occurred to me that there may be cross compatibility with other vehicles in Audi's lineup for the component that mounts my car's license plate lights and hatch opening lever. I figured since every other Audi is nicer than mine maybe one of those would have an alternate style including a camera. As it happens the A6 and Q7 both use the same component and were offered with a backup camera. I found one on ebay, installed it, ran my wires, turned on the screen and...
+
+![flip screen image failed to load](./assets/doc/flipscreen.jpg)
+
+
+...the distortion is pretty wild. I'm guessing whatever head unit that is installed natively with the camera in an A6 or a Q7 is doing a bit of post-processing under the hood because it is genuinely hard to look at. I've edited it out in these images but most of the license plate can be read in the original. At the time I thought about the possibility of using a Raspberry Pi and OpenCV but as I was still learning the ropes with python and OpenCV seemed like an unfathomably complex black box out of reach for my meager skills.
+
+Fast forward many months of annoyance with the warped image and my screen toppling over every time an inattentive driver would cut me off (in VA it happens more often than you'd think), I was browsing amazon when I happened upon the perfect screen for the image layout I had in mind with included mounting hardware for the Pi. For only $70 I realized I had run out of excuses not to try my hand with this OpenCV business.
+
+![Side by side image of undistortion failed to load!](./assets/doc/Side-by-side.png)
+
+__EXPAND__
+After fumbling with writing directly to the screen's frame buffer using the proper bit pattern since the native utilities are nonfunctional on a headless OS and aging tutorials for the proper usage of undistortion calibration methods the project began to snowball. 
+
+The core functionality works fairly well while development of instantaneous as well as longitudinal boost pressure display, bluetooth auto-connect for playing music through my car's stereo from my phone, and a dashcam are all nearly complete. 
+
+
+My later efforts involved grafting components together following the discovery of an exceptionally cheap but well made camera form factor. It was ruled out due to superimposed range lines that didn't have any obvious means of being turned off however if those don't bother you the camera is linked [here]()__CAMERA LINK__
+
 Welcome to my fisheye backup camera image correction and automotive data processing project! This GitHub repository contains the code underlying my efforts to develop a solution for enhancing my custom car backup camera installation. The project evolved from a desire to cut my teeth with a powerful tool I had only had peripheral experience with both academically and professionally, OpenCV. When I installed an Audi original backup camera into my car, the image projected to a standard 4:3 ratio NTSC resolution screen was heavily distorted from the fisheye lens and I knew that was something I could rectify using the power of Python and OpenCV. With a knock-off Easy-Cap adapter to digitize the signal I am able to process the video stream on a Raspberry Pi and display the corrected image on an HDMI screen. An ELM327 USB OBDII adapter allows me to calculate and display turbocharger boost pressure from real-time car sensor data.
 
 ## Background
@@ -26,7 +46,6 @@ As much as I'd like to say I've done something groundbreaking with this project,
 
 The output from my newly installed camera was initially displayed on a cheap flip up display from Amazon or eBay or wherever. It was somehow always too dim in the daytime and too bright at night and had an annoying habit of sliding around despite the thoughtful inclusion of a small square bit of drawer liner for use on the dashboard. I knew I would have to find a better long-term solution. With the distortion from the wide angle lens not much useful detail could be made out on the standard 4:3 ratio screen size and displaying the camera's view of my own license plate seems like kind of a waste of resources. Having already retrofitted my [Scoshe wireless charger](https://www.amazon.com/MCQVP-XTET-MagicMount-Magnetic-Qi-Certified-FreeFlow/dp/B07Z7CYRD2?th=1) and a more stable screen to my [Clearmounts dashboard bracket](https://www.audiphoneholder.com/product/78/clearmounts-bracket-low-profile-magnetic-holder-part-8p-low), an idea began to take shape...
 
-<img src="./assets/doc/flipscreen.jpg" alt="flip screen image failed to load" width="55%">
 
 ### Project Components
 
