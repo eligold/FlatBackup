@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import asyncio, os
 from collections import deque
-from time import perf_counter_ns as perf_counter
+from time import perf_counter_ns as perf_counter, time
 from evdev import InputDevice, categorize, ecodes
 from v4l2py import Device, VideoCapture
 from gpiozero import CPUTemperature

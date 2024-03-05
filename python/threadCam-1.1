@@ -24,62 +24,52 @@ psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 
 show_graph = False
 exit_flag = False
-sidebar_lock = False
+HIGH_TEMP = 50.0
 
-no_signal_frame = putText(
-        np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH,2),COLOR_BAD,np.uint8),
-        "No Signal",(500,200))
-
-def sidebar_hot():
-    logger.warning("temp over 60C")
+def _sidebar_hot():
+    logger.warning(f"temp over {int(HIGH_TEMP)}C")
     _change_sidebar(COLOR_REC)
-def sidebar_cool():
-    logger.info("temperature below 60C")
-    _change_sidebar()
 def _change_sidebar(color=COLOR_LOW):
     global sidebar_base
-    global sidebar_lock
-    while sidebar_lock: pass
-    sidebar_lock = True
     sidebar_base=np.full((SIDEBAR_HEIGHT,SIDEBAR_WIDTH,2),color,np.uint8)
-    sidebar_lock = False
 _change_sidebar()
 
-intemp = CPUTemperature(threshold=60.0,event_delay=1.9)
-intemp.when_activated = sidebar_hot
-intemp.when_deactivated = sidebar_cool
+intemp = CPUTemperature(threshold=HIGH_TEMP,event_delay=1.9)
+intemp.when_activated = _sidebar_hot
+intemp.when_deactivated = _change_sidebar
 
 # img = np.fromfunction((lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
 frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
-# frame_buffer = \
+# frame_buffer[:] = \
 #     np.array(list(map(lambda x,y: (np.uint8(int(time())*x*2&(x-199-y)), np.uint8((int(time())*x*3&(x-250-y))>>8)), range(SCREEN_HEIGHT),range(SCREEN_WIDTH))))
 # np.array(list(map(lambda x,y: np.uint8(int(time())*x*2&(x-199-y)), range(SCREEN_HEIGHT),range(SCREEN_WIDTH))))
 # for i in range(SCREEN_HEIGHT):
 #     for j in range(SCREEN_WIDTH): frame_buffer[i][j] = 
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
-try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")
+try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")[1:]
 except: print("couldn't find sidebar!")
 frame_buffer[:,:-SIDEBAR_WIDTH] = \
     putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
             color=COLOR_LAYM, fontScale=3, thickness=4)
+
+def wifi_state():
+    return bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n'
 
 def data():
     global sidebar_queue
     global frame_buffer
     global exit_flag
     started_names = []
-    wifi_flag = False
-    bluetooth_process = None
     dashcam_proc = None
     car_conn = None
+    bt_time = time() + 5
     frame_buffer[:,:-SIDEBAR_WIDTH] = \
         putText(frame_buffer[:,:-SIDEBAR_WIDTH], "Initializing", (500,250),
                 color=COLOR_LAYM, fontScale=3, thickness=4)
     with open("/root/.btmac","r") as file: mac = file.readline()
-    try: # is the wifi connected?                                    \\ YOOHOO //
-        if bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n': pass
-           # raise KeyboardInterrupt("wifi connected") # else turn off radio to save power
-        else: wifi_flag = shell('ip link set wlan0 down').wait() == 0
+    try: # is the wifi connected?
+        if wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
+        else: bash('ip link set wlan0 down') # else turn off radio to save power
         for function, name in [(touch_input,"taps"),(get_image,"read"),(on_screen,"show")]:
             Thread(target=function, name=name, daemon=True).start()
             started_names.append(name)
@@ -87,18 +77,15 @@ def data():
             putText(frame_buffer[:,:-SIDEBAR_WIDTH], "Initializing...", (500,250),
                     color=COLOR_LAYM, fontScale=3, thickness=4)
         logger.info(f'threads started: {started_names}')
-        bluetooth_process = shell(f"bluetoothctl << EOF\npower on\ndiscoverable on\nconnect {mac}\ndiscoverable off\nEOF", text=True)
-        return_code = bluetooth_process.wait()
-## DEBUG ############################################################
-        for bt_line in bluetooth_process.stdout.readlines(): logger.info(bt_line.rstrip())
-        logger.info("Bluetooth success?" if return_code == 0 else f"BT return code: {return_code}")
-## /DEBUG ###########################################################
         while not exit_flag:
             dashcam_proc = start_dash_cam()
             car_conn = ELM327()
             while not exit_flag:
                 make_sidebar(car_conn.psi())
                 if exit_flag: break
+                if bt_time is not None and time() > bt_time:
+                    bash(f"bluetoothctl connect {mac}", text=True)
+                    bt_time = None
                 try: dashcam_proc.wait(0.095)
                 except TimeoutExpired: pass
                 else:
@@ -107,32 +94,27 @@ def data():
             if exit_flag: break
     except KeyboardInterrupt: exit_flag = True
     except Exception as ex:
-        if dashcam_proc: dashcam_proc.terminate()
         traceback.print_exc()
         logger.exception(ex)
 
         print("here!!!")
 
-    finally: leave(dashcam_proc,wifi_flag,car_conn)
+    finally: leave(dashcam_proc, car_conn)
 
-def leave(dashcam_proc, wifi_flag, car_conn):
+def leave(dashcam_proc, car_conn):
     global exit_flag
-    if exit_flag: print("exit flag set!")
-    else: exit_flag = True
+    if not exit_flag: exit_flag = True
+    if dashcam_proc: dashcam_proc.terminate()
     if car_conn: car_conn.close()
     if dashcam_proc: dashcam_proc.kill()
-    if wifi_flag: bash('ip link set wlan0 up')
+    if not wifi_state(): bash('ip link set wlan0 up')
 
 def make_sidebar(psi):
     global psi_list
-    global sidebar_lock
     try:
         entry = int(psi*PPPSI)
         psi_list.append(entry)
-        while sidebar_lock: pass
-        sidebar_lock = True
         sidebar = sidebar_base.copy()
-        sidebar_lock = False
         sidebar = \
                 putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
         sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (38,95), color=COLOR_BAD)
@@ -150,12 +132,12 @@ def on_screen(frame_buffer=frame_buffer):
             if show_graph: image = addOverlay(image)
             image = cv.cvtColor(image, BGR565)
             if exit_flag: break
-        except Empty: pass
+        except Empty as e: logger.exception(e)
         except Exception as e: logger.exception(e)
         else: display_image(image)
         if exit_flag: break
 
-def build_graph(frame_buffer=frame_buffer):
+def build_graph(frame_buffer=frame_buffer,psi_list=psi_list):
     graph_list = psi_list.copy()
     for x in range(PSI_BUFFER_DEPTH-len(graph_list),PSI_BUFFER_DEPTH):
         try:
@@ -208,12 +190,14 @@ def get_image():
             camera.read()
             while camera.isOpened() and not exit_flag:
                 try: signal_queue.get(timeout=0.095)
-                except Empty: pass
+                except Empty as e: logger.exception(e)
                 else:
                     success, image = camera.read()
                     if success: # SimpleQueue never blocks
                         try: display_queue.put(image)
-                        except Full: display_image(image)
+                        except Full:
+                            logger.error("display queue full!")
+                            display_image(image)
                     else: read_fail_count += 1
         except Exception as e: logger.exception(e)
         finally:
@@ -255,21 +239,18 @@ def touch_input():
         except KeyboardInterrupt as kbi: 
             exit_flag = True
             raise kbi
-        except Exception as e:# logger.exception(e)
-## DEBUG #################### ↑ delete ##############################
-            traceback.print_exc()
-            logger.exception(e)
-## /DEBUG ###########################################################
+        except Exception as e: logger.exception(e)
         finally:
-            if touch_process: touch_process.terminate()
+            if touch_process is not None: touch_process.terminate()
 
 if __name__ == "__main__":
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
     handler = logging.FileHandler("/root/runtime-carCam.log")
-    handler.setLevel(logging.INFO)
+    level = logging.DEBUG
+    handler.setLevel(level)
     handler.setFormatter(logging.Formatter(fmtString))
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(level)
     logger.addHandler(handler) # turn off red LED
     bash('echo none > /sys/class/leds/PWR/trigger; echo 0 > /sys/class/leds/PWR/brightness')
     data()

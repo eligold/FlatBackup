@@ -147,9 +147,10 @@ def build_output_image(img): # MAYBE ALSO TRY mapx, mapy ?
     large = cv.resize(image[213:453,width:-width],FDIM,interpolation=LINEAR)
     return cv.hconcat([image[8:height+8,:width], large, image[4:height+4,-width:]])
 
-def output_alt(img):
-    intermediate = cv.remap(img,map1,map2,interpolation=LINEAR)
-    return cv.resize(intermediate,(840,672),interpolation=LINEAR)[56:536]
+def output_alt(image_backup, image_dash):
+    intermediate = cv.remap(image_backup,map1,map2,interpolation=LINEAR)
+    flat = cv.resize(intermediate,(840,672),interpolation=LINEAR)[56:536]
+    return cv.hconcat([flat,cv.resize(image_dash,(640,480),interpolation=LINEAR)])
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30

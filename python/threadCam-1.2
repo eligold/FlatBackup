@@ -38,7 +38,7 @@ intemp.when_deactivated = _change_sidebar
 frame_buffer = np.memmap("/dev/fb0", dtype='uint8', shape=(SCREEN_HEIGHT, SCREEN_WIDTH, 2))
 frame_buffer[:] = np.fromfunction((lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
-try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.cvtColor(cv.imread("/root/newSidebar.png"),BGR565)
+try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.cvtColor(cv.imread("/root/newSidebar.png"),BGR565)[1:]
 except: pass
 
 def _display_message(text,loc=(500,250),color=COLOR_LAYM,fontScale=3,thickness=4,fb=frame_buffer):
@@ -218,6 +218,7 @@ async def touch_input(show_graph=show_graph,exit_flag=exit_flag):
             logger.info(kbi.msg)
         except Exception as e: logger.exception(e)
         finally:
+            print("close touch")
             if touch_input_device: touch_input_device.close()
 
 if __name__ == "__main__":
