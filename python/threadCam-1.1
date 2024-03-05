@@ -46,8 +46,6 @@ frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WI
 # for i in range(SCREEN_HEIGHT):
 #     for j in range(SCREEN_WIDTH): frame_buffer[i][j] = 
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
-try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")[1:]
-except: print("couldn't find sidebar!")
 frame_buffer[:,:-SIDEBAR_WIDTH] = \
     putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
             color=COLOR_LAYM, fontScale=3, thickness=4)
@@ -66,6 +64,8 @@ def data():
     frame_buffer[:,:-SIDEBAR_WIDTH] = \
         putText(frame_buffer[:,:-SIDEBAR_WIDTH], "Initializing", (500,250),
                 color=COLOR_LAYM, fontScale=3, thickness=4)
+    try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")[1:]
+    except: logger.warning("couldn't find sidebar!")
     with open("/root/.btmac","r") as file: mac = file.readline()
     try: # is the wifi connected?
         if wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
@@ -101,12 +101,11 @@ def data():
 
     finally: leave(dashcam_proc, car_conn)
 
-def leave(dashcam_proc, car_conn):
-    global exit_flag
+def leave(dashcam_proc, car_conn, exit_flag=exit_flag):
     if not exit_flag: exit_flag = True
-    if dashcam_proc: dashcam_proc.terminate()
-    if car_conn: car_conn.close()
-    if dashcam_proc: dashcam_proc.kill()
+    if dashcam_proc is not None: dashcam_proc.terminate()
+    if car_conn is not None: car_conn.close()
+    if dashcam_proc is not None: dashcam_proc.kill()
     if not wifi_state(): bash('ip link set wlan0 up')
 
 def make_sidebar(psi):
@@ -189,7 +188,7 @@ def get_image():
             camera = get_camera(cameraIndex,width,height)
             camera.read()
             while camera.isOpened() and not exit_flag:
-                try: signal_queue.get(timeout=0.095)
+                try: signal_queue.get(timeout=0.19)
                 except Empty as e: logger.exception(e)
                 else:
                     success, image = camera.read()
