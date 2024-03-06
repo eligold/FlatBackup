@@ -213,6 +213,7 @@ async def touch_input(show_graph=show_graph,exit_flag=exit_flag):
                         x = None
                         last_time = time()
                 if exit_flag: break
+                print("here touch")
         except KeyboardInterrupt as kbi:
             exit_flag = True
             logger.info(kbi.msg)

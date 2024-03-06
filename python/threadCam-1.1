@@ -84,7 +84,7 @@ def data():
                 make_sidebar(car_conn.psi())
                 if exit_flag: break
                 if bt_time is not None and time() > bt_time:
-                    bash(f"bluetoothctl connect {mac}", text=True)
+                    bash(f"bluetoothctl connect {mac}") # , text=True)
                     bt_time = None
                 try: dashcam_proc.wait(0.095)
                 except TimeoutExpired: pass
