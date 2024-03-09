@@ -49,7 +49,7 @@ The connection to the pi is facilitated by setting my phone hotspot credentials 
     After `rootwait` add `logo.nologo` to turn off the pi icon at boot, and `consoleblank=0` to shut off screen blanking and keep the display on. replace `splash` with `vt.global_cursor_default=0` for no blinky cursor and turn off default rainbow splash screen.
 1. Install dependencies:
     ```
-    apt install -y python3-opencv python3-pip python3-gpiozero fim git pulseaudio-module-bluetooth bluez-tools
+    apt install -y python3-opencv python3-pip python3-gpiozero python3-scipy fim git pulseaudio-module-bluetooth bluez-tools
     pip3 install obd
     ssh-keygen -t ed25519 # public key ~/.ssh/id_ed25519.pub must be added to github account manually
     git clone git@github.com:eligold/FlatBackup.git
