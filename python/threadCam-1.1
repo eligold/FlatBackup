@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import logging, os
+import logging, os, asyncio
 from queue import Empty, Full, SimpleQueue
 from v4l2py import Device, VideoCapture
 from subprocess import TimeoutExpired
@@ -46,6 +46,7 @@ frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WI
 # for i in range(SCREEN_HEIGHT):
 #     for j in range(SCREEN_WIDTH): frame_buffer[i][j] = 
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
+frame_buffer[:] = np.fromfunction((lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
 frame_buffer[:,:-SIDEBAR_WIDTH] = \
     putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
             color=COLOR_LAYM, fontScale=3, thickness=4)
@@ -111,7 +112,7 @@ def leave(dashcam_proc, car_conn, exit_flag=exit_flag):
 def make_sidebar(psi):
     global psi_list
     try:
-        entry = int(psi*PPPSI)
+        entry = max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),3) # 1
         psi_list.append(entry)
         sidebar = sidebar_base.copy()
         sidebar = \
@@ -126,23 +127,51 @@ def on_screen(frame_buffer=frame_buffer):
         putText(frame_buffer[:,:-SIDEBAR_WIDTH],"Initializing..",(500,250),
                 color=COLOR_LAYM,fontScale=3,thickness=4)
     while not exit_flag:
+        check_time = time() + 5
         try:
             image = build_output_image(display_queue.get(timeout=0.057))
             if show_graph: image = addOverlay(image)
             image = cv.cvtColor(image, BGR565)
             if exit_flag: break
-        except Empty as e: logger.exception(e)
+        except Empty:
+            if time() > check_time: logger.error("dropped frame!")
         except Exception as e: logger.exception(e)
         else: display_image(image)
         if exit_flag: break
 
-def build_graph(frame_buffer=frame_buffer,psi_list=psi_list):
-    graph_list = psi_list.copy()
-    for x in range(PSI_BUFFER_DEPTH-len(graph_list),PSI_BUFFER_DEPTH):
-        try:
-            y = FDIM[1] - 2 * PPPSI - 15 - graph_list.popleft()
-            frame_buffer[y:y+3,x:x+3] = DOT
-        except IndexError: traceback.print_exc()
+def graph_mkII(gl, d=PSI_BUFFER_DEPTH): # np.array(gl)-1+int(i/3) 1+d-len(gl)-1+i%3, d+2-1+i%3
+    coordinates = np.column_stack((np.array(gl)-1,np.arange(d-len(gl),d+1)))
+    for i in range(1,9): coordinates = np.concatenate((coordinates,np.column_stack(
+            (np.array(gl)-1+int(i/3),np.arange(1+d-len(gl)-1+i%3,d+2-1+i%3)))))
+    frame_buffer[coordinates[:,0],coordinates[:,1]] = np.array([0xfa,0])
+
+async def graph_mkIII(gl, d=PSI_BUFFER_DEPTH):
+    async for i in range(9):
+        coordinates = np.column_stack((np.array(gl)-1+int(i/3),np.arange(d-len(gl)+i%3,d+1+i%3)))
+        frame_buffer[coordinates[:,0],coordinates[:,1]] = DOT[int(i/3),i%3]
+
+
+async def build_right(graph_list,depth=PSI_BUFFER_DEPTH):
+    try:
+        async for x in range(depth,depth-len(graph_list),-1):
+            y = graph_list.pop()
+            try:
+                frame_buffer[y-1:y+2,x-1:x+2] = DOT
+            except IndexError: traceback.print_exc()
+    except: pass
+
+async def build_left(graph_list,depth=PSI_BUFFER_DEPTH):
+    try:
+        async for x in range(depth-len(graph_list),depth):
+            y = graph_list.popleft()
+            try:
+                frame_buffer[y-1:y+2,x-1:x+2] = DOT
+            except IndexError: traceback.print_exc()
+    except: pass
+
+async def build_graph(gl):
+    await asyncio.gather(build_left(gl),build_right(gl)) # graph_mkIII(gl)
+    frame_buffer.flush()
 
 def display_image(image,frame_buffer=frame_buffer):
     global sidebar_queue, signal_queue
@@ -150,8 +179,8 @@ def display_image(image,frame_buffer=frame_buffer):
         frame_buffer[:,:-SIDEBAR_WIDTH] = image
         try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
         except Empty: pass
-        if show_graph: build_graph()
-        frame_buffer.flush()
+        if show_graph: asyncio.run(build_graph(psi_list.copy()))
+        else: frame_buffer.flush()
         try: signal_queue.put(None)
         except Full: pass
     except Exception as e: logger.exception(e)

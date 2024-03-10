@@ -25,7 +25,7 @@ FINAL_IMAGE_HEIGHT = SCREEN_HEIGHT
 SIDEBAR_WIDTH = SCREEN_WIDTH - FINAL_IMAGE_WIDTH
 SIDEBAR_HEIGHT = 160
 EDGEBAR_WIDTH = 220
-PSI_BUFFER_DEPTH = FINAL_IMAGE_WIDTH
+PSI_BUFFER_DEPTH = FINAL_IMAGE_WIDTH - 2
 PPPSI = 30      # pixels per PSI and negative Bar
 DIM = (720,576) # PAL video dimensions
 SDIM = (960,768)
@@ -44,15 +44,15 @@ SHADOW = (133,38,38)
 BLACK = (0,0,0)
 ALPHA = 0.57
 
-DOT = np.full((3,3,3),SHADOW,np.uint8)
-DOT[:2,:2] = (0xFF,0,0) # Blue (B,G,R)
-DOT = cv.cvtColor(DOT, BGR565)
+DOT = np.full((3,3,2),SHADOW,np.uint8)
+DOT[:-1,:-1] = (0xF8,0) # BGR 565 bits: BBBB BGGG  GGGR RRRR
+#DOT = cv.cvtColor(DOT, BGR565)
 
 # below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
 K = np.array([                                                               # phone screen. YMMV
-        [309.41085232860985,                0.0, 355.4094868125207],
-        [0.0,                329.90981352161924, 292.2015284112677],
-        [0.0,                               0.0,               1.0]])
+        [309.41085232860985,              0.0, 355.4094868125207],
+        [0.0,              329.90981352161924, 292.2015284112677],
+        [0.0,                             0.0,               1.0]])
 D = np.array([
     [0.013301372417500422],
     [0.03857464918863361],
