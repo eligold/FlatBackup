@@ -40,13 +40,12 @@ COLOR_BAD = 0x8248
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
 COLOR_OVERLAY = (199,199,190)
-SHADOW = (133,38,38)
+SHADOW = (0x30,0x21) # (133,38,38)
 BLACK = (0,0,0)
 ALPHA = 0.57
-
+# BGR 565 bits: BBBB BGGG  GGGR RRRR
 DOT = np.full((3,3,2),SHADOW,np.uint8)
-DOT[:-1,:-1] = (0xF8,0) # BGR 565 bits: BBBB BGGG  GGGR RRRR
-#DOT = cv.cvtColor(DOT, BGR565)
+DOT[:-1,:-1] = (0xF8,0)  # (0xFF,0,0)
 
 # below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
 K = np.array([                                                               # phone screen. YMMV

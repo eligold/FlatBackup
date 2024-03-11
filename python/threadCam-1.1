@@ -24,7 +24,7 @@ psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 
 show_graph = False
 exit_flag = False
-HIGH_TEMP = 50.0
+HIGH_TEMP = 55.0
 
 def _sidebar_hot():
     logger.warning(f"temp over {int(HIGH_TEMP)}C")
@@ -38,60 +38,49 @@ intemp = CPUTemperature(threshold=HIGH_TEMP,event_delay=1.9)
 intemp.when_activated = _sidebar_hot
 intemp.when_deactivated = _change_sidebar
 
-# img = np.fromfunction((lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
 frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
-# frame_buffer[:] = \
-#     np.array(list(map(lambda x,y: (np.uint8(int(time())*x*2&(x-199-y)), np.uint8((int(time())*x*3&(x-250-y))>>8)), range(SCREEN_HEIGHT),range(SCREEN_WIDTH))))
-# np.array(list(map(lambda x,y: np.uint8(int(time())*x*2&(x-199-y)), range(SCREEN_HEIGHT),range(SCREEN_WIDTH))))
-# for i in range(SCREEN_HEIGHT):
-#     for j in range(SCREEN_WIDTH): frame_buffer[i][j] = 
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
-frame_buffer[:] = np.fromfunction((lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
-frame_buffer[:,:-SIDEBAR_WIDTH] = \
-    putText(frame_buffer[:,:-(SCREEN_WIDTH-FINAL_IMAGE_WIDTH)], "Initializing", (500,250),
-            color=COLOR_LAYM, fontScale=3, thickness=4)
+frame_buffer[:] = np.fromfunction(
+    (lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
 
-def wifi_state():
+with open("/root/.btmac","r") as file: mac = file.readline()
+
+def _show_message(text,loc=(500,250),color=COLOR_LAYM,fontScale=3,thickness=4,width=SIDEBAR_WIDTH):
+    frame_buffer[:,:-width] = putText(frame_buffer[:,:-width], text, loc, color,
+                                      fontScale=fontScale, thickness=thickness)
+_show_message("Initializing", (500,250))
+
+def _wifi_state():
     return bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n'
 
-def data():
-    global sidebar_queue
-    global frame_buffer
-    global exit_flag
-    started_names = []
-    dashcam_proc = None
-    car_conn = None
+def data(frame_buffer=frame_buffer, exit_flag=exit_flag):
+    dashcam_process, car_connection = None, None
     bt_time = time() + 5
-    frame_buffer[:,:-SIDEBAR_WIDTH] = \
-        putText(frame_buffer[:,:-SIDEBAR_WIDTH], "Initializing", (500,250),
-                color=COLOR_LAYM, fontScale=3, thickness=4)
+    started_names = []
     try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")[1:]
     except: logger.warning("couldn't find sidebar!")
-    with open("/root/.btmac","r") as file: mac = file.readline()
     try: # is the wifi connected?
-        if wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
+        if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
         else: bash('ip link set wlan0 down') # else turn off radio to save power
         for function, name in [(touch_input,"taps"),(get_image,"read"),(on_screen,"show")]:
             Thread(target=function, name=name, daemon=True).start()
             started_names.append(name)
-        frame_buffer[:,:-SIDEBAR_WIDTH] = \
-            putText(frame_buffer[:,:-SIDEBAR_WIDTH], "Initializing...", (500,250),
-                    color=COLOR_LAYM, fontScale=3, thickness=4)
+        _show_message("Initializing....", (500,250))
         logger.info(f'threads started: {started_names}')
         while not exit_flag:
-            dashcam_proc = start_dash_cam()
-            car_conn = ELM327()
+            dashcam_process = start_dash_cam()
+            car_connection = ELM327()
             while not exit_flag:
-                make_sidebar(car_conn.psi())
+                make_sidebar(car_connection.psi())
                 if exit_flag: break
                 if bt_time is not None and time() > bt_time:
-                    bash(f"bluetoothctl connect {mac}") # , text=True)
+                    bash(f"bluetoothctl connect {mac}")
                     bt_time = None
-                try: dashcam_proc.wait(0.095)
+                try: dashcam_process.wait(0.095)
                 except TimeoutExpired: pass
                 else:
-                    logger.info(dashcam_proc.stdout.readlines())
-                    dashcam_proc = start_dash_cam()
+                    logger.info(dashcam_process.stdout.readlines())
+                    dashcam_process = start_dash_cam()
             if exit_flag: break
     except KeyboardInterrupt: exit_flag = True
     except Exception as ex:
@@ -100,19 +89,22 @@ def data():
 
         print("here!!!")
 
-    finally: leave(dashcam_proc, car_conn)
+    finally: leave(dashcam_process, car_connection)
 
-def leave(dashcam_proc, car_conn, exit_flag=exit_flag):
+def leave(dashcam_process, car_connection , exit_flag=exit_flag):
     if not exit_flag: exit_flag = True
-    if dashcam_proc is not None: dashcam_proc.terminate()
-    if car_conn is not None: car_conn.close()
-    if dashcam_proc is not None: dashcam_proc.kill()
-    if not wifi_state(): bash('ip link set wlan0 up')
+    if dashcam_process is not None: dashcam_process.terminate()
+    if car_connection  is not None: car_connection .close()
+    if dashcam_process is not None: dashcam_process.kill()
+    if not _wifi_state(): bash('ip link set wlan0 up')
+    bash(f"bluetoothctl disconnect {mac}")
+   # Popen("shutdown -h now",shell=True)
+
 
 def make_sidebar(psi):
     global psi_list
     try:
-        entry = max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),3) # 1
+        entry = max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),1)
         psi_list.append(entry)
         sidebar = sidebar_base.copy()
         sidebar = \
@@ -121,13 +113,10 @@ def make_sidebar(psi):
         sidebar_queue.put(sidebar)
     except Exception as e: logger.exception(e)
 
-def on_screen(frame_buffer=frame_buffer):
-    global display_queue, signal_queue
-    frame_buffer[:,:-SIDEBAR_WIDTH] = \
-        putText(frame_buffer[:,:-SIDEBAR_WIDTH],"Initializing..",(500,250),
-                color=COLOR_LAYM,fontScale=3,thickness=4)
+def on_screen(display_queue=display_queue):
+    _show_message("Initializing...", (500,250))
+    check_time = time() + 5
     while not exit_flag:
-        check_time = time() + 5
         try:
             image = build_output_image(display_queue.get(timeout=0.057))
             if show_graph: image = addOverlay(image)
@@ -139,78 +128,30 @@ def on_screen(frame_buffer=frame_buffer):
         else: display_image(image)
         if exit_flag: break
 
-def graph_mkII(gl, d=PSI_BUFFER_DEPTH): # np.array(gl)-1+int(i/3) 1+d-len(gl)-1+i%3, d+2-1+i%3
-    coordinates = np.column_stack((np.array(gl)-1,np.arange(d-len(gl),d+1)))
-    for i in range(1,9): coordinates = np.concatenate((coordinates,np.column_stack(
-            (np.array(gl)-1+int(i/3),np.arange(1+d-len(gl)-1+i%3,d+2-1+i%3)))))
-    frame_buffer[coordinates[:,0],coordinates[:,1]] = np.array([0xfa,0])
+def build_graph(graph_list, depth=PSI_BUFFER_DEPTH):
+    coordinates=np.column_stack((np.array(graph_list),np.arange(depth-len(graph_list)+1,depth+1)))
+    for i in range(4): frame_buffer[coordinates[:, 0]-1+i//2, coordinates[:, 1]-1+i%2] = (0xf8,0)
+    frame_buffer[coordinates[:, 0]+1, coordinates[:, 1]+1] = (0x30,0x21) # SHADOW
+    frame_buffer[coordinates[:, 0]+1, coordinates[:, 1]] = (0x30,0x21)
+    frame_buffer[coordinates[:, 0], coordinates[:, 1]+1] = (0x30,0x21)
 
-async def graph_mkIII(gl, d=PSI_BUFFER_DEPTH):
-    async for i in range(9):
-        coordinates = np.column_stack((np.array(gl)-1+int(i/3),np.arange(d-len(gl)+i%3,d+1+i%3)))
-        frame_buffer[coordinates[:,0],coordinates[:,1]] = DOT[int(i/3),i%3]
-
-
-async def build_right(graph_list,depth=PSI_BUFFER_DEPTH):
-    try:
-        async for x in range(depth,depth-len(graph_list),-1):
-            y = graph_list.pop()
-            try:
-                frame_buffer[y-1:y+2,x-1:x+2] = DOT
-            except IndexError: traceback.print_exc()
-    except: pass
-
-async def build_left(graph_list,depth=PSI_BUFFER_DEPTH):
-    try:
-        async for x in range(depth-len(graph_list),depth):
-            y = graph_list.popleft()
-            try:
-                frame_buffer[y-1:y+2,x-1:x+2] = DOT
-            except IndexError: traceback.print_exc()
-    except: pass
-
-async def build_graph(gl):
-    await asyncio.gather(build_left(gl),build_right(gl)) # graph_mkIII(gl)
-    frame_buffer.flush()
-
-def display_image(image,frame_buffer=frame_buffer):
-    global sidebar_queue, signal_queue
+def display_image(image,sidebar_queue=sidebar_queue,signal_queue=signal_queue):
     try:
         frame_buffer[:,:-SIDEBAR_WIDTH] = image
         try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
         except Empty: pass
-        if show_graph: asyncio.run(build_graph(psi_list.copy()))
-        else: frame_buffer.flush()
+        if show_graph: build_graph(psi_list.copy())
+        frame_buffer.flush()
         try: signal_queue.put(None)
         except Full: pass
     except Exception as e: logger.exception(e)
-
-def get_image_v4l2py():
-    global display_queue, signal_queue
-    width,height = DIM
-    while not exit_flag:
-        signal_queue.put(None)
-        try:
-            with Device.from_id(cameraIndex) as cam:
-                VideoCapture(cam).set_format(width,height,"YUYV")
-                for frame in cam:
-                    while not exit_flag:
-                        try: signal_queue.get()
-                        except Empty: pass
-                        else: break
-                    display_queue.put(cv.imdecode(frame.array, COLOR))
-                    if exit_flag: break
-        except Exception as e: logger.exception(e)
-        if exit_flag: break
 
 def get_image():
     global display_queue, signal_queue
     width, height = DIM
     camera = None
     read_fail_count = 0
-    frame_buffer[:,:-SIDEBAR_WIDTH] = \
-        putText(frame_buffer[:,:-SIDEBAR_WIDTH],"Initializing.",(500,250),
-                color=COLOR_LAYM,fontScale=3,thickness=4)
+    _show_message("Initializing..", (500,250))
     while not exit_flag:
         signal_queue.put(None)
         try:
@@ -237,6 +178,7 @@ def touch_input():
     touch_command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
     touch_process = None
     last_time = time()
+    _show_message("Initializing.", (500,250))
     while not exit_flag:
         x = None
         try:

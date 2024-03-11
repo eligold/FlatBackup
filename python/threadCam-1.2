@@ -90,7 +90,7 @@ def data():
 
 def make_sidebar(psi, psi_list=psi_list):
     try:
-        entry = int(psi*PPPSI)
+        entry = max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),3)
         psi_list.append(entry)
         sidebar = sidebar_base.copy()
         sidebar = \
@@ -101,32 +101,32 @@ def make_sidebar(psi, psi_list=psi_list):
 
 def on_screen(display_queue=display_queue):
     _display_message("Initializing..")
+    check_time = time() + 5
     while not exit_flag:
         try:
             image = build_output_image(display_queue.get(timeout=0.057))
             if show_graph: image = addOverlay(image)
-           # if alt_view: image = view_both(image,)
             image = cv.cvtColor(image, BGR565)
             if exit_flag: break
-        except Empty: pass
+        except Empty:
+            if time() > check_time: logger.error("dropped frame!")
         except Exception as e: logger.exception(e)
         else: display_image(image)
+        if exit_flag: break
 
-def build_graph(frame_buffer=frame_buffer):
-    graph_list = psi_list.copy()
-    for x in range(PSI_BUFFER_DEPTH-len(graph_list),PSI_BUFFER_DEPTH):
-        try:
-            y = FDIM[1] - 2 * PPPSI - 15 - graph_list.popleft()
-            if y < 3: y = 3
-            frame_buffer[y-3:y,x:x+3] = DOT
-        except IndexError: traceback.print_exc()
+def build_graph(graph_list, depth=PSI_BUFFER_DEPTH):
+    coordinates=np.column_stack((np.array(graph_list),np.arange(depth-len(graph_list)+1,depth+1)))
+    for i in range(4): frame_buffer[coordinates[:, 0]-1+i//2, coordinates[:, 1]-1+i%2] = (0xf8,0)
+    frame_buffer[coordinates[:, 0]+1, coordinates[:, 1]+1] = (0x30,0x21) # SHADOW
+    frame_buffer[coordinates[:, 0]+1, coordinates[:, 1]] = (0x30,0x21)
+    frame_buffer[coordinates[:, 0], coordinates[:, 1]+1] = (0x30,0x21)
 
 def display_image(img, frame_buffer=frame_buffer, queue=sidebar_queue, signal_queue=signal_queue):
     try:
         frame_buffer[:,:-SIDEBAR_WIDTH] = img
         try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = queue.get(block=False)
         except Empty: pass
-        if show_graph: build_graph()
+        if show_graph: build_graph(psi_list.copy())
         frame_buffer.flush()
         try: signal_queue.put(None)
         except Full: pass
