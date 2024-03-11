@@ -94,7 +94,9 @@ class touchEvent():
                     self.value = int(frame[-1].lstrip("value ").rstrip())
                     self.valid = True
                 else: self.code = frame[0]
-            except: self.code = f'error for line:\n{line}'
+            except:
+                traceback.print_exc()
+                self.code = f'error for line:\n{line}'
 
     def _sep_field(self, text, key):
         return text.lstrip(f"{key} ").rstrip(")").split(" (")

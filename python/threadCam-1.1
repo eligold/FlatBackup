@@ -57,7 +57,7 @@ def data(frame_buffer=frame_buffer, exit_flag=exit_flag):
     dashcam_process, car_connection = None, None
     bt_time = time() + 5
     started_names = []
-    try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.imread("/root/newSidebar.png")[1:]
+    try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.cvtColor(cv.imread("/root/newSidebar.png")[1:],BGR565)
     except: logger.warning("couldn't find sidebar!")
     try: # is the wifi connected?
         if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
@@ -81,6 +81,7 @@ def data(frame_buffer=frame_buffer, exit_flag=exit_flag):
                 else:
                     logger.info(dashcam_process.stdout.readlines())
                     dashcam_process = start_dash_cam()
+                print(exit_flag)
             if exit_flag: break
     except KeyboardInterrupt: exit_flag = True
     except Exception as ex:
