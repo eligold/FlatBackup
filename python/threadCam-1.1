@@ -59,6 +59,7 @@ def touch_runner():
     asyncio.run(touch_input())
 
 def data():
+    global exit_flag
     dashcam_process, car_connection = None, None
     bt_time = time() + 5
     started_names = []
@@ -99,6 +100,9 @@ def data():
 
 def leave(dashcam_process, car_connection):
     global exit_flag
+
+    print("leaving!")
+
     if not exit_flag: exit_flag = True
     if dashcam_process is not None: dashcam_process.terminate()
     if car_connection  is not None: car_connection .close()
@@ -121,6 +125,7 @@ def make_sidebar(psi):
     except Exception as e: logger.exception(e)
 
 def on_screen(display_queue=display_queue):
+    global exit_flag
     _show_message("Initializing...", (500,250))
     check_time = time() + 5
     while not exit_flag:
@@ -153,8 +158,9 @@ def display_image(image, sidebar_queue=sidebar_queue, signal_queue=signal_queue)
 
 def get_image(display_queue=display_queue, signal_queue=signal_queue):
     width, height = DIM
-    camera = None
     read_fail_count = 0
+    global exit_flag
+    camera = None
     _show_message("Initializing..", (500,250))
     while not exit_flag:
         signal_queue.put(None)
@@ -178,7 +184,8 @@ def get_image(display_queue=display_queue, signal_queue=signal_queue):
         if exit_flag: break
 
 async def touch_input():
-    global exit_flag, show_graph
+    global exit_flag
+    global show_graph
     last_time = time()
     x, touch_input_device = None, None
     while not exit_flag:
