@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import logging, os, asyncio
 from queue import Empty, Full, SimpleQueue
-from v4l2py import Device, VideoCapture
+# from v4l2py import Device, VideoCapture
+from evdev import InputDevice, ecodes
 from subprocess import TimeoutExpired
 from gpiozero import CPUTemperature
 from collections import deque
@@ -54,9 +55,10 @@ def _wifi_state():
     return bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n'
 
 def touch_runner():
+    _show_message("Initializing.", (500,250))
     asyncio.run(touch_input())
 
-def data(frame_buffer=frame_buffer, exit_flag=exit_flag):
+def data():
     dashcam_process, car_connection = None, None
     bt_time = time() + 5
     started_names = []
@@ -66,7 +68,7 @@ def data(frame_buffer=frame_buffer, exit_flag=exit_flag):
     try: # is the wifi connected?
         if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
         else: bash('ip link set wlan0 down') # else turn off radio to save power
-        for function, name in [(touch_input,"taps"),(get_image,"read"),(on_screen,"show")]:
+        for function, name in [(touch_runner,"taps"),(get_image,"read"),(on_screen,"show")]:
             Thread(target=function, name=name, daemon=True).start()
             started_names.append(name)
         _show_message("Initializing....", (500,250))
@@ -85,7 +87,6 @@ def data(frame_buffer=frame_buffer, exit_flag=exit_flag):
                 else:
                     logger.info(dashcam_process.stdout.readlines())
                     dashcam_process = start_dash_cam()
-                print(exit_flag)
             if exit_flag: break
     except KeyboardInterrupt: exit_flag = True
     except Exception as ex:
@@ -96,7 +97,8 @@ def data(frame_buffer=frame_buffer, exit_flag=exit_flag):
 
     finally: leave(dashcam_process, car_connection)
 
-def leave(dashcam_process, car_connection , exit_flag=exit_flag):
+def leave(dashcam_process, car_connection):
+    global exit_flag
     if not exit_flag: exit_flag = True
     if dashcam_process is not None: dashcam_process.terminate()
     if car_connection  is not None: car_connection .close()
@@ -114,7 +116,7 @@ def make_sidebar(psi):
         sidebar = sidebar_base.copy()
         sidebar = \
                 putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
-        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (38,95), color=COLOR_BAD)
+        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
         sidebar_queue.put(sidebar)
     except Exception as e: logger.exception(e)
 
@@ -136,20 +138,18 @@ def on_screen(display_queue=display_queue):
 def build_graph(graph_list, depth=PSI_BUFFER_DEPTH):
     coordinates=np.column_stack((np.array(graph_list),np.arange(depth-len(graph_list)+1,depth+1)))
     for i in range(4): frame_buffer[coordinates[:, 0]-1+i//2, coordinates[:, 1]-1+i%2] = (0xf8,0)
-    frame_buffer[coordinates[:, 0]+1, coordinates[:, 1]+1] = (0x30,0x21) # SHADOW
-    frame_buffer[coordinates[:, 0]+1, coordinates[:, 1]] = (0x30,0x21)
-    frame_buffer[coordinates[:, 0], coordinates[:, 1]+1] = (0x30,0x21)
+    for i in range(1,4): frame_buffer[coordinates[:, 0]+i//2, coordinates[:, 1]+i%2] = (0x30,0x21)
 
-def display_image(image,sidebar_queue=sidebar_queue,signal_queue=signal_queue):
+def display_image(image, sidebar_queue=sidebar_queue, signal_queue=signal_queue):
     try:
         frame_buffer[:,:-SIDEBAR_WIDTH] = image
         try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
         except Empty: pass
         if show_graph: build_graph(psi_list.copy())
         frame_buffer.flush()
-        try: signal_queue.put(None)
-        except Full: pass
     except Exception as e: logger.exception(e)
+    try: signal_queue.put(None)
+    except Full: pass
 
 def get_image(display_queue=display_queue, signal_queue=signal_queue):
     width, height = DIM
@@ -177,47 +177,8 @@ def get_image(display_queue=display_queue, signal_queue=signal_queue):
             if camera: camera.release()
         if exit_flag: break
 
-def touch_input(show_graph=show_graph, exit_flag=exit_flag):
-    touch_command = 'evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00'
-    touch_process = None
-    last_time = time()
-    _show_message("Initializing.", (500,250))
-    while not exit_flag:
-        x = None
-        try:
-            touch_process = shell(touch_command, text=True)
-            while not "interrupt to exit" in touch_process.stdout.readline(): pass
-            while not exit_flag:
-                active = False # test for only code_id = 5 to detect press and hold
-                event = touchEvent(touch_process.stdout.readline())
-                try:
-                    if event.time > last_time + 0.19: active = True
-                except: print(event.code)
-                while not "-- SYN_REPORT --" in event.code: # check .valid instead
-                    if active and event.isX:
-                        if event.value >= FINAL_IMAGE_WIDTH: x = event.value
-                        else:
-                            last_time = event.time
-                            active = False
-                    if active and event.isY and x is not None:
-                        if event.value < SCREEN_HEIGHT/2: 
-                            show_graph = not show_graph
-                        else: raise KeyboardInterrupt(f'touch input(X ⇁,Y ⇃) -> {x},{event.value}')
-                    try:
-                        if event.code_id != 5: logger.info(event.pretty()) # TODO add this logic to pretty()
-                    except AttributeError: logger.error(event) ## DEBUG ###############
-                    event = touchEvent(touch_process.stdout.readline())
-                if active: last_time = event.time
-                x = None
-                if exit_flag: break
-        except KeyboardInterrupt as kbi: 
-            exit_flag = True
-            raise kbi
-        except Exception as e: logger.exception(e)
-        finally:
-            if touch_process is not None: touch_process.terminate()
-
-async def touch_input(show_graph=show_graph,exit_flag=exit_flag):
+async def touch_input():
+    global exit_flag, show_graph
     last_time = time()
     x, touch_input_device = None, None
     while not exit_flag:
@@ -238,6 +199,7 @@ async def touch_input(show_graph=show_graph,exit_flag=exit_flag):
         except KeyboardInterrupt as kbi:
             exit_flag = True
             logger.info(kbi.msg)
+            raise kbi
         except Exception as e: logger.exception(e)
         finally:
             print("close touch")
