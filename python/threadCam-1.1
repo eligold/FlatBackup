@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import logging, os, traceback
 from queue import Empty, Full, SimpleQueue
-# from v4l2py import Device, VideoCapture
+from v4l2py import Device, VideoCapture
 from subprocess import TimeoutExpired
 from gpiozero import CPUTemperature
 from evdev import InputDevice
@@ -18,6 +18,8 @@ usb_capture_real_path = os.path.realpath(usb_capture_id_path)
 assert usb_capture_id_path != usb_capture_real_path
 cameraIndex = int(usb_capture_real_path.split("video")[-1])
 # communications between threads:
+dash_signal_queue = SimpleQueue()
+dashcam_queue = SimpleQueue()
 sidebar_queue = SimpleQueue()
 display_queue = SimpleQueue()
 signal_queue = SimpleQueue()
@@ -57,7 +59,7 @@ def _wifi_state():
 def data():
     global exit_flag
     global show_graph
-    dashcam_process, car_connection, touch_input_device, x = None, None, None, None
+    car_connection, touch_input_device, x = None, None, None
     bt_time = time() + 5
     touch_time = time() + 0.19
     started_names = []
@@ -67,14 +69,16 @@ def data():
     try: # is the wifi connected?
         if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
         else: bash('ip link set wlan0 down') # else turn off radio to save power
-        for function, name in [(get_image,"read"),(on_screen,"show")]: # (touch_runner,"taps"),
+        for function, name in [(get_dash_image,"dash"),
+                               (get_image,"read"),
+                               (on_screen,"show"),
+                               (save_video,"save")]:
             Thread(target=function, name=name, daemon=True).start()
             started_names.append(name)
         _show_message("Initializing...", (500,250))
         logger.info(f'threads started: {started_names}')
         touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
         while not exit_flag:
-            dashcam_process = start_dash_cam()
             car_connection = ELM327()
             while not exit_flag:
                 make_sidebar(car_connection.psi())
@@ -95,7 +99,7 @@ def data():
                                         else: show_graph = not show_graph
                                     x = None
                     except BlockingIOError: pass # no new input
-                    except (OSError, FileNotFoundError):
+                    except (OSError, FileNotFoundError): # janky mcu is ailing
                         if touch_input_device is not None:
                             touch_input_device.close()
                             touch_input_device = None
@@ -103,25 +107,18 @@ def data():
                 if bt_time is not None and time() > bt_time:
                     bash(f"bluetoothctl connect {mac}")
                     bt_time = None
-                try: dashcam_process.wait(0.095)
-                except TimeoutExpired: pass
-                else:
-                    logger.info(dashcam_process.stdout.readlines())
-                    dashcam_process = start_dash_cam()
             if exit_flag: break
     except KeyboardInterrupt: exit_flag = True
     except Exception as ex:
         traceback.print_exc()
         logger.exception(ex)
-    finally: leave(dashcam_process, car_connection, touch_input_device)
+    finally: leave(car_connection, touch_input_device)
 
-def leave(dashcam_process, car_connection, touch_input_device):
+def leave(car_connection, touch_input_device):
     global exit_flag
     if not exit_flag: exit_flag = True
     if touch_input_device is not None: touch_input_device.close()
-    if dashcam_process is not None: dashcam_process.terminate()
     if car_connection  is not None: car_connection.close()
-    if dashcam_process is not None: dashcam_process.kill()
     if not _wifi_state(): bash('ip link set wlan0 up')
     bash(f"bluetoothctl disconnect {mac}")
    # Popen("shutdown -h now",shell=True)
@@ -197,6 +194,57 @@ def get_image(display_queue=display_queue, signal_queue=signal_queue):
         finally:
             if camera: camera.release()
         if exit_flag: break
+
+def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG"):
+    camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+    global exit_flag
+    while not exit_flag:
+        dash_signal_queue.put(None)
+        try:
+            with Device.from_id(extract_index(camPath)) as cam:
+                video_capture = VideoCapture(cam)
+                video_capture.set_format(width,height,video_format)
+                with video_capture as stream:
+                    for frame in stream:
+                        while not exit_flag:
+                            try: dash_signal_queue.get(timeout=0.19)
+                            except Empty: pass
+                            else: break
+                        if exit_flag: break
+                        if video_format == "MJPG": image = cv.imdecode(frame.array, COLOR)
+                        else: image = cv.cvtColor(frame.array.reshape(height, width, 2), YUYV)
+                        try: dashcam_queue.put(image)
+                        except Full: logger.error("dash queue full!")
+        except Exception as e: logger.exception(e)
+
+def save_video(queue=dashcam_queue, signal_queue=dash_signal_queue, camera=None,
+               width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT,fps=15):
+    fourcc = cv.VideoWriter_fourcc(*'H264')
+    breakout = False
+    output = None
+    if camera is None: _show_message("Initializing....")
+    while not (exit_flag and breakout):
+        try:
+            output = cv.VideoWriter(get_video_path(camera), fourcc, fps, (width, height))
+            while not exit_flag:
+                try: image = queue.get(timeout=0.095)
+                except Empty: pass
+                else:
+                    breakout = (image is None and camera is not None)
+                   # if speed: pass # (speed,frame_num) -> csv file
+                    if breakout or exit_flag: break
+                    if camera is None:
+                        try:
+                            print("s",end="")
+                            signal_queue.put(None)
+                        except Full: logger.error("dashcam signal queue full!")
+                    if image is not None:
+                        print("w",end="")
+                        output.write(image)
+                    else: print("empty image!")
+        except Exception as e: logger.exception(e)
+        finally:
+            if output is not None: output.release()
 
 if __name__ == "__main__":
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'

@@ -8,7 +8,7 @@ from gpiozero import CPUTemperature
 from threading  import Thread
 from collections import deque
 
-from ImageConstants import *
+from Constants import *
 from ELM327 import ELM327
 
 # communications between threads:
@@ -167,7 +167,7 @@ def save_video(queue=dashcam_queue, signal_queue=dash_signal_queue, camera=None,
                 except Empty: pass
         except Exception as e: logger.exception(e)
         finally:
-            if output: output.release()
+            if output is not None: output.release()
 
 def get_image(camera_path=usb_capture_id_path, width=DIM[0], height=DIM[1], video_format="YUYV",
                      queue=display_queue, signal_queue=signal_queue):
