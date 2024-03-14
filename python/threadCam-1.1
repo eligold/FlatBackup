@@ -54,13 +54,6 @@ _show_message("Initializing", (500,250))
 def _wifi_state():
     return bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n'
 
-def _touch_path():
-    touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
-    real_path = os.path.realpath(touch_dev_path)
-    assert real_path != touch_dev_path
-    return real_path
-
-
 def data():
     global exit_flag
     global show_graph
@@ -79,6 +72,7 @@ def data():
             started_names.append(name)
         _show_message("Initializing...", (500,250))
         logger.info(f'threads started: {started_names}')
+        touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
         while not exit_flag:
             dashcam_process = start_dash_cam()
             car_connection = ELM327()
@@ -86,7 +80,7 @@ def data():
                 make_sidebar(car_connection.psi())
                 if exit_flag: break
                 if time() > touch_time:
-                    if touch_input_device is None: touch_input_device = InputDevice(_touch_path())
+                    if touch_input_device is None: touch_input_device = InputDevice(touch_dev_path)
                     try:
                         for event in touch_input_device.read():
                             if event.type == 3:
