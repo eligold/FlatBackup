@@ -2,9 +2,9 @@
 import logging, os, asyncio
 from queue import Empty, Full, SimpleQueue
 # from v4l2py import Device, VideoCapture
-from evdev import InputDevice, ecodes
 from subprocess import TimeoutExpired
 from gpiozero import CPUTemperature
+from evdev import InputDevice
 from collections import deque
 from threading  import Thread
 from time import time
@@ -54,13 +54,10 @@ _show_message("Initializing", (500,250))
 def _wifi_state():
     return bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n'
 
-def touch_runner():
-    _show_message("Initializing.", (500,250))
-    asyncio.run(touch_input())
-
 def data():
     global exit_flag
-    dashcam_process, car_connection = None, None
+    global show_graph
+    dashcam_process, car_connection, touch_input_device, x = None, None, None, None
     bt_time = time() + 5
     started_names = []
     try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.cvtColor(
@@ -69,15 +66,28 @@ def data():
     try: # is the wifi connected?
         if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
         else: bash('ip link set wlan0 down') # else turn off radio to save power
-        for function, name in [(touch_runner,"taps"),(get_image,"read"),(on_screen,"show")]:
+        for function, name in [(get_image,"read"),(on_screen,"show")]: # (touch_runner,"taps"),
             Thread(target=function, name=name, daemon=True).start()
             started_names.append(name)
-        _show_message("Initializing....", (500,250))
+        _show_message("Initializing...", (500,250))
         logger.info(f'threads started: {started_names}')
         while not exit_flag:
             dashcam_process = start_dash_cam()
             car_connection = ELM327()
+            touch_input_device = InputDevice("/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00")
             while not exit_flag:
+                try:
+                    for event in touch_input_device.read():
+                        if event.type == 3:
+                            if event.code == 0 and event.value > FINAL_IMAGE_WIDTH: x = event.value
+                            else:
+                                if x is not None and event.code == 1:
+                                    if event.value > SCREEN_HEIGHT/2:
+                                        logger.info(f'touch input(X ⇁,Y ⇃) -> {x},{event.value}')
+                                        raise KeyboardInterrupt()
+                                    else: show_graph = not show_graph
+                                x = None
+                except BlockingIOError: pass
                 make_sidebar(car_connection.psi())
                 if exit_flag: break
                 if bt_time is not None and time() > bt_time:
@@ -93,19 +103,14 @@ def data():
     except Exception as ex:
         traceback.print_exc()
         logger.exception(ex)
+    finally: leave(dashcam_process, car_connection, touch_input_device)
 
-        print("here!!!")
-
-    finally: leave(dashcam_process, car_connection)
-
-def leave(dashcam_process, car_connection):
+def leave(dashcam_process, car_connection, touch_input_device):
     global exit_flag
-
-    print("leaving!")
-
     if not exit_flag: exit_flag = True
+    if touch_input_device is not None: touch_input_device.close()
     if dashcam_process is not None: dashcam_process.terminate()
-    if car_connection  is not None: car_connection .close()
+    if car_connection  is not None: car_connection.close()
     if dashcam_process is not None: dashcam_process.kill()
     if not _wifi_state(): bash('ip link set wlan0 up')
     bash(f"bluetoothctl disconnect {mac}")
@@ -126,7 +131,7 @@ def make_sidebar(psi):
 
 def on_screen(display_queue=display_queue):
     global exit_flag
-    _show_message("Initializing...", (500,250))
+    _show_message("Initializing..", (500,250))
     check_time = time() + 5
     while not exit_flag:
         try:
@@ -161,7 +166,7 @@ def get_image(display_queue=display_queue, signal_queue=signal_queue):
     read_fail_count = 0
     global exit_flag
     camera = None
-    _show_message("Initializing..", (500,250))
+    _show_message("Initializing.", (500,250))
     while not exit_flag:
         signal_queue.put(None)
         try:
@@ -182,35 +187,6 @@ def get_image(display_queue=display_queue, signal_queue=signal_queue):
         finally:
             if camera: camera.release()
         if exit_flag: break
-
-async def touch_input():
-    global exit_flag
-    global show_graph
-    last_time = time()
-    x, touch_input_device = None, None
-    while not exit_flag:
-        try:
-            touch_input_device = InputDevice("/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00")
-            async for event in touch_input_device.async_read_loop():
-                if time() > last_time + 0.38 and event.type == ecodes.EV_ABS:
-                    if event.code == 0 and event.value > FINAL_IMAGE_WIDTH: x = event.value
-                    else:
-                        if x is not None and event.code == 1:
-                            if event.value > SCREEN_HEIGHT/2:
-                                raise KeyboardInterrupt(f'touch input(X ⇁,Y ⇃) -> {x},{event.value}')
-                            else: show_graph = not show_graph
-                        x = None
-                        last_time = time()
-                if exit_flag: break
-                print("here touch")
-        except KeyboardInterrupt as kbi:
-            exit_flag = True
-            logger.info(kbi.msg)
-            raise kbi
-        except Exception as e: logger.exception(e)
-        finally:
-            print("close touch")
-            if touch_input_device: touch_input_device.close()
 
 if __name__ == "__main__":
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
