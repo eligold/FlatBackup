@@ -11,13 +11,12 @@ from cv2 import CAP_V4L2 as V4L2
 from subprocess import run, Popen, PIPE, STDOUT
 from os.path import realpath
 from time import localtime
-import traceback, cv2 as cv, numpy as np
+import cv2 as cv, numpy as np
 
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
 DASHCAM_IMAGE_HEIGHT = 1944
-# /sys/class/graphics/fb0/modes
-# /sys/class/graphics/fb0/stride
+# /sys/class/graphics/fb0/{modes,stride}
 SCREEN_HEIGHT = 480
 SCREEN_WIDTH = 1600
 FINAL_IMAGE_WIDTH = 1480
@@ -74,8 +73,7 @@ def extract_index(fully_qualified_path=usb_capture_id_path):
     assert usb_capture_id_path != usb_capture_real_path
     return int(usb_capture_real_path.split("video")[-1])
 
-# make boost graph here ~+15psi to ~-1.5bar
-# add each point to new deque and increment position by one when reading current deque
+# make boost graph here ~+15 psi to ~-1 bar
 def addOverlay(image):
     h,w = image.shape[:2]
     radius,offset = 19,38
@@ -125,13 +123,13 @@ def start_dash_cam(): # sets camera attributes for proper output size and format
     cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
     return shell(cmd,stderr=STDOUT,text=True)
 
-def get_video_path(explicit_camera=None):
+def get_video_path(explicit_camera=None): # e.g. "backup", "cabin"
     local_time = localtime()
     date = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
     clock_time = f"{local_time.tm_hour:02d}.{local_time.tm_min:02d}.{local_time.tm_sec:02d}"
     weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
     join_list = [date,clock_time,weekday]
-    if explicit_camera is not None: join_list.append(explicit_camera) # e.g. "backup", "cabin"
+    if explicit_camera is not None: join_list.append(explicit_camera)
     return f"/media/usb/{'_'.join(join_list)}.mkv"
 
 def bash(cmd:str,shell=True,capture_output=True,check=False):

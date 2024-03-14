@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import logging, os, asyncio
+import logging, os, traceback
 from queue import Empty, Full, SimpleQueue
 # from v4l2py import Device, VideoCapture
 from subprocess import TimeoutExpired
@@ -9,7 +9,7 @@ from collections import deque
 from threading  import Thread
 from time import time
 
-from ImageConstants import *
+from Constants import *
 from ELM327 import ELM327
 
 # camera index by device mapper path
@@ -18,9 +18,9 @@ usb_capture_real_path = os.path.realpath(usb_capture_id_path)
 assert usb_capture_id_path != usb_capture_real_path
 cameraIndex = int(usb_capture_real_path.split("video")[-1])
 # communications between threads:
+sidebar_queue = SimpleQueue()
 display_queue = SimpleQueue()
 signal_queue = SimpleQueue()
-sidebar_queue = SimpleQueue()
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 
 show_graph = False
@@ -54,11 +54,19 @@ _show_message("Initializing", (500,250))
 def _wifi_state():
     return bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n'
 
+def _touch_path():
+    touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
+    real_path = os.path.realpath(touch_dev_path)
+    assert real_path != touch_dev_path
+    return real_path
+
+
 def data():
     global exit_flag
     global show_graph
     dashcam_process, car_connection, touch_input_device, x = None, None, None, None
     bt_time = time() + 5
+    touch_time = time() + 0.19
     started_names = []
     try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.cvtColor(
         cv.imread("/root/newSidebar.png")[1:],BGR565)
@@ -74,22 +82,29 @@ def data():
         while not exit_flag:
             dashcam_process = start_dash_cam()
             car_connection = ELM327()
-            touch_input_device = InputDevice("/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00")
             while not exit_flag:
-                try:
-                    for event in touch_input_device.read():
-                        if event.type == 3:
-                            if event.code == 0 and event.value > FINAL_IMAGE_WIDTH: x = event.value
-                            else:
-                                if x is not None and event.code == 1:
-                                    if event.value > SCREEN_HEIGHT/2:
-                                        logger.info(f'touch input(X ⇁,Y ⇃) -> {x},{event.value}')
-                                        raise KeyboardInterrupt()
-                                    else: show_graph = not show_graph
-                                x = None
-                except BlockingIOError: pass
                 make_sidebar(car_connection.psi())
                 if exit_flag: break
+                if time() > touch_time:
+                    if touch_input_device is None: touch_input_device = InputDevice(_touch_path())
+                    try:
+                        for event in touch_input_device.read():
+                            if event.type == 3:
+                                if event.code == 0 and event.value > FINAL_IMAGE_WIDTH:
+                                    x = event.value
+                                else:
+                                    if x is not None and event.code == 1:
+                                        if event.value > SCREEN_HEIGHT/2:
+                                            msg = f'touch input(X ⇁,Y ⇃) -> {x},{event.value}'
+                                            logger.info(msg)
+                                            raise KeyboardInterrupt()
+                                        else: show_graph = not show_graph
+                                    x = None
+                    except BlockingIOError: pass # no new input
+                    except OSError:
+                        touch_input_device.close()
+                        touch_input_device = None
+                        touch_time = time() + 0.19
                 if bt_time is not None and time() > bt_time:
                     bash(f"bluetoothctl connect {mac}")
                     bt_time = None
