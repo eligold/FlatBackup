@@ -124,7 +124,7 @@ def leave(dashcam_process, car_connection, touch_input_device):
     if dashcam_process is not None: dashcam_process.terminate()
     if car_connection  is not None: car_connection.close()
     if dashcam_process is not None: dashcam_process.kill()
-    if not _wifi_state(): Popen("shutdown -h now",shell=True) # bash('ip link set wlan0 up')
+    if not _wifi_state(): Popen("sync; sync; sync; sleep 0.19; shutdown -h now",shell=True) # bash('ip link set wlan0 up')
     else: bash(f"bluetoothctl disconnect {mac}")
    # Popen("shutdown -h now",shell=True)
 
