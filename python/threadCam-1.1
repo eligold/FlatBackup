@@ -28,7 +28,7 @@ exit_flag = False
 HIGH_TEMP = 55.0
 
 sidebar_hot = cv.cvtColor(cv.imread("/root/turboSB_hot.png"),BGR565)[-160:,:120]
-sidebar_cool = cv.cvtColor(cv.imreaD("/root/turboSB.png"),BGR565)[-160:,:120]
+sidebar_cool = cv.cvtColor(cv.imread("/root/turboSB.png"),BGR565)[-160:,:120]
 def _sidebar_hot():
     logger.warning(f"temp over {int(HIGH_TEMP)}C")
     _change_sidebar(sidebar_hot)
@@ -136,8 +136,8 @@ def make_sidebar(psi):
         psi_list.append(entry)
         sidebar = sidebar_base.copy()
         sidebar = \
-                putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
-        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
+                putText(sidebar, f"{psi:.1f}",(4,38), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
+        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,76), color=COLOR_BAD)
         sidebar_queue.put(sidebar)
     except Exception as e: logger.exception(e)
 
