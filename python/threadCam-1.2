@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import logging, os, traceback
-from queue import Empty, Full
+from multiprocessing import Process, Pipe, EOFError
+from queue import SimpleQueue, Empty, Full
 from v4l2py import Device, VideoCapture
 from gpiozero import CPUTemperature
 from evdev import InputDevice
 from collections import deque
-from multiprocessing import Process, JoinableQueue, Lock
+from threading import Thread
 from time import time
 
 from Constants import *
@@ -17,10 +18,11 @@ usb_capture_real_path = os.path.realpath(usb_capture_id_path)
 assert usb_capture_id_path != usb_capture_real_path
 cameraIndex = int(usb_capture_real_path.split("video")[-1])
 # communications between processes:
-dashcam_queue = JoinableQueue()
-sidebar_queue = JoinableQueue()
-display_queue = JoinableQueue()
-lock = Lock()
+sidebar_queue = SimpleQueue()
+dash_pipe1, dash_pipe2 = Pipe()
+backup_pipe1, backup_pipe2 = Pipe()
+save_pipe1, save_pipe2 = Pipe()
+
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 
 show_graph = False
@@ -66,6 +68,7 @@ def data():
     bt_time = time() + 5
     touch_time = time() + 0.19
     started_names = []
+
     try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.cvtColor(
         cv.imread("/root/newSidebar.png")[1:],BGR565)
     except: logger.warning("couldn't find sidebar!")
@@ -74,7 +77,7 @@ def data():
         else: bash('ip link set wlan0 down') # else turn off radio to save power
         for function, name in [(get_dash_image,"dash"),
                                (get_image,"read"),
-                               (on_screen,"show"),
+                              # (on_screen,"show"),
                                (save_video,"save")]:
             Process(target=function, name=name, daemon=True).start()
             started_names.append(name)
@@ -83,6 +86,7 @@ def data():
         touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
         while not exit_flag:
             car_connection = ELM327()
+            Thread(target=on_screen,name="show",daemon=True).start()
             while not exit_flag:
                 make_sidebar(car_connection.psi())
                 if exit_flag: break
@@ -120,10 +124,6 @@ def data():
 
 def leave(car_connection, touch_input_device):
     global exit_flag
-    global dashcam_queue, display_queue, sidebar_queue
-    dashcam_queue.close()
-    display_queue.close()
-    sidebar_queue.close()
     if not exit_flag: exit_flag = True
     if touch_input_device is not None: touch_input_device.close()
     if car_connection  is not None: car_connection.close()
@@ -143,20 +143,25 @@ def make_sidebar(psi, sidebar_queue=sidebar_queue):
         sidebar_queue.put(sidebar)
     except Exception as e: logger.exception(e)
 
-def on_screen(display_queue=display_queue,lock=lock):
+def on_screen(back_pipe=backup_pipe1,dash_pipe=dash_pipe1): # display_queue=display_queue,
     global exit_flag
     global view_flag
-    global latest_dash_image
-    _show_message("Initializing..", (500,250))
+    global show_graph
+    _show_message("Initializing", (500,250))
     check_time = time() + 5
+    current_view = view_flag
     while not exit_flag:
         try:
-            image = display_queue.get(timeout=0.057)
+            if back_pipe.poll(0.057): image = back_pipe.recv()
+            else: raise Empty # image = display_queue.get(timeout=0.057)
+            if current_view != view_flag:
+                if view_flag: dash_pipe.send("START")
+                else: dash_pipe.send("STOP")
+                current_view = view_flag
             if view_flag:
-                lock.acquire()
-                image = output_alt(image,latest_dash_image)
-                lock.release()
-            else: image = build_output_image()
+                if dash_pipe.poll(0.119): dash_image = dash_pipe.recv()
+                image = output_alt(image,dash_image)
+            else: image = build_output_image(image)
             if show_graph: image = addOverlay(image)
             image = cv.cvtColor(image, BGR565)
             if exit_flag: break
@@ -164,16 +169,17 @@ def on_screen(display_queue=display_queue,lock=lock):
             if time() > check_time: logger.error("dropped frame!")
         except Exception as e: logger.exception(e)
         else:
-            display_queue.task_done()
+           # display_queue.task_done()
             display_image(image)
         if exit_flag: break
+    dash_pipe.close()
+    back_pipe.close()
 
-def display_image(image, sidebar_queue=sidebar_queue):
+def display_image(image, queue=sidebar_queue):
     try:
         frame_buffer[:,:-SIDEBAR_WIDTH] = image
-        try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = sidebar_queue.get(block=False)
+        try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = queue.get(block=False)
         except Empty: pass
-        else: sidebar_queue.task_done()
         if show_graph: build_graph(psi_list.copy())
         frame_buffer.flush()
     except Exception as e: logger.exception(e)
@@ -183,81 +189,76 @@ def build_graph(graph_list, depth=PSI_BUFFER_DEPTH):
     for i in range(4): frame_buffer[coordinates[:,0]-1+i//2, coordinates[:,1]-1+i%2] = (0xf8,0)
     for i in range(1,4): frame_buffer[coordinates[:,0]+i//2, coordinates[:,1]+i%2] = (0x30,0x21)
 
-def get_image(display_queue=display_queue):
+def get_image(pipe=backup_pipe2): # display_queue=display_queue,
     width, height = DIM
     read_fail_count = 0
-    global exit_flag
     camera = None
-    _show_message("Initializing.", (500,250))
-    while not exit_flag:
+    while True:
         try:
             camera = get_camera(cameraIndex,width,height)
             camera.read()
-            while camera.isOpened() and not exit_flag:
-                display_queue.join()
+            while camera.isOpened():
                 success, image = camera.read()
-                if success: # SimpleQueue never blocks
-                    try: display_queue.put(image)
-                    except Full:
-                        logger.error("display queue full!")
-                        display_image(image)
+                if success:
+                    try: pipe.send(image)
+                    except BrokenPipeError: break
                 else: read_fail_count += 1
-                if exit_flag: break
+            if pipe.poll(): pipe.recv()
         except Exception as e: logger.exception(e)
+        except EOFError: break
         finally:
             if camera: camera.release()
-        if exit_flag: break
+    pipe.close()
 
-def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG"):
+def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
+                   main_pipe=dash_pipe2, save_pipe=save_pipe1):
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    global exit_flag
-    global view_flag
-    global lock
+    exit_flag = False
+    view_flag = False
     while not exit_flag:
         try:
             with Device.from_id(extract_index(camPath)) as cam:
                 video_capture = VideoCapture(cam)
                 video_capture.set_format(width,height,video_format)
                 with video_capture as stream:
-                    global latest_dash_image
-                    for frame in stream:
-                        dashcam_queue.join()
+                    for frame in stream: # dashcam_queue.join()
                         if exit_flag: break
                         if video_format == "MJPG": image = cv.imdecode(frame.array, COLOR)
                         else: image = cv.cvtColor(frame.array.reshape(height, width, 2), YUYV)
-                        try: dashcam_queue.put(image)
+                        try: save_pipe.send(image) # dashcam_queue.put(image)
                         except Full: logger.error("dash queue full!")
+                        if main_pipe.poll():
+                            msg = main_pipe.recv()
+                            if msg == "STOP": view_flag = False
+                            elif msg  == "START": view_flag = True
+                            else: logger.error(f"bad message from main process: {msg}")
                         if view_flag:
-                            lock.acquire()
-                            latest_dash_image = image.copy()
-                            lock.release()
-        except Exception as e: logger.exception(e)
+                            main_pipe.send(image.copy())
 
-def save_video(queue=dashcam_queue, camera=None, width=DASHCAM_IMAGE_WIDTH,
-               height=DASHCAM_IMAGE_HEIGHT,fps=15):
+        except Exception as e: logger.exception(e)
+        except EOFError: break
+    main_pipe.close()
+    save_pipe.close()
+
+def save_video(pipe=save_pipe2, camera=None, width=DASHCAM_IMAGE_WIDTH,
+               height=DASHCAM_IMAGE_HEIGHT, fps=15): # queue=dashcam_queue,
     fourcc = cv.VideoWriter_fourcc(*'H264')
-    breakout = False
-    output = None
-    if camera is None: _show_message("Initializing....")
-    while not (exit_flag and breakout):
+    while True:
+        output = None
         try:
             output = cv.VideoWriter(get_video_path(camera), fourcc, fps, (width, height))
-            while not exit_flag:
-                try: image = queue.get(timeout=0.095)
-                except Empty: pass
-                else:
-                    breakout = (image is None and camera is not None)
+            while True:
+                if pipe.poll(0.119): 
+                    image = pipe.recv()
                    # if speed: pass # (speed,frame_num) -> csv file
-                    if breakout or exit_flag: break
-                    if camera is None:
-                        queue.task_done()
-                    if image is not None:
-                        print("w",end="")
-                        output.write(image)
+                    if image is not None: output.write(image)
                     else: print("empty image!")
+                else: logger.error("no dash video to save!")
         except Exception as e: logger.exception(e)
+        except EOFError: break
         finally:
             if output is not None: output.release()
+    pipe.close()
 
 if __name__ == "__main__":
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
