@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import logging, os, traceback
-from multiprocessing import Process, Pipe
+from multiprocessing import Process, Pipe, set_start_method
 from queue import SimpleQueue, Empty, Full
 from v4l2py import Device, VideoCapture
 from gpiozero import CPUTemperature
@@ -22,6 +22,7 @@ sidebar_queue = SimpleQueue()
 dash_pipe1, dash_pipe2 = Pipe()
 backup_pipe1, backup_pipe2 = Pipe()
 save_pipe1, save_pipe2 = Pipe()
+set_start_method('spawn')
 
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 
