@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import logging, os, traceback
-from multiprocessing import Process, Pipe, EOFError
+from multiprocessing import Process, Pipe
 from queue import SimpleQueue, Empty, Full
 from v4l2py import Device, VideoCapture
 from gpiozero import CPUTemperature
@@ -86,7 +86,7 @@ def data():
         touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
         while not exit_flag:
             car_connection = ELM327()
-            Thread(target=on_screen,name="show",daemon=True).start()
+            Thread(target=on_screen, name="show", daemon=True).start()
             while not exit_flag:
                 make_sidebar(car_connection.psi())
                 if exit_flag: break

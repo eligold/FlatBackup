@@ -130,7 +130,7 @@ def get_video_path(explicit_camera=None): # e.g. "backup", "cabin"
     weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
     join_list = [date,clock_time,weekday]
     if explicit_camera is not None: join_list.append(explicit_camera)
-    return f"/media/usb/{'_'.join(join_list)}.mkv"
+    return f"/media/usb/{'_'.join(join_list)}.avi"
 
 def bash(cmd:str,shell=True,capture_output=True,check=False):
     return run(cmd,shell=shell,capture_output=capture_output,check=check)
