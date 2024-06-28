@@ -17,12 +17,14 @@ usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
 usb_capture_real_path = os.path.realpath(usb_capture_id_path)
 assert usb_capture_id_path != usb_capture_real_path
 cameraIndex = int(usb_capture_real_path.split("video")[-1])
-# communications between processes:
+# communications between threads:
 sidebar_queue = SimpleQueue()
+
+# communications between processes:
 dash_pipe1, dash_pipe2 = Pipe()
 backup_pipe1, backup_pipe2 = Pipe()
 save_pipe1, save_pipe2 = Pipe()
-set_start_method('spawn')
+
 
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 
@@ -191,6 +193,7 @@ def build_graph(graph_list, depth=PSI_BUFFER_DEPTH):
     for i in range(1,4): frame_buffer[coordinates[:,0]+i//2, coordinates[:,1]+i%2] = (0x30,0x21)
 
 def get_image(pipe=backup_pipe2): # display_queue=display_queue,
+    logger = logging.getLogger()
     width, height = DIM
     read_fail_count = 0
     camera = None
@@ -205,14 +208,15 @@ def get_image(pipe=backup_pipe2): # display_queue=display_queue,
                     except BrokenPipeError: break
                 else: read_fail_count += 1
             if pipe.poll(): pipe.recv()
-        except Exception as e: logger.exception(e)
         except EOFError: break
+        except Exception as e: logger.exception(e)
         finally:
             if camera: camera.release()
     pipe.close()
 
 def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
                    main_pipe=dash_pipe2, save_pipe=save_pipe1):
+    logger = logging.getLogger()
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     exit_flag = False
     view_flag = False
@@ -235,14 +239,14 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
                             else: logger.error(f"bad message from main process: {msg}")
                         if view_flag:
                             main_pipe.send(image.copy())
-
-        except Exception as e: logger.exception(e)
         except EOFError: break
+        except Exception as e: logger.exception(e)
     main_pipe.close()
     save_pipe.close()
 
 def save_video(pipe=save_pipe2, camera=None, width=DASHCAM_IMAGE_WIDTH,
                height=DASHCAM_IMAGE_HEIGHT, fps=15): # queue=dashcam_queue,
+    logger = logging.getLogger()
     fourcc = cv.VideoWriter_fourcc(*'H264')
     while True:
         output = None
@@ -255,13 +259,14 @@ def save_video(pipe=save_pipe2, camera=None, width=DASHCAM_IMAGE_WIDTH,
                     if image is not None: output.write(image)
                     else: print("empty image!")
                 else: logger.error("no dash video to save!")
-        except Exception as e: logger.exception(e)
         except EOFError: break
+        except Exception as e: logger.exception(e)
         finally:
             if output is not None: output.release()
     pipe.close()
 
 if __name__ == "__main__":
+    set_start_method('spawn') # ,force=True)
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
     handler = logging.FileHandler("/root/runtime-carCam.log")
     level = logging.DEBUG
@@ -269,6 +274,6 @@ if __name__ == "__main__":
     handler.setFormatter(logging.Formatter(fmtString))
     logger = logging.getLogger()
     logger.setLevel(level)
-    logger.addHandler(handler) # turn off red LED
+    logger.addHandler(handler) # turn off red LED \/  \/
     bash('echo none > /sys/class/leds/PWR/trigger; echo 0 > /sys/class/leds/PWR/brightness')
     data()
