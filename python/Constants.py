@@ -90,6 +90,11 @@ def addOverlay(image):
     image[135:137,38:45] = BLACK
     return putText(image,"10",(25,133),color=BLACK,fontScale=0.38,thickness=1)
 
+def build_graph(graph_list, frame_buffer, depth=PSI_BUFFER_DEPTH):
+    coordinates=np.column_stack((np.array(graph_list),np.arange(depth-len(graph_list)+1,depth+1)))
+    for i in range(4): frame_buffer[coordinates[:,0]-1+i//2, coordinates[:,1]-1+i%2] = (0xf8,0)
+    for i in range(1,4): frame_buffer[coordinates[:,0]+i//2, coordinates[:,1]+i%2] = (0x30,0x21)
+
 def get_camera(cam_index:int,width,height,apiPreference=V4L2,brightness=25) -> cv.VideoCapture:
     camera = cv.VideoCapture(cam_index,apiPreference=apiPreference)
     camera.set(WIDTH,width)
@@ -130,7 +135,7 @@ def get_video_path(explicit_camera=None): # e.g. "backup", "cabin"
     weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
     join_list = [date,clock_time,weekday]
     if explicit_camera is not None: join_list.append(explicit_camera)
-    return f"/media/usb/{'_'.join(join_list)}.avi"
+    return f"/media/usb/{'_'.join(join_list)}.mkv"
 
 def bash(cmd:str,shell=True,capture_output=True,check=False):
     return run(cmd,shell=shell,capture_output=capture_output,check=check)

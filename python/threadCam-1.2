@@ -87,9 +87,9 @@ def data():
         _show_message("Initializing...", (500,250))
         logger.info(f'processes started: {started_names}')
         touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
+        Thread(target=on_screen, name="show", daemon=True).start()
         while not exit_flag:
             car_connection = ELM327()
-            Thread(target=on_screen, name="show", daemon=True).start()
             while not exit_flag:
                 make_sidebar(car_connection.psi())
                 if exit_flag: break
@@ -153,6 +153,7 @@ def on_screen(back_pipe=backup_pipe1,dash_pipe=dash_pipe1): # display_queue=disp
     _show_message("Initializing", (500,250))
     check_time = time() + 5
     current_view = view_flag
+    counter = 0
     while not exit_flag:
         try:
             if back_pipe.poll(0.057): image = back_pipe.recv()
@@ -162,14 +163,22 @@ def on_screen(back_pipe=backup_pipe1,dash_pipe=dash_pipe1): # display_queue=disp
                 else: dash_pipe.send("STOP")
                 current_view = view_flag
             if view_flag:
-                if dash_pipe.poll(0.119): dash_image = dash_pipe.recv()
-                image = output_alt(image,dash_image)
-            else: image = build_output_image(image)
+                if dash_pipe.poll(0.119):
+                    dash_image = dash_pipe.recv()
+                    image = output_alt(image,dash_image)
+                else:
+                    logger.error("no dash image in display thread pipe!")
+                    counter += 1
+                    if counter > 5:
+                        view_flag = False
+                        counter = 0
+            if not view_flag: image = build_output_image(image)
             if show_graph: image = addOverlay(image)
             image = cv.cvtColor(image, BGR565)
             if exit_flag: break
         except Empty:
             if time() > check_time: logger.error("dropped frame!")
+        except EOFError: exit_flag = True
         except Exception as e: logger.exception(e)
         else:
            # display_queue.task_done()
@@ -183,17 +192,11 @@ def display_image(image, queue=sidebar_queue):
         frame_buffer[:,:-SIDEBAR_WIDTH] = image
         try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = queue.get(block=False)
         except Empty: pass
-        if show_graph: build_graph(psi_list.copy())
+        if show_graph: build_graph(psi_list.copy(), frame_buffer)
         frame_buffer.flush()
     except Exception as e: logger.exception(e)
 
-def build_graph(graph_list, depth=PSI_BUFFER_DEPTH):
-    coordinates=np.column_stack((np.array(graph_list),np.arange(depth-len(graph_list)+1,depth+1)))
-    for i in range(4): frame_buffer[coordinates[:,0]-1+i//2, coordinates[:,1]-1+i%2] = (0xf8,0)
-    for i in range(1,4): frame_buffer[coordinates[:,0]+i//2, coordinates[:,1]+i%2] = (0x30,0x21)
-
 def get_image(pipe=backup_pipe2): # display_queue=display_queue,
-    logger = logging.getLogger()
     width, height = DIM
     read_fail_count = 0
     camera = None
@@ -209,14 +212,13 @@ def get_image(pipe=backup_pipe2): # display_queue=display_queue,
                 else: read_fail_count += 1
             if pipe.poll(): pipe.recv()
         except EOFError: break
-        except Exception as e: logger.exception(e)
+        except Exception: traceback.print_exc()
         finally:
             if camera: camera.release()
     pipe.close()
 
 def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
                    main_pipe=dash_pipe2, save_pipe=save_pipe1):
-    logger = logging.getLogger()
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     exit_flag = False
     view_flag = False
@@ -231,22 +233,21 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
                         if video_format == "MJPG": image = cv.imdecode(frame.array, COLOR)
                         else: image = cv.cvtColor(frame.array.reshape(height, width, 2), YUYV)
                         try: save_pipe.send(image) # dashcam_queue.put(image)
-                        except Full: logger.error("dash queue full!")
+                        except Full: print("dash queue full!")
                         if main_pipe.poll():
                             msg = main_pipe.recv()
                             if msg == "STOP": view_flag = False
                             elif msg  == "START": view_flag = True
-                            else: logger.error(f"bad message from main process: {msg}")
+                            else: print(f"bad message from main process: {msg}")
                         if view_flag:
                             main_pipe.send(image.copy())
         except EOFError: break
-        except Exception as e: logger.exception(e)
+        except Exception: traceback.print_exc()
     main_pipe.close()
     save_pipe.close()
 
 def save_video(pipe=save_pipe2, camera=None, width=DASHCAM_IMAGE_WIDTH,
                height=DASHCAM_IMAGE_HEIGHT, fps=15): # queue=dashcam_queue,
-    logger = logging.getLogger()
     fourcc = cv.VideoWriter_fourcc(*'H264')
     while True:
         output = None
@@ -254,13 +255,12 @@ def save_video(pipe=save_pipe2, camera=None, width=DASHCAM_IMAGE_WIDTH,
             output = cv.VideoWriter(get_video_path(camera), fourcc, fps, (width, height))
             while True:
                 if pipe.poll(0.119): 
-                    image = pipe.recv()
-                   # if speed: pass # (speed,frame_num) -> csv file
+                    image = pipe.recv() # if speed: pass # (speed,frame_num) -> csv file
                     if image is not None: output.write(image)
                     else: print("empty image!")
-                else: logger.error("no dash video to save!")
+                else: print("no dash image to save!")
         except EOFError: break
-        except Exception as e: logger.exception(e)
+        except Exception: traceback.print_exc()
         finally:
             if output is not None: output.release()
     pipe.close()
