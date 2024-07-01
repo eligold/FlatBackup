@@ -47,5 +47,7 @@ def get_video(q=q):
 
 if __name__ == "__main__":
     try: run()
-    except: traceback.print_exc()
+    except Exception as e:
+        traceback.print_exc()
+        raise e
     code.interact(local=dict(globals(), **locals()))
