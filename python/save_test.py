@@ -22,7 +22,7 @@ def save_video(q=q):
     while not leave:
         if leave: break
         o = cv.VideoWriter(f"/media/usb/test{count}.mkv",cv.CAP_FFMPEG,fourcc,fps,size)
-        while True:
+        while not leave:
             try: o.write(cv.cvtColor(q.get(timeout=1.19/fps),cv.COLOR_YUV2BGR_YUYV))
             except Empty: print('empty')
             except:
