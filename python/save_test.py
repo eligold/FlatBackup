@@ -8,7 +8,7 @@ from Constants import extract_index
 count = 0
 q = SimpleQueue()
 leave = False
-fourcc = cv.VideoWriter_fourcc(*"HEVC")
+fourcc = cv.VideoWriter_fourcc(*"H264")
 fps = 6
 size = (1920,1080)
 
@@ -25,7 +25,7 @@ def save_video(q=q):
         try:
             o = cv.VideoWriter(f"/media/usb/test{count}.mkv",cv.CAP_FFMPEG,fourcc,fps,size)
             while not leave:
-                try: o.write(cv.cvtColor(q.get(timeout=1.19/fps),cv.COLOR_YUV2BGR_YUYV))
+                try: o.write(cv.cvtColor(q.get(timeout=0.19),cv.COLOR_YUV2BGR_YUYV))
                 except Empty: print('empty')
                 except:
                     leave = True
@@ -38,6 +38,7 @@ def get_video(q=q):
     while not leave:
         try:
             with Device.from_id(extract_index("/dev/v4l/by-id/usb-HD_USB_Camera_HD_USB_Camera-video-index0")) as c:
+                c.controls.brightness.value = 25
                 vc = VideoCapture(c)
                 vc.set_format(size[0],size[1],"YUYV")
                 with vc as stream:
@@ -50,4 +51,5 @@ def get_video(q=q):
             break
 
 if __name__ == "__main__":
-    run() # code.interact(local=dict(globals(), **locals()))
+    run()
+    code.interact(local=dict(globals(), **locals()))
