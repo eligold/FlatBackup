@@ -10,7 +10,7 @@ from cv2 import CAP_V4L2 as V4L2
 
 from subprocess import run, Popen, PIPE, STDOUT
 from os.path import realpath
-from time import localtime
+from time import localtime, sleep
 import cv2 as cv, numpy as np
 
 DASHCAM_FPS = 15
@@ -135,7 +135,12 @@ def get_video_path(explicit_camera=None): # e.g. "backup", "cabin"
     weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
     join_list = [date,clock_time,weekday]
     if explicit_camera is not None: join_list.append(explicit_camera)
-    return f"/media/usb/{'_'.join(join_list)}.mkv"
+    return f"/media/usb/{'_'.join(join_list)}.mp4"
+
+def reset_usb():
+    bash("echo '1-1' > /sys/bus/usb/drivers/usb/unbind",capture_output=False)
+    sleep(1)
+    bash("echo '1-1' > /sys/bus/usb/drivers/usb/bind",capture_output=False)
 
 def bash(cmd:str,shell=True,capture_output=True,check=False):
     return run(cmd,shell=shell,capture_output=capture_output,check=check)
