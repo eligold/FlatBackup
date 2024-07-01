@@ -234,13 +234,13 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
                        # except Full: print("dash queue full!")
                         if main_pipe.poll():
                             msg = main_pipe.recv()
-                            if msg == "STOP": view_flag = False
-                            elif msg  == "START": view_flag = True
+                            if "START" == msg: view_flag = False
+                            elif "STOP" == msg: view_flag = True
                             else: print(f"bad message from main process: {msg}")
                         if view_flag:
                             main_pipe.send(image)
         except EOFError: break
-        except AssertionError: reset_usb()
+       # except AssertionError: reset_usb()
         except Exception: traceback.print_exc()
     main_pipe.close()
     save_pipe.close()
