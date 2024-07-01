@@ -149,7 +149,7 @@ def display_image(pipe=main_pipe1,queue=sidebar_queue):
     global show_graph
     while not exit_flag:
         try:
-            if pipe.poll(0.057): image = pipe.recv()
+            if pipe.poll(0.119): image = pipe.recv()
             else: image = no_signal_frame
             frame_buffer[:,:-SIDEBAR_WIDTH] = image
             try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:]=queue.get(block=False)
@@ -260,7 +260,7 @@ def save_video(pipe=save_pipe2, camera=None, width=DASHCAM_IMAGE_WIDTH,
     pipe.close()
 
 if __name__ == "__main__":
-    set_start_method('spawn') # ,force=True)
+   # set_start_method('spawn') # ,force=True)
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
     handler = logging.FileHandler("/root/runtime-carCam.log")
     level = logging.DEBUG
