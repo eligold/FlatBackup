@@ -14,7 +14,9 @@ size = (1920,1080)
 
 def run():
     Process(target=save_video,daemon=True).start()
+    Process(target=convert_video,daemon=True).start()
     get_video()
+
 def convert_video(pin=p2,pout=p3):
     leave = False
     while not leave:
