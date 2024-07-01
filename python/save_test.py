@@ -8,7 +8,7 @@ count = 0
 p1,p2 = Pipe()
 p3,p4 = Pipe()
 leave = False
-fourcc = cv.VideoWriter_fourcc(*"H264")
+fourcc = cv.VideoWriter_fourcc(*"MP4V")
 fps = 30
 size = (1920,1080)
 
@@ -21,7 +21,7 @@ def convert_video(pin=p2,pout=p3):
     leave = False
     while not leave:
         try:
-            if pin.poll(0.19): pout.send(cv.imdecode(pin.recv(),cv.COLOR))
+            if pin.poll(0.19): pout.send(cv.imdecode(pin.recv(),cv.IMREAD_COLOR))
             else: print("cam pipe empty")
         except:
             leave = True
@@ -33,7 +33,7 @@ def save_video(p=p4):
     while not leave:
         if leave: break
         try:
-            o = cv.VideoWriter(f"/media/usb/test{count}.mkv",cv.CAP_FFMPEG,fourcc,fps,size)
+            o = cv.VideoWriter(f"/media/usb/test{count}.mp4",cv.CAP_FFMPEG,fourcc,fps,size)
             while not leave:
                 try:
                     if p.poll(0.19): o.write(p.recv())
@@ -55,7 +55,7 @@ def get_video(p=p1):
                 with vc as stream:
                     for frame in stream:
                         if leave: break
-                        p.send(frame.array.reshape(size[1], size[0], 2))
+                        p.send(frame.array)
         except: 
             traceback.print_exc()
             leave = True
