@@ -9,7 +9,7 @@ p1,p2 = Pipe()
 p3,p4 = Pipe()
 leave = False
 fourcc = cv.VideoWriter_fourcc(*"H264")
-fps = 6
+fps = 30
 size = (1920,1080)
 
 def run():
@@ -21,7 +21,7 @@ def convert_video(pin=p2,pout=p3):
     leave = False
     while not leave:
         try:
-            if pin.poll(0.19): pout.send(cv.cvtColor(pin.recv(),cv.COLOR_YUV2BGR_YUYV))
+            if pin.poll(0.19): pout.send(cv.imdecode(pin.recv(),cv.COLOR))
             else: print("cam pipe empty")
         except:
             leave = True
@@ -51,7 +51,7 @@ def get_video(p=p1):
             with Device.from_id(extract_index("/dev/v4l/by-id/usb-HD_USB_Camera_HD_USB_Camera-video-index0")) as c:
                 c.controls.brightness.value = 25
                 vc = VideoCapture(c)
-                vc.set_format(size[0],size[1],"YUYV")
+                vc.set_format(size[0],size[1],"MJPG")
                 with vc as stream:
                     for frame in stream:
                         if leave: break
