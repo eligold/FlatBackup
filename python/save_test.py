@@ -6,28 +6,17 @@ from Constants import extract_index
 
 count = 0
 p1,p2 = Pipe()
-p3,p4 = Pipe()
+#p3,p4 = Pipe()
 leave = False
-fourcc = cv.VideoWriter_fourcc(*"MP4V")
+fourcc = cv.VideoWriter_fourcc(*"mp4v")
 fps = 30
 size = (1920,1080)
 
 def run():
     Process(target=save_video,daemon=True).start()
-    Process(target=convert_video,daemon=True).start()
     get_video()
 
-def convert_video(pin=p2,pout=p3):
-    leave = False
-    while not leave:
-        try:
-            if pin.poll(0.19): pout.send(cv.imdecode(pin.recv(),cv.IMREAD_COLOR))
-            else: print("cam pipe empty")
-        except:
-            leave = True
-            break
-
-def save_video(p=p4):
+def save_video(p=p2):
     o = None
     leave = False
     while not leave:
@@ -36,7 +25,7 @@ def save_video(p=p4):
             o = cv.VideoWriter(f"/media/usb/test{count}.mp4",cv.CAP_FFMPEG,fourcc,fps,size)
             while not leave:
                 try:
-                    if p.poll(0.19): o.write(p.recv())
+                    if p.poll(0.19): o.write(cv.imdecode(p.recv(),cv.IMREAD_COLOR))
                     else: print('convert pipe empty')
                 except:
                     leave = True
@@ -46,6 +35,7 @@ def save_video(p=p4):
 
 def get_video(p=p1):
     global leave
+    vc = None
     while not leave:
         try:
             with Device.from_id(extract_index("/dev/v4l/by-id/usb-HD_USB_Camera_HD_USB_Camera-video-index0")) as c:
@@ -60,6 +50,8 @@ def get_video(p=p1):
             traceback.print_exc()
             leave = True
             break
+        finally:
+            if vc is not None: vc.release()
 
 if __name__ == "__main__":
     run()
