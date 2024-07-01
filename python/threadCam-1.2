@@ -24,12 +24,12 @@ sidebar_queue = SimpleQueue()
 dash_pipe1, dash_pipe2 = Pipe()
 backup_pipe1, backup_pipe2 = Pipe()
 save_pipe1, save_pipe2 = Pipe()
+main_pipe1, main_pipe2 = Pipe()
 
 
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 
 show_graph = False
-view_flag = False
 exit_flag = False
 HIGH_TEMP = 55.0
 
@@ -52,23 +52,20 @@ frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
 frame_buffer[:] = np.fromfunction(
     (lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
 
-# load private bluetooth MAC address for my phone
-with open("/root/.btmac","r") as file: mac = file.readline()
-
 def _show_message(text,loc=(500,250),color=COLOR_LAYM,fontScale=3,thickness=4,width=SIDEBAR_WIDTH):
     frame_buffer[:,:-width] = putText(frame_buffer[:,:-width], text, loc, color,
                                       fontScale=fontScale, thickness=thickness)
 _show_message("Initializing", (500,250))
 
+# load private bluetooth MAC address for my phone
+with open("/root/.btmac","r") as file: mac = file.readline()
 def _wifi_state():
     return bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n'
 
 def data():
     global exit_flag
-    global view_flag
     global show_graph
-    car_connection, touch_input_device, x = None, None, None
-    bt_time = time() + 5
+    car_connection, touch_input, x = None, None, None
     touch_time = time() + 0.19
     started_names = []
 
@@ -77,17 +74,19 @@ def data():
     except: logger.warning("couldn't find sidebar!")
     try: # is the wifi connected?
         if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
-        else: bash('ip link set wlan0 down') # else turn off radio to save power
-        for function, name in [(get_dash_image,"dash"),
-                               (get_image,"read"),
-                              # (on_screen,"show"),
-                               (save_video,"save")]:
-            Process(target=function, name=name, daemon=True).start()
+        else: 
+            bash('ip link set wlan0 down') # else turn off radio to save power
+            Thread(target=bash,args=(f"sleep 5; bluetoothctl connect {mac}",),daemon=True).start()
+        for func, name in [(get_dash_image,"dash"),
+                           (get_image,"read"),
+                           (on_screen,"proc"),
+                           (save_video,"save")]:
+            Process(target=func, name=name, daemon=True).start()
             started_names.append(name)
         _show_message("Initializing...", (500,250))
         logger.info(f'processes started: {started_names}')
         touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
-        Thread(target=on_screen, name="show", daemon=True).start()
+        Thread(target=display_image, name="show", daemon=True).start()
         while not exit_flag:
             car_connection = ELM327()
             while not exit_flag:
@@ -95,46 +94,45 @@ def data():
                 if exit_flag: break
                 if time() > touch_time:
                     try:
-                        if touch_input_device is None: touch_input_device = InputDevice(touch_dev_path)
-                        for event in touch_input_device.read():
+                        if touch_input is None: touch_input = InputDevice(touch_dev_path)
+                        for event in touch_input.read():
                             if event.type == 3:
                                 if event.code == 0:
                                     if event.value > FINAL_IMAGE_WIDTH: x = event.value
-                                    else: view_flag = not view_flag
+                                    else: main_pipe1.send("VIEW")
                                 else:
                                     if x is not None and event.code == 1:
                                         if event.value > SCREEN_HEIGHT/2:
                                             msg = f'touch input(X ⇁,Y ⇃) -> {x},{event.value}'
                                             logger.info(msg)
                                             raise KeyboardInterrupt()
-                                        else: show_graph = not show_graph
+                                        else: 
+                                            show_graph = not show_graph
+                                            main_pipe1.send("GRAPH")
                                     x = None
                     except BlockingIOError: pass # no new input
                     except (OSError, FileNotFoundError): # janky mcu is ailing
-                        if touch_input_device is not None:
-                            touch_input_device.close()
-                            touch_input_device = None
+                        if touch_input is not None:
+                            touch_input.close()
+                            touch_input = None
                         touch_time = time() + 0.38
-                if bt_time is not None and time() > bt_time:
-                    bash(f"bluetoothctl connect {mac}")
-                    bt_time = None
             if exit_flag: break
     except KeyboardInterrupt: exit_flag = True
     except Exception as ex:
         traceback.print_exc()
         logger.exception(ex)
-    finally: leave(car_connection, touch_input_device)
+    finally: leave(car_connection, touch_input)
 
-def leave(car_connection, touch_input_device):
+def leave(car_connection, touch_input):
     global exit_flag
+    main_pipe1.close()
     if not exit_flag: exit_flag = True
-    if touch_input_device is not None: touch_input_device.close()
+    if touch_input is not None: touch_input.close()
     if car_connection  is not None: car_connection.close()
     if not _wifi_state(): Popen("shutdown -h now",shell=True) # bash('ip link set wlan0 up')
     bash(f"bluetoothctl disconnect {mac}")
 
-
-def make_sidebar(psi, sidebar_queue=sidebar_queue):
+def make_sidebar(psi,queue=sidebar_queue):
     global psi_list
     try:
         entry = max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),1)
@@ -143,60 +141,58 @@ def make_sidebar(psi, sidebar_queue=sidebar_queue):
         sidebar = \
                 putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
         sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
-        sidebar_queue.put(sidebar)
+        queue.put(sidebar)
     except Exception as e: logger.exception(e)
 
-def on_screen(back_pipe=backup_pipe1,dash_pipe=dash_pipe1): # display_queue=display_queue,
+def display_image(pipe=main_pipe1,queue=sidebar_queue):
     global exit_flag
-    global view_flag
     global show_graph
-    _show_message("Initializing", (500,250))
-    check_time = time() + 5
-    current_view = view_flag
-    counter = 0
     while not exit_flag:
         try:
-            if back_pipe.poll(0.057): image = back_pipe.recv()
+            if pipe.poll(0.057): image = pipe.recv()
+            else: image = no_signal_frame
+            frame_buffer[:,:-SIDEBAR_WIDTH] = image
+            try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:]=queue.get(block=False)
+            except Empty: pass
+            if show_graph: build_graph(psi_list.copy(), frame_buffer)
+            frame_buffer.flush()
+        except EOFError: exit_flag = True
+        except Exception as e: logger.exception(e)
+        if exit_flag: break
+
+def on_screen(back_pipe=backup_pipe1,dash_pipe=dash_pipe1,ctrl_pipe=main_pipe2):
+    dash_image = None
+    exit_flag = False
+    view_flag = False
+    show_graph = False
+    check_time = time() + 5
+    while not exit_flag:
+        try:
+            if back_pipe.poll(0.057): back_image = back_pipe.recv()
             else: raise Empty # image = display_queue.get(timeout=0.057)
-            if current_view != view_flag:
-                if view_flag: dash_pipe.send("START")
-                else: dash_pipe.send("STOP")
-                current_view = view_flag
+            if ctrl_pipe.poll():
+                msg = ctrl_pipe.recv()
+                if "VIEW" == msg: 
+                    view_flag = not view_flag
+                    dash_pipe.send("START" if view_flag else "STOP")
+                elif "GRAPH" == msg: show_graph = not show_graph
+                else: print(f"bad message from main: {msg}")
             if view_flag:
-                if dash_pipe.poll(0.119):
-                    dash_image = dash_pipe.recv()
-                    image = output_alt(image,dash_image)
-                else:
-                    logger.error("no dash image in display thread pipe!")
-                    counter += 1
-                    if counter > 5:
-                        view_flag = False
-                        counter = 0
-            if not view_flag: image = build_output_image(image)
+                if dash_pipe.poll(): dash_image = dash_pipe.recv()
+                if dash_image is not None: image = output_alt(back_image,dash_image)
+            if not view_flag or dash_image is None: image = build_output_image(back_image)
             if show_graph: image = addOverlay(image)
             image = cv.cvtColor(image, BGR565)
-            if exit_flag: break
         except Empty:
             if time() > check_time: logger.error("dropped frame!")
         except EOFError: exit_flag = True
-        except Exception as e: logger.exception(e)
-        else:
-           # display_queue.task_done()
-            display_image(image)
+        except Exception: traceback.print_exc()
+        else: ctrl_pipe.send(image)
         if exit_flag: break
-    dash_pipe.close()
-    back_pipe.close()
+    for pipe in (dash_pipe,back_pipe,ctrl_pipe):
+        pipe.close()
 
-def display_image(image, queue=sidebar_queue):
-    try:
-        frame_buffer[:,:-SIDEBAR_WIDTH] = image
-        try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = queue.get(block=False)
-        except Empty: pass
-        if show_graph: build_graph(psi_list.copy(), frame_buffer)
-        frame_buffer.flush()
-    except Exception as e: logger.exception(e)
-
-def get_image(pipe=backup_pipe2): # display_queue=display_queue,
+def get_image(pipe=backup_pipe2):
     width, height = DIM
     read_fail_count = 0
     camera = None
@@ -218,7 +214,7 @@ def get_image(pipe=backup_pipe2): # display_queue=display_queue,
     pipe.close()
 
 def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
-                   main_pipe=dash_pipe2, save_pipe=save_pipe1):
+                   show_pipe=dash_pipe2, save_pipe=save_pipe1):
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     view_flag = False
     while True:
@@ -230,19 +226,18 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
                     for frame in stream: # dashcam_queue.join()
                         if video_format == "MJPG": image = cv.imdecode(frame.array, COLOR)
                         else: image = cv.cvtColor(frame.array.reshape(height, width, 2), YUYV)
-                        save_pipe.send(image) # try: dashcam_queue.put(image)
-                       # except Full: print("dash queue full!")
-                        if main_pipe.poll():
-                            msg = main_pipe.recv()
-                            if "START" == msg: view_flag = False
-                            elif "STOP" == msg: view_flag = True
+                        save_pipe.send(image)
+                        if show_pipe.poll():
+                            msg = show_pipe.recv()
+                            if "START" == msg: view_flag = True
+                            elif "STOP" == msg: view_flag = False
                             else: print(f"bad message from main process: {msg}")
                         if view_flag:
-                            main_pipe.send(image)
-        except EOFError: break
-       # except AssertionError: reset_usb()
+                            show_pipe.send(image)
+        except EOFError: break 
+        except AssertionError: print("can't find usb") # reset_usb()
         except Exception: traceback.print_exc()
-    main_pipe.close()
+    show_pipe.close()
     save_pipe.close()
 
 def save_video(pipe=save_pipe2, camera=None, width=DASHCAM_IMAGE_WIDTH,

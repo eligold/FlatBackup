@@ -35,7 +35,7 @@ COLOR_REC = (0x00,0x58) # 0x00, 0xfa?
 COLOR_GOOD = 0x871a
 COLOR_LOW = (0xc4,0xe4)
 COLOR_NEW = (0xe4,0xc4)
-COLOR_BAD = 0x8248
+COLOR_BAD = (0x82,0x48)
 COLOR_NORMAL = 0x19ae
 COLOR_LAYM = 0xbfe4
 COLOR_OVERLAY = (199,199,190)
@@ -47,15 +47,13 @@ DOT = np.full((3,3,2),SHADOW,np.uint8)
 DOT[:-1,:-1] = (0xF8,0)  # (0xFF,0,0)
 
 # below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
-K = np.array([                                                               # phone screen. YMMV
-        [309.41085232860985,              0.0, 355.4094868125207],
-        [0.0,              329.90981352161924, 292.2015284112677],
-        [0.0,                             0.0,               1.0]])
-D = np.array([
-    [0.013301372417500422],
-    [0.03857464918863361],
-    [0.004117306147228716],
-    [-0.008896442339724364]])
+K = np.array([[309.41085232860985,              0.0, 355.4094868125207],   # phone screen. YMMV
+              [0.0,              329.90981352161924, 292.2015284112677],
+              [0.0,                             0.0,               1.0]])
+D = np.array([[0.013301372417500422],
+              [0.03857464918863361],
+              [0.004117306147228716],
+              [-0.008896442339724364]])
 # calculate camera values to undistort image
 new_K = cv.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv.CV_32FC1)
@@ -67,6 +65,9 @@ def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv.FONT_HERSHEY_SIMPLEX,
             fontScale=1.19,thickness=2,lineType=cv.LINE_AA):
     return cv.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
+
+no_signal_frame = np.full((FINAL_IMAGE_HEIGHT, FINAL_IMAGE_WIDTH, 2), COLOR_BAD, np.uint8)
+no_signal_frame = putText(no_signal_frame, "No Signal", (500,200))
 
 def extract_index(fully_qualified_path=usb_capture_id_path):
     usb_capture_real_path = realpath(fully_qualified_path)
@@ -138,6 +139,7 @@ def get_video_path(explicit_camera=None): # e.g. "backup", "cabin"
     return f"/media/usb/{'_'.join(join_list)}.mp4"
 
 def reset_usb():
+    print("resetting the USB chip! THIS IS FUBAR")
     bash("echo '1-1' > /sys/bus/usb/drivers/usb/unbind",capture_output=False)
     sleep(1)
     bash("echo '1-1' > /sys/bus/usb/drivers/usb/bind",capture_output=False)
