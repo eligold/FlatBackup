@@ -6,6 +6,7 @@ from Constants import extract_index
 
 count = 0
 p1,p2 = Pipe()
+p3,p4 = Pipe()
 leave = False
 fourcc = cv.VideoWriter_fourcc(*"H264")
 fps = 6
@@ -14,8 +15,17 @@ size = (1920,1080)
 def run():
     Process(target=save_video,daemon=True).start()
     get_video()
+def convert_video(pin=p2,pout=p3):
+    leave = False
+    while not leave:
+        try:
+            if pin.poll(0.19): pout.send(cv.cvtColor(pin.recv(),cv.COLOR_YUV2BGR_YUYV))
+            else: print("cam pipe empty")
+        except:
+            leave = True
+            break
 
-def save_video(p=p2):
+def save_video(p=p4):
     o = None
     leave = False
     while not leave:
@@ -24,8 +34,8 @@ def save_video(p=p2):
             o = cv.VideoWriter(f"/media/usb/test{count}.mkv",cv.CAP_FFMPEG,fourcc,fps,size)
             while not leave:
                 try:
-                    if p.poll(0.19): o.write(cv.cvtColor(p.recv(),cv.COLOR_YUV2BGR_YUYV))
-                    else: print('empty')
+                    if p.poll(0.19): o.write(p.recv())
+                    else: print('convert pipe empty')
                 except:
                     leave = True
                     break
