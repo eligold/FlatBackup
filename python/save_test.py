@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import cv2 as cv, code, traceback
 from v4l2py import Device, VideoCapture
 from threading import Thread
@@ -19,6 +20,7 @@ def save_video(q=q):
     global leave
     leave = False
     while not leave:
+        if leave: break
         o = cv.VideoWriter(f"/media/usb/test{count}.mkv",cv.CAP_FFMPEG,fourcc,fps,size)
         while True:
             try: o.write(cv.cvtColor(q.get(timeout=1.19/fps),cv.COLOR_YUV2BGR_YUYV))
