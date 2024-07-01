@@ -1,39 +1,38 @@
 #!/usr/bin/env python3
 import cv2 as cv, code, traceback
 from v4l2py import Device, VideoCapture
-from threading import Thread
-from queue import SimpleQueue, Empty
+from multiprocessing import Process, Pipe
 from Constants import extract_index
 
 count = 0
-q = SimpleQueue()
+p1,p2 = Pipe()
 leave = False
 fourcc = cv.VideoWriter_fourcc(*"H264")
 fps = 6
 size = (1920,1080)
 
 def run():
-    Thread(target=save_video,daemon=True).start()
+    Process(target=save_video,daemon=True).start()
     get_video()
 
-def save_video(q=q):
-    global leave
-    leave = False
+def save_video(p=p2):
     o = None
+    leave = False
     while not leave:
         if leave: break
         try:
             o = cv.VideoWriter(f"/media/usb/test{count}.mkv",cv.CAP_FFMPEG,fourcc,fps,size)
             while not leave:
-                try: o.write(cv.cvtColor(q.get(timeout=0.19),cv.COLOR_YUV2BGR_YUYV))
-                except Empty: print('empty')
+                try:
+                    if p.poll(0.19): o.write(cv.cvtColor(p.recv(),cv.COLOR_YUV2BGR_YUYV))
+                    else: print('empty')
                 except:
                     leave = True
                     break
         finally:
             if o is not None: o.release()
 
-def get_video(q=q):
+def get_video(p=p1):
     global leave
     while not leave:
         try:
@@ -44,7 +43,7 @@ def get_video(q=q):
                 with vc as stream:
                     for frame in stream:
                         if leave: break
-                        q.put(frame.array.reshape(size[1], size[0], 2))
+                        p.send(frame.array.reshape(size[1], size[0], 2))
         except: 
             traceback.print_exc()
             leave = True
