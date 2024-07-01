@@ -19,15 +19,19 @@ def run():
 def save_video(q=q):
     global leave
     leave = False
+    o = None
     while not leave:
         if leave: break
-        o = cv.VideoWriter(f"/media/usb/test{count}.mkv",cv.CAP_FFMPEG,fourcc,fps,size)
-        while not leave:
-            try: o.write(cv.cvtColor(q.get(timeout=1.19/fps),cv.COLOR_YUV2BGR_YUYV))
-            except Empty: print('empty')
-            except:
-                leave = True
-                break
+        try:
+            o = cv.VideoWriter(f"/media/usb/test{count}.mkv",cv.CAP_FFMPEG,fourcc,fps,size)
+            while not leave:
+                try: o.write(cv.cvtColor(q.get(timeout=1.19/fps),cv.COLOR_YUV2BGR_YUYV))
+                except Empty: print('empty')
+                except:
+                    leave = True
+                    break
+        finally:
+            if o is not None: o.release()
 
 def get_video(q=q):
     global leave
@@ -46,4 +50,4 @@ def get_video(q=q):
             break
 
 if __name__ == "__main__":
-    code.interact(local=dict(globals(), **locals()))
+    run() # code.interact(local=dict(globals(), **locals()))
