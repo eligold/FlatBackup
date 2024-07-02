@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import logging, os, traceback
-from multiprocessing import Process, Pipe, set_start_method
+import logging, traceback
+from multiprocessing import Process, Pipe
 from queue import SimpleQueue, Empty
 from v4l2py import Device, VideoCapture
 from gpiozero import CPUTemperature
@@ -59,18 +59,14 @@ def _wifi_state():
 def data():
     global exit_flag
     global show_graph
-    car_connection, touch_input, x = None, None, None
+    touch_input, x = None, None
     touch_time = time() + 0.19
     started_names = []
-
-    try: frame_buffer[160:,-SIDEBAR_WIDTH:] = cv.cvtColor(
-        cv.imread("/root/newSidebar.png")[1:],BGR565)
-    except: logger.warning("couldn't find sidebar!")
     try: # is the wifi connected?
         if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
         else: 
             bash('ip link set wlan0 down') # else turn off radio to save power
-            Process(target=bash,args=(f"sleep 5; bluetoothctl connect {mac}",),daemon=True).start()
+            shell(f"sleep 5; bluetoothctl connect {mac}")
         for func, name in [(get_dash_image,"dash"),
                            (get_image,"read"),
                            (on_screen,"proc"),
@@ -81,72 +77,67 @@ def data():
         logger.info(f'processes started: {started_names}')
         touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
         Thread(target=display_image, name="show", daemon=True).start()
+        Thread(target=make_sidebar, name="data", daemon=True).start()
+        counter = 0
         while not exit_flag:
-            car_connection = ELM327()
-            counter = 0
-            while not exit_flag:
-                make_sidebar(car_connection.psi())
-                if exit_flag: break
-                print(bash("lsusb").stdout.decode("ascii"))
-                if time() > touch_time:
-                    try:
-                        if touch_input is None: touch_input = InputDevice(touch_dev_path)
-                        for event in touch_input.read():
-                            print("read touch")
-                            if event.type == 3:
-                                if event.code == 0:
-                                    if event.value > FINAL_IMAGE_WIDTH: x = event.value
-                                    else: 
-                                        print(f"toggle view")
-                                        main_pipe1.send("VIEW")
-                                else:
-                                    if x is not None and event.code == 1:
-                                        if event.value > SCREEN_HEIGHT/2:
-                                            msg = f'touch input(X ⇁,Y ⇃) -> {x},{event.value}'
-                                            logger.info(msg)
-                                            raise KeyboardInterrupt()
-                                        else: 
-                                            show_graph = not show_graph
-                                            print(f"graph flag is {show_graph}")
-                                            main_pipe1.send("GRAPH")
-                                    x = None
-                    except BlockingIOError: pass # no new input
-                    except (OSError, FileNotFoundError): # janky mcu is ailing
-                        if counter > 3:
-                            if touch_input is not None:
-                                touch_input.close()
-                                touch_input = None
-                            touch_time = time() + 0.38
-                            counter = 0
-                        else: counter += 1
             if exit_flag: break
+            if time() > touch_time:
+                try:
+                    if touch_input is None: touch_input = InputDevice(touch_dev_path)
+                    for event in touch_input.read():
+                        if event.type == 3:
+                            if event.code == 0:
+                                if event.value > FINAL_IMAGE_WIDTH: x = event.value
+                                else: main_pipe1.send("VIEW")
+                            else:
+                                if x is not None and event.code == 1:
+                                    if event.value > SCREEN_HEIGHT/2:
+                                        msg = f'touch input(X ⇁,Y ⇃) -> {x},{event.value}'
+                                        logger.info(msg)
+                                        raise KeyboardInterrupt()
+                                    else:
+                                        show_graph = not show_graph
+                                        main_pipe1.send("GRAPH")
+                                x = None
+                except BlockingIOError: pass # no new input
+                except (OSError, FileNotFoundError): # janky mcu is ailing
+                    if counter > 3:
+                        if touch_input is not None:
+                            touch_input.close()
+                            touch_input = None
+                        touch_time = time() + 0.38
+                        counter = 0
+                    else: counter += 1
     except KeyboardInterrupt: exit_flag = True
     except Exception as ex:
         traceback.print_exc()
         logger.exception(ex)
-    finally: leave(car_connection, touch_input)
+    finally: leave(touch_input)
 
-def leave(car_connection, touch_input):
+def leave(touch_input):
     global exit_flag
     main_pipe1.close()
     if not exit_flag: exit_flag = True
     if touch_input is not None: touch_input.close()
     else: print("touch not initialized on exit!")
-    if car_connection is not None: car_connection.close()
     if not _wifi_state(): Popen("shutdown -h now",shell=True) # bash('ip link set wlan0 up')
     bash(f"bluetoothctl disconnect {mac}")
 
-def make_sidebar(psi,queue=sidebar_queue):
+def make_sidebar(queue=sidebar_queue,color=COLOR_NORMAL):
     global psi_list
-    try:
-        entry = max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),1)
-        psi_list.append(entry)
-        sidebar = sidebar_base.copy()
-        sidebar = \
-                putText(sidebar, f"{psi:.1f}",(4,57), color=COLOR_NORMAL, fontScale=1.19, thickness=3)
-        sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
-        queue.put(sidebar)
-    except Exception as e: logger.exception(e)
+    global exit_flag
+    car_connection = ELM327()
+    while not exit_flag:
+        try:
+            while not exit_flag:
+                sidebar = sidebar_base.copy()
+                psi = car_connection.psi()
+                psi_list.append(max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),1))
+                sidebar=putText(sidebar,f"{psi:.1f}",(4,57),color=color,fontScale=1.19,thickness=3)
+                sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
+                queue.put(sidebar)
+        except Exception as e: logger.exception(e)
+    car_connection.close()
 
 def display_image(pipe=main_pipe1,queue=sidebar_queue):
     global exit_flag
@@ -226,7 +217,7 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
                             msg = show_pipe.recv()
                             if "START" == msg: view_flag = True
                             elif "STOP" == msg: view_flag = False
-                            else: print(f"bad message from main process: {msg}")
+                            else: logger.error(f"bad message from main process: {msg}")
                         if view_flag:
                             show_pipe.send(image)
         except (EOFError, BrokenPipeError): break
@@ -242,11 +233,8 @@ def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
         try:
             output = cv.VideoWriter(get_video_path(camera), fourcc, fps, (width, height))
             while True:
-                if pipe.poll(0.119): 
-                    image = pipe.recv() # if speed: pass # (speed,frame_num) -> csv file
-                    if image is not None: output.write(image)
-                    else: print("empty image!")
-                else: print("no dash image to save!")
+                if pipe.poll(0.119): output.write(pipe.recv())
+                else: logger.error("no dash image to save!")
         except EOFError: break
         except Exception as e: logger.exception(e)
         finally:
@@ -257,7 +245,7 @@ if __name__ == "__main__":
    # set_start_method('spawn') # ,force=True)
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
     handler = logging.FileHandler("/root/runtime-carCam.log")
-    level = logging.DEBUG
+    level = logging.INFO # DEBUG
     handler.setLevel(level)
     handler.setFormatter(logging.Formatter(fmtString))
     logger = logging.getLogger()
