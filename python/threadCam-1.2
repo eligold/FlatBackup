@@ -16,8 +16,8 @@ from ELM327 import ELM327
 sidebar_queue = SimpleQueue()
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 # communications between processes:
-dash_pipe1, dash_pipe2 = Pipe()
 backup_pipe1, backup_pipe2 = Pipe()
+dash_pipe1, dash_pipe2 = Pipe()
 save_pipe1, save_pipe2 = Pipe()
 main_pipe1, main_pipe2 = Pipe()
 
@@ -83,9 +83,11 @@ def data():
         Thread(target=display_image, name="show", daemon=True).start()
         while not exit_flag:
             car_connection = ELM327()
+            counter = 0
             while not exit_flag:
                 make_sidebar(car_connection.psi())
                 if exit_flag: break
+                print(bash("lsusb").stdout.decode("ascii"))
                 if time() > touch_time:
                     try:
                         if touch_input is None: touch_input = InputDevice(touch_dev_path)
@@ -110,10 +112,13 @@ def data():
                                     x = None
                     except BlockingIOError: pass # no new input
                     except (OSError, FileNotFoundError): # janky mcu is ailing
-                        if touch_input is not None:
-                            touch_input.close()
-                            touch_input = None
-                        touch_time = time() + 0.38
+                        if counter > 3:
+                            if touch_input is not None:
+                                touch_input.close()
+                                touch_input = None
+                            touch_time = time() + 0.38
+                            counter = 0
+                        else: counter += 1
             if exit_flag: break
     except KeyboardInterrupt: exit_flag = True
     except Exception as ex:
@@ -126,7 +131,8 @@ def leave(car_connection, touch_input):
     main_pipe1.close()
     if not exit_flag: exit_flag = True
     if touch_input is not None: touch_input.close()
-    if car_connection  is not None: car_connection.close()
+    else: print("touch not initialized on exit!")
+    if car_connection is not None: car_connection.close()
     if not _wifi_state(): Popen("shutdown -h now",shell=True) # bash('ip link set wlan0 up')
     bash(f"bluetoothctl disconnect {mac}")
 
@@ -179,7 +185,7 @@ def on_screen(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, main_pipe=main_pipe2
             main_pipe.send(cv.cvtColor(image, BGR565))
         except Empty: pass
         except (EOFError, BrokenPipeError): break
-        except Exception: traceback.print_exc()
+        except Exception as e: logger.exception(e)
     for pipe in (back_pipe,dash_pipe,main_pipe): pipe.close()
 
 def get_image(pipe=backup_pipe2):
@@ -202,36 +208,7 @@ def get_image(pipe=backup_pipe2):
             print(f'failed reads: {read_fail_count}')
     pipe.close()
 
-def get_dash_image(show_pipe=dash_pipe2,save_pipe=save_pipe1):
-    camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    read_fail_count = 0
-    view_flag = False
-    while True:
-        try:
-            camera = get_camera(extract_index(camPath),DASHCAM_IMAGE_WIDTH,DASHCAM_IMAGE_HEIGHT)
-            camera.read()
-            while camera.isOpened():
-                success, image = camera.read()
-                if success:
-                    if show_pipe.poll():
-                        msg = show_pipe.recv()
-                        if "START" == msg: view_flag = True
-                        elif "STOP" == msg: view_flag = False
-                        else: print(f"bad message from main process: {msg}")
-                    save_pipe.send(image)
-                    if view_flag: show_pipe.send(image)
-                else: read_fail_count += 1
-        except (EOFError, BrokenPipeError): break
-        except AssertionError: print("can't find usb") # reset_usb()
-        except Exception as e: logger.exception(e)
-        finally:
-            if camera is not None: camera.release()
-            print(f'failed dash reads: {read_fail_count}')
-    show_pipe.close()
-    save_pipe.close()
-
-
-def get_dash_image_old(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
+def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
                    show_pipe=dash_pipe2, save_pipe=save_pipe1):
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     view_flag = False
@@ -252,15 +229,14 @@ def get_dash_image_old(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, v
                             else: print(f"bad message from main process: {msg}")
                         if view_flag:
                             show_pipe.send(image)
-        except EOFError: break 
+        except (EOFError, BrokenPipeError): break
         except AssertionError: print("can't find usb") # reset_usb()
-        except Exception: traceback.print_exc()
+        except Exception as e: logger.exception(e)
     show_pipe.close()
     save_pipe.close()
 
-def save_video(pipe=save_pipe2, camera=None, width=DASHCAM_IMAGE_WIDTH,
-               height=DASHCAM_IMAGE_HEIGHT, fps=15): # queue=dashcam_queue,
-    fourcc = cv.VideoWriter_fourcc(*'mp4v')
+def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
+               height=DASHCAM_IMAGE_HEIGHT, fourcc = cv.VideoWriter_fourcc(*'mp4v')):
     while True:
         output = None
         try:
@@ -272,7 +248,7 @@ def save_video(pipe=save_pipe2, camera=None, width=DASHCAM_IMAGE_WIDTH,
                     else: print("empty image!")
                 else: print("no dash image to save!")
         except EOFError: break
-        except Exception: traceback.print_exc()
+        except Exception as e: logger.exception(e)
         finally:
             if output is not None: output.release()
     pipe.close()
