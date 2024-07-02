@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import logging, os, traceback
 from multiprocessing import Process, Pipe, set_start_method
-from queue import SimpleQueue, Empty, Full
+from queue import SimpleQueue, Empty
 from v4l2py import Device, VideoCapture
 from gpiozero import CPUTemperature
 from evdev import InputDevice
@@ -12,36 +12,30 @@ from time import time
 from Constants import *
 from ELM327 import ELM327
 
-# camera index by device mapper path
-usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
-usb_capture_real_path = os.path.realpath(usb_capture_id_path)
-assert usb_capture_id_path != usb_capture_real_path
-cameraIndex = int(usb_capture_real_path.split("video")[-1])
 # communications between threads:
 sidebar_queue = SimpleQueue()
-
+psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 # communications between processes:
 dash_pipe1, dash_pipe2 = Pipe()
 backup_pipe1, backup_pipe2 = Pipe()
 save_pipe1, save_pipe2 = Pipe()
 main_pipe1, main_pipe2 = Pipe()
 
-
-psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
-
 show_graph = False
 exit_flag = False
 HIGH_TEMP = 55.0
+FRAME_DELAY = 0.119
 
-def _sidebar_hot(): # turns red over 55C
+sidebar_hot = cv.cvtColor(cv.imread("/root/turboSB_hot.png"),BGR565)[-160:,:120]
+sidebar_cool = cv.cvtColor(cv.imread("/root/turboSB.png"),BGR565)[-160:,:120]
+def _sidebar_hot():
     logger.warning(f"temp over {int(HIGH_TEMP)}C")
-    _change_sidebar(COLOR_REC)
-def _change_sidebar(color=COLOR_LOW):
+    _change_sidebar(sidebar_hot)
+def _change_sidebar(img=sidebar_cool):
     global sidebar_base
-    sidebar_base=np.full((SIDEBAR_HEIGHT,SIDEBAR_WIDTH,2),color,np.uint8)
+    sidebar_base=img.copy()
 _change_sidebar()
 
-# Background pi temperature monitoring
 intemp = CPUTemperature(threshold=HIGH_TEMP,event_delay=1.9)
 intemp.when_activated = _sidebar_hot
 intemp.when_deactivated = _change_sidebar
@@ -96,6 +90,7 @@ def data():
                     try:
                         if touch_input is None: touch_input = InputDevice(touch_dev_path)
                         for event in touch_input.read():
+                            print("read touch")
                             if event.type == 3:
                                 if event.code == 0:
                                     if event.value > FINAL_IMAGE_WIDTH: x = event.value
@@ -154,7 +149,7 @@ def display_image(pipe=main_pipe1,queue=sidebar_queue):
         try:
             try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = queue.get(block=False)
             except Empty: pass
-            if pipe.poll():
+            if pipe.poll(FRAME_DELAY):
                 frame_buffer[:,:-SIDEBAR_WIDTH] = pipe.recv()
                 if show_graph: build_graph(psi_list.copy(), frame_buffer)
                 frame_buffer.flush()
@@ -162,37 +157,30 @@ def display_image(pipe=main_pipe1,queue=sidebar_queue):
         except Exception as e: logger.exception(e)
         if exit_flag: break
 
-def on_screen(back_pipe=backup_pipe1,dash_pipe=dash_pipe1,ctrl_pipe=main_pipe2):
-    dash_image = None
-    exit_flag = False
-    view_flag = False
-    show_graph = False
-    check_time = time() + 5
-    while not exit_flag:
+def on_screen(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, main_pipe=main_pipe2):
+    back_image, dash_image = None, None
+    view_flag, show_graph = False, False
+    while True:
         try:
-            if back_pipe.poll(0.057): back_image = back_pipe.recv()
-            else: raise Empty # image = display_queue.get(timeout=0.057)
-            if ctrl_pipe.poll():
-                msg = ctrl_pipe.recv()
+            if main_pipe.poll():
+                msg = main_pipe.recv()
                 if "VIEW" == msg: 
                     view_flag = not view_flag
                     dash_pipe.send("START" if view_flag else "STOP")
                 elif "GRAPH" == msg: show_graph = not show_graph
                 else: print(f"bad message from main: {msg}")
+            if back_pipe.poll(FRAME_DELAY): back_image = back_pipe.recv()
+            else: raise Empty # image = display_queue.get(timeout=0.057)
             if view_flag:
                 if dash_pipe.poll(): dash_image = dash_pipe.recv()
                 if dash_image is not None: image = output_alt(back_image,dash_image)
             if not view_flag or dash_image is None: image = build_output_image(back_image)
             if show_graph: image = addOverlay(image)
-            image = cv.cvtColor(image, BGR565)
-        except Empty:
-            if time() > check_time: logger.error("dropped frame!")
-        except EOFError: exit_flag = True
+            main_pipe.send(cv.cvtColor(image, BGR565))
+        except Empty: pass
+        except (EOFError, BrokenPipeError): break
         except Exception: traceback.print_exc()
-        else: ctrl_pipe.send(image)
-        if exit_flag: break
-    for pipe in (dash_pipe,back_pipe,ctrl_pipe):
-        pipe.close()
+    for pipe in (back_pipe,dash_pipe,main_pipe): pipe.close()
 
 def get_image(pipe=backup_pipe2):
     width, height = DIM
@@ -200,22 +188,50 @@ def get_image(pipe=backup_pipe2):
     camera = None
     while True:
         try:
-            camera = get_camera(cameraIndex,width,height)
+            camera = get_camera(extract_index(),width,height)
+            camera.read()
+            while camera.isOpened():
+                success, image = camera.read()
+                if success: pipe.send(image)
+                else: read_fail_count += 1
+            if pipe.poll(): pipe.recv()
+        except (EOFError, BrokenPipeError): break
+        except Exception as e: logger.exception(e)
+        finally:
+            if camera is not None: camera.release()
+            print(f'failed reads: {read_fail_count}')
+    pipe.close()
+
+def get_dash_image(show_pipe=dash_pipe2,save_pipe=save_pipe1):
+    camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+    read_fail_count = 0
+    view_flag = False
+    while True:
+        try:
+            camera = get_camera(extract_index(camPath),DASHCAM_IMAGE_WIDTH,DASHCAM_IMAGE_HEIGHT)
             camera.read()
             while camera.isOpened():
                 success, image = camera.read()
                 if success:
-                    try: pipe.send(image)
-                    except BrokenPipeError: break
+                    if show_pipe.poll():
+                        msg = show_pipe.recv()
+                        if "START" == msg: view_flag = True
+                        elif "STOP" == msg: view_flag = False
+                        else: print(f"bad message from main process: {msg}")
+                    save_pipe.send(image)
+                    if view_flag: show_pipe.send(image)
                 else: read_fail_count += 1
-            if pipe.poll(): pipe.recv()
-        except EOFError: break
-        except Exception: traceback.print_exc()
+        except (EOFError, BrokenPipeError): break
+        except AssertionError: print("can't find usb") # reset_usb()
+        except Exception as e: logger.exception(e)
         finally:
-            if camera: camera.release()
-    pipe.close()
+            if camera is not None: camera.release()
+            print(f'failed dash reads: {read_fail_count}')
+    show_pipe.close()
+    save_pipe.close()
 
-def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
+
+def get_dash_image_old(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
                    show_pipe=dash_pipe2, save_pipe=save_pipe1):
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     view_flag = False
