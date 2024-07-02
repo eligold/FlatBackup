@@ -76,7 +76,7 @@ def data():
         if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
         else: 
             bash('ip link set wlan0 down') # else turn off radio to save power
-            Thread(target=bash,args=(f"sleep 5; bluetoothctl connect {mac}",),daemon=True).start()
+            Process(target=bash,args=(f"sleep 5; bluetoothctl connect {mac}",),daemon=True).start()
         for func, name in [(get_dash_image,"dash"),
                            (get_image,"read"),
                            (on_screen,"proc"),
@@ -99,7 +99,9 @@ def data():
                             if event.type == 3:
                                 if event.code == 0:
                                     if event.value > FINAL_IMAGE_WIDTH: x = event.value
-                                    else: main_pipe1.send("VIEW")
+                                    else: 
+                                        print(f"toggle view")
+                                        main_pipe1.send("VIEW")
                                 else:
                                     if x is not None and event.code == 1:
                                         if event.value > SCREEN_HEIGHT/2:
@@ -108,6 +110,7 @@ def data():
                                             raise KeyboardInterrupt()
                                         else: 
                                             show_graph = not show_graph
+                                            print(f"graph flag is {show_graph}")
                                             main_pipe1.send("GRAPH")
                                     x = None
                     except BlockingIOError: pass # no new input
@@ -149,13 +152,12 @@ def display_image(pipe=main_pipe1,queue=sidebar_queue):
     global show_graph
     while not exit_flag:
         try:
-            if pipe.poll(0.119): image = pipe.recv()
-            else: image = no_signal_frame
-            frame_buffer[:,:-SIDEBAR_WIDTH] = image
-            try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:]=queue.get(block=False)
+            try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = queue.get(block=False)
             except Empty: pass
-            if show_graph: build_graph(psi_list.copy(), frame_buffer)
-            frame_buffer.flush()
+            if pipe.poll():
+                frame_buffer[:,:-SIDEBAR_WIDTH] = pipe.recv()
+                if show_graph: build_graph(psi_list.copy(), frame_buffer)
+                frame_buffer.flush()
         except EOFError: exit_flag = True
         except Exception as e: logger.exception(e)
         if exit_flag: break
