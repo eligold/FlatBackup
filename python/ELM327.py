@@ -28,7 +28,7 @@ class ELM327:
     def __init__(self,portstr="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"):
         logger = self.logger
         self.close()
-        sleep(0.019)
+        sleep(0.19)
         self.checktime = time()
         self.carOn = False
         port = os.path.realpath(portstr)
