@@ -219,7 +219,7 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
                             elif "STOP" == msg: view_flag = False
                             else: logger.error(f"bad message from main process: {msg}")
                         if view_flag:
-                            show_pipe.send(image)
+                            show_pipe.send(image.copy())
         except (EOFError, BrokenPipeError): break
         except AssertionError: print("can't find usb") # reset_usb()
         except Exception as e: logger.exception(e)
@@ -227,11 +227,11 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
     save_pipe.close()
 
 def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
-               height=DASHCAM_IMAGE_HEIGHT, fourcc = cv.VideoWriter_fourcc(*'mp4v')):
+               height=DASHCAM_IMAGE_HEIGHT, fourcc=cv.VideoWriter_fourcc(*'MJPG')):
     while True:
         output = None
         try:
-            output = cv.VideoWriter(get_video_path(camera), fourcc, fps, (width, height))
+            output = cv.VideoWriter(get_video_path(camera),FFMPEG,fourcc,fps,(width, height))
             while True:
                 if pipe.poll(0.119): output.write(pipe.recv())
                 else: logger.error("no dash image to save!")

@@ -7,6 +7,7 @@ from cv2 import INTER_LINEAR as LINEAR
 from cv2 import IMREAD_COLOR as COLOR
 from cv2 import CAP_PROP_FPS as FPS
 from cv2 import CAP_V4L2 as V4L2
+from cv2 import CAP_FFMPEG as FFMPEG
 
 from subprocess import run, Popen, PIPE, STDOUT
 from os.path import realpath
@@ -136,7 +137,7 @@ def get_video_path(explicit_camera=None): # e.g. "backup", "cabin"
     weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
     join_list = [date,clock_time,weekday]
     if explicit_camera is not None: join_list.append(explicit_camera)
-    return f"/media/usb/{'_'.join(join_list)}.mp4"
+    return f"/media/usb/{'_'.join(join_list)}.mkv"
 
 def reset_usb():
     print("resetting the USB chip! THIS IS FUBAR")
