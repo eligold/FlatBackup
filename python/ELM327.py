@@ -27,7 +27,7 @@ class ELM327:
 
     def __init__(self,portstr="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"):
         logger = self.logger
-        self.checktime = time()
+        self.checktime = time() + 10
         self.carOn = False
         port = os.path.realpath(portstr)
         if port == portstr:
@@ -63,24 +63,17 @@ class ELM327:
         elm = self.elm327
         if self.carOn:
             rpmr = elm.query(RPM)
-            if rpmr.is_null() or rpmr.value == 0.0:
-                self.__init__()
-                return self.psi()
-            try:
-                self.obdd.update(rpm = rpmr.value,
-                            iat = elm.query(TEMP).value.to('degK'),
-                            maf = elm.query(MAF).value,
-                            bps = elm.query(BPS).value.to('psi'))
-            except AttributeError:
-                self.__init__()
-                return self.psi()
-            return self.obdd.psi()
-        else:
-            if self.volts() > 12.1 or time() > self.checktime:
-                self.__init__()
-                return self.psi()
-            sleep(0.19)
-            return 19.0
+            if not (rpmr.is_null() or rpmr.value == 0.0):
+                try:
+                    self.obdd.update(rpm = rpmr.value,
+                                iat = elm.query(TEMP).value.to('degK'),
+                                maf = elm.query(MAF).value,
+                                bps = elm.query(BPS).value.to('psi'))
+                except AttributeError:
+                    self.__init__()
+                    return self.psi()
+                return self.obdd.psi()
+        return self.reset(19.0)
 
     def volts(self):
         elm = self.elm327
@@ -88,17 +81,19 @@ class ELM327:
             vr = elm.query(VOLT)
             if not vr.is_null():
                 return vr.value.magnitude
-        elif time() > self.checktime:
-            self.__init__()
-            return self.volts()
-        return 12.0
+        else: return self.reset(12.0)
+
+    def reset(self, default_value=None):
+        self.close()
+        sleep(0.19)
+        if time() > self.checktime(): self.__init__()
+        if default_value is not None: return default_value
 
     def close(self):
         elm = self.elm327
         if elm is not None:
             elm.close()
             elm = None
-            self.checktime = time() + 30
 
     def is_connected(self):
         elm = self.elm327
