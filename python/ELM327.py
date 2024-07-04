@@ -20,15 +20,13 @@ class ELM327:
     checktime = None
     obdd = OBDData()
     logger = logging.getLogger()
-    def gear(messages):
+    def _gear(messages):
         """ decoder for gear select """
         return bytes_to_int(messages[0].data[2:]) / 1000.0
-    gear_command = OBDCommand("GEAR","Gear Select",b"01A4",4,gear,ECU.ENGINE,False)
+    gear_command = OBDCommand("GEAR","Gear Select",b"01A4",4,_gear,ECU.ENGINE,False)
 
     def __init__(self,portstr="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"):
         logger = self.logger
-        self.close()
-        sleep(0.19)
         self.checktime = time()
         self.carOn = False
         port = os.path.realpath(portstr)
@@ -42,9 +40,7 @@ class ELM327:
             if not voltage.is_null() and voltage.value.magnitude > 12.1:
                 self.carOn = True
             self.elm327 = elm
-        else:
-            self.elm327 = None
-            self.checktime = time() + 30
+        else: self.close()
 
     def speed(self):
         elm = self.elm327
@@ -101,6 +97,8 @@ class ELM327:
         elm = self.elm327
         if elm is not None:
             elm.close()
+            elm = None
+            self.checktime = time() + 30
 
     def is_connected(self):
         elm = self.elm327

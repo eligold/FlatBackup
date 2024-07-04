@@ -94,6 +94,7 @@ def data():
                                     if event.value > SCREEN_HEIGHT/2:
                                         msg = f'touch input(X ⇁,Y ⇃) -> {x},{event.value}'
                                         logger.info(msg)
+                                        main_pipe1.close()
                                         raise KeyboardInterrupt()
                                     else:
                                         show_graph = not show_graph
@@ -116,7 +117,6 @@ def data():
 
 def leave(touch_input):
     global exit_flag
-    main_pipe1.close()
     if not exit_flag: exit_flag = True
     if touch_input is not None: touch_input.close()
     else: print("touch not initialized on exit!")
