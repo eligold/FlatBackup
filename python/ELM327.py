@@ -1,4 +1,4 @@
-import os, logging
+import os, logging, traceback
 from obd import OBD, OBDCommand, commands
 from obd.utils import bytes_to_int
 from obd.protocols import ECU
@@ -37,6 +37,7 @@ class ELM327:
         elm = OBD(port)
         if elm.is_connected():
             voltage = elm.query(VOLT)
+            print(voltage.value)
             if not voltage.is_null() and voltage.value.magnitude > 12.1:
                 self.carOn = True
             self.elm327 = elm
@@ -63,31 +64,36 @@ class ELM327:
     def psi(self):
         elm = self.elm327
         if self.carOn:
-            rpmr = elm.query(RPM)
-            if not (rpmr.is_null() or rpmr.value == 0.0):
-                try:
-                    self.obdd.update(rpm = rpmr.value,
-                                iat = elm.query(TEMP).value.to('degK'),
-                                maf = elm.query(MAF).value,
-                                bps = elm.query(BPS).value.to('psi'))
-                except AttributeError:
-                    self.__init__()
-                    return self.psi()
-                return self.obdd.psi()
+            try:
+                rpmr = elm.query(RPM)
+                if not (rpmr.is_null() or rpmr.value == 0.0):
+                    try:
+                        self.obdd.update(rpm = rpmr.value,
+                                    iat = elm.query(TEMP).value.to('degK'),
+                                    maf = elm.query(MAF).value,
+                                    bps = elm.query(BPS).value.to('psi'))
+                    except AttributeError:
+                        self.__init__()
+                        return self.psi()
+                    return self.obdd.psi()
+            except: traceback.print_exc()
         return self.reset(19.0)
 
     def volts(self):
         elm = self.elm327
         if elm is not None:
-            vr = elm.query(VOLT)
-            if not vr.is_null():
-                return vr.value.magnitude
+            try:
+                vr = elm.query(VOLT)
+                if not vr.is_null():
+                    return vr.value.magnitude
+            except: traceback.print_exc()
         else: return self.reset(12.0)
 
     def reset(self, default_value=None):
         self.close()
         sleep(0.19)
-        if time() > self.checktime(): self.__init__()
+        if time() - self.checktime > 30: self.checktime = time()
+        if time() > self.checktime: self.__init__()
         if default_value is not None: return default_value
 
     def close(self):
