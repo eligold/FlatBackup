@@ -66,7 +66,7 @@ class ELM327:
         if self.carOn:
             try:
                 rpmr = elm.query(RPM)
-                if not (rpmr.is_null() or rpmr.value == 0.0):
+                if not (rpmr.is_null() or rpmr.value.magnitude == 0.0):
                     try:
                         self.obdd.update(rpm = rpmr.value,
                                     iat = elm.query(TEMP).value.to('degK'),
@@ -87,7 +87,7 @@ class ELM327:
                 if not vr.is_null():
                     return vr.value.magnitude
             except: traceback.print_exc()
-        else: return self.reset(12.0)
+        return self.reset(12.0)
 
     def reset(self, default_value=None):
         self.close()
