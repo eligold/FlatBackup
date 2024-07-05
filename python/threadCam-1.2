@@ -124,7 +124,8 @@ def pipes():
     output += f"backup_pipe2 had {pipe_cleaner(backup_pipe2)} items in it"
     for pipe in [main_pipe1,main_pipe2,backup_pipe1,backup_pipe2,dash_pipe1,dash_pipe2,save_pipe1,
                  save_pipe2]: pipe.close()
-        
+    print(output)
+
 def pipe_cleaner(pipe):
     counter = 0
     while pipe.poll():
