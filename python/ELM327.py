@@ -41,6 +41,7 @@ class ELM327:
                 self.carOn = True
             self.elm327 = elm
         else: self.close()
+        print(self.carOn)
 
     def speed(self):
         elm = self.elm327

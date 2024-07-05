@@ -194,7 +194,7 @@ def on_screen(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, main_pipe=main_pipe2
             if show_graph: image = addOverlay(image)
             main_pipe.send(cv.cvtColor(image, BGR565))
         except Empty: pass
-        except (EOFError, BrokenPipeError): break
+        except (EOFError, BrokenPipeError, OSError): break
         except Exception as e: logger.exception(e)
    # for pipe in (back_pipe,dash_pipe,main_pipe): pipe.close()
 
@@ -211,7 +211,7 @@ def get_image(pipe=backup_pipe2):
                 if success: pipe.send(image)
                 else: read_fail_count += 1
             if pipe.poll(): pipe.recv()
-        except (EOFError, BrokenPipeError): break
+        except (EOFError, BrokenPipeError, OSError): break
         except Exception as e: logger.exception(e)
         finally:
             if camera is not None: camera.release()
@@ -239,7 +239,7 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
                             else: logger.error(f"bad message from main process: {msg}")
                         if view_flag:
                             show_pipe.send(image.copy())
-        except (EOFError, BrokenPipeError): break
+        except (EOFError, BrokenPipeError, OSError): break
         except AssertionError: print("can't find usb") # reset_usb()
         except Exception as e: logger.exception(e)
    # show_pipe.close()
@@ -255,10 +255,11 @@ def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
             while True:
                 if pipe.poll(0.119): output.write(pipe.recv())
                 else: logger.error("no dash image to save!")
-        except EOFError: break
+        except (EOFError, BrokenPipeError, OSError): break
         except Exception as e: logger.exception(e)
         finally:
             if output is not None: output.release()
+            print("output released")
    # pipe.close()
 
 if __name__ == "__main__":
