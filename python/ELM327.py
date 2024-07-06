@@ -35,30 +35,28 @@ class ELM327:
         else:
             logger.info(f"ELM327 port: {portstr.split('/')[-1]} -> {port}")
         elm = OBD(port)
-        if elm.is_connected() or elm.status() == OBDStatus.OBD_CONNECTED:
+        if self.connected():
             voltage = elm.query(VOLT)
             print(voltage.value)
-            if not voltage.is_null() and voltage.value.magnitude > 12.8:
-                self.carOn = True
+            if not voltage.is_null() and voltage.value.magnitude > 12.9: self.carOn = True
             self.elm327 = elm
         else: self.close()
-        print(self.carOn)
 
     def speed(self):
         elm = self.elm327
         if elm is not None:
-            vr = elm.query(MPH)
-            if not vr.is_null():
-                return vr.value.magnitude
-        elif time() > self.checktime:
-            self.__init__()
-            return self.speed()
-        return 0.0
+            try:
+                vr = elm.query(MPH)
+                if not vr.is_null():
+                    return vr.value.magnitude
+            except Exception as e: self.logger.exception(e)
+        return self.reset(0.0)
 
     def gear(self):
         elm = self.elm327
         if self.carOn:
-            return elm.query(self.gear_command,force=True)
+            try: return elm.query(self.gear_command,force=True)
+            except Exception as e: self.logger.exception(e)
         return None
 
     def psi(self):
@@ -67,16 +65,12 @@ class ELM327:
             try:
                 rpmr = elm.query(RPM)
                 if not (rpmr.is_null() or rpmr.value.magnitude == 0.0):
-                    try:
-                        self.obdd.update(rpm = rpmr.value,
-                                    iat = elm.query(TEMP).value.to('degK'),
-                                    maf = elm.query(MAF).value,
-                                    bps = elm.query(BPS).value.to('psi'))
-                    except AttributeError:
-                        self.__init__()
-                        return self.psi()
+                    self.obdd.update(rpm = rpmr.value,
+                                iat = elm.query(TEMP).value.to('degK'),
+                                maf = elm.query(MAF).value,
+                                bps = elm.query(BPS).value.to('psi'))
                     return self.obdd.psi()
-            except: traceback.print_exc()
+            except Exception as e: self.logger.exception(e)
         return self.reset(19.0)
 
     def volts(self):
@@ -86,13 +80,13 @@ class ELM327:
                 vr = elm.query(VOLT)
                 if not vr.is_null():
                     return vr.value.magnitude
-            except: traceback.print_exc()
+            except Exception as e: self.logger.exception(e)
         return self.reset(12.0)
 
     def reset(self, default_value=None):
         self.close()
+        if time() - self.checktime > 10: self.checktime = time()
         sleep(0.19)
-        if time() - self.checktime > 30: self.checktime = time()
         if time() > self.checktime: self.__init__()
         if default_value is not None: return default_value
 
@@ -102,8 +96,8 @@ class ELM327:
             elm.close()
             elm = None
 
-    def is_connected(self):
+    def connected(self):
         elm = self.elm327
         if elm is not None:
-            return elm.is_connected()
+            return elm.is_connected() or elm.status() == OBDStatus.OBD_CONNECTED
         return False

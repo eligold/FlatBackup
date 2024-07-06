@@ -60,7 +60,7 @@ def data():
     global show_graph
     touch_input, x = None, None
     touch_time = time() + 0.19
-    started_names = []
+    process_list = []
     try: # is the wifi connected?
         if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
         else: 
@@ -70,10 +70,9 @@ def data():
                            (get_image,"read"),
                            (on_screen,"proc"),
                            (save_video,"save")]:
-            Process(target=func, name=name, daemon=True).start()
-            started_names.append(name)
+            process_list.append(Process(target=func, name=name))
         _show_message("Initializing...", (500,250))
-        logger.info(f'processes started: {started_names}')
+        for proc in process_list: proc.start()
         touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
         Thread(target=display_image, name="show", daemon=True).start()
         Thread(target=make_sidebar, name="data", daemon=True).start()
@@ -112,13 +111,15 @@ def data():
     except Exception as ex:
         traceback.print_exc()
         logger.exception(ex)
-    finally: leave(touch_input)
+    finally: leave(touch_input, process_list)
 
-def leave(touch_input):
+def leave(touch_input, process_list):
     global exit_flag
     if not exit_flag: exit_flag = True
     if touch_input is not None: touch_input.close()
-    else: print("touch not initialized on exit!")
+    start_time = time()
+    for proc in process_list: proc.join()
+    print(f"{time() - start_time}s")
    # if not _wifi_state(): Popen("shutdown -h now",shell=True) # bash('ip link set wlan0 up')
     bash(f"bluetoothctl disconnect {mac}")
 
@@ -246,7 +247,6 @@ def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
     if not _wifi_state(): Popen("sleep 1; shutdown -h now", shell=True)
 
 if __name__ == "__main__":
-   # set_start_method('spawn') # ,force=True)
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
     handler = logging.FileHandler("/root/runtime-carCam.log")
     level = logging.INFO # DEBUG
