@@ -65,7 +65,7 @@ def data():
         if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
         else: 
             bash('ip link set wlan0 down') # else turn off radio to save power
-            shell(f"sleep 5; bluetoothctl connect {mac}")
+            Popen(f"sleep 5; bluetoothctl connect {mac}", shell=True)
         for func, name in [(get_dash_image,"dash"),
                            (get_image,"read"),
                            (on_screen,"proc"),
@@ -91,9 +91,9 @@ def data():
                             else:
                                 if x is not None and event.code == 1:
                                     if event.value > SCREEN_HEIGHT/2:
-                                        msg = f'touch input(X ⇁,Y ⇃) -> {x},{event.value}'
+                                        msg = f'touch input (X ⇁,Y ⇃) -> {x},{event.value}'
                                         logger.info(msg)
-                                       # main_pipe1.close()
+                                        main_pipe1.close()
                                         raise KeyboardInterrupt()
                                     else:
                                         show_graph = not show_graph
@@ -113,33 +113,13 @@ def data():
         traceback.print_exc()
         logger.exception(ex)
     finally: leave(touch_input)
-def pipes():
-    output = f"main_pipe1 had {pipe_cleaner(main_pipe1)} items in it\n"
-    output += f"main_pipe2 had {pipe_cleaner(main_pipe2)} items in it\n"
-    output += f"save_pipe1 had {pipe_cleaner(save_pipe1)} items in it\n"
-    output += f"save_pipe2 had {pipe_cleaner(save_pipe2)} items in it\n"
-    output += f"dash_pipe1 had {pipe_cleaner(dash_pipe1)} items in it\n"
-    output += f"dash_pipe2 had {pipe_cleaner(dash_pipe2)} items in it\n"
-    output += f"backup_pipe1 had {pipe_cleaner(backup_pipe1)} items in it\n"
-    output += f"backup_pipe2 had {pipe_cleaner(backup_pipe2)} items in it"
-    for pipe in [main_pipe1,main_pipe2,backup_pipe1,backup_pipe2,dash_pipe1,dash_pipe2,save_pipe1,
-                 save_pipe2]: pipe.close()
-    print(output)
-
-def pipe_cleaner(pipe):
-    counter = 0
-    while pipe.poll():
-        counter += 1
-        print(pipe.recv())
-    return counter
 
 def leave(touch_input):
     global exit_flag
     if not exit_flag: exit_flag = True
-    pipes()
     if touch_input is not None: touch_input.close()
     else: print("touch not initialized on exit!")
-    if not _wifi_state(): Popen("shutdown -h now",shell=True) # bash('ip link set wlan0 up')
+   # if not _wifi_state(): Popen("shutdown -h now",shell=True) # bash('ip link set wlan0 up')
     bash(f"bluetoothctl disconnect {mac}")
 
 def make_sidebar(queue=sidebar_queue,color=COLOR_NORMAL):
@@ -170,9 +150,10 @@ def display_image(pipe=main_pipe1,queue=sidebar_queue):
                 frame_buffer[:,:-SIDEBAR_WIDTH] = pipe.recv()
                 if show_graph: build_graph(psi_list.copy(), frame_buffer)
                 frame_buffer.flush()
-        except EOFError: exit_flag = True
+        except (EOFError, BrokenPipeError, OSError): exit_flag = True
         except Exception as e: logger.exception(e)
         if exit_flag: break
+    pipe.close()
 
 def on_screen(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, main_pipe=main_pipe2):
     back_image, dash_image = None, None
@@ -197,7 +178,7 @@ def on_screen(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, main_pipe=main_pipe2
         except Empty: pass
         except (EOFError, BrokenPipeError, OSError): break
         except Exception as e: logger.exception(e)
-   # for pipe in (back_pipe,dash_pipe,main_pipe): pipe.close()
+    for pipe in [back_pipe, dash_pipe, main_pipe]: pipe.close()
 
 def get_image(pipe=backup_pipe2):
     width, height = DIM
@@ -217,7 +198,7 @@ def get_image(pipe=backup_pipe2):
         finally:
             if camera is not None: camera.release()
             print(f'failed reads: {read_fail_count}')
-   # pipe.close()
+    pipe.close()
 
 def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
                    show_pipe=dash_pipe2, save_pipe=save_pipe1):
@@ -243,8 +224,7 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
         except (EOFError, BrokenPipeError, OSError): break
         except AssertionError: print("can't find usb") # reset_usb()
         except Exception as e: logger.exception(e)
-   # show_pipe.close()
-   # save_pipe.close()
+    for pipe in [save_pipe, show_pipe]: pipe.close()
 
 def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
                height=DASHCAM_IMAGE_HEIGHT, fourcc=cv.VideoWriter_fourcc(*'MJPG')):
@@ -261,7 +241,9 @@ def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
         finally:
             if output is not None: output.release()
             print("output released")
-   # pipe.close()
+    pipe.close()
+    bash("sync; sync; sync")
+    if not _wifi_state(): Popen("sleep 1; shutdown -h now", shell=True)
 
 if __name__ == "__main__":
    # set_start_method('spawn') # ,force=True)

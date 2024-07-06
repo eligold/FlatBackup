@@ -1,5 +1,5 @@
 import os, logging, traceback
-from obd import OBD, OBDCommand, commands
+from obd import OBD, OBDCommand, OBDStatus, commands
 from obd.utils import bytes_to_int
 from obd.protocols import ECU
 from time import sleep, time
@@ -35,10 +35,10 @@ class ELM327:
         else:
             logger.info(f"ELM327 port: {portstr.split('/')[-1]} -> {port}")
         elm = OBD(port)
-        if elm.is_connected():
+        if elm.is_connected() or elm.status() == OBDStatus.OBD_CONNECTED:
             voltage = elm.query(VOLT)
             print(voltage.value)
-            if not voltage.is_null() and voltage.value.magnitude > 12.1:
+            if not voltage.is_null() and voltage.value.magnitude > 12.8:
                 self.carOn = True
             self.elm327 = elm
         else: self.close()
