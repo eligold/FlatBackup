@@ -119,7 +119,6 @@ def leave(touch_input, process_list):
     if touch_input is not None: touch_input.close()
     start_time = time()
     for proc in process_list: proc.join()
-    main_pipe1.close()
     logger.info(f"{time() - start_time}s to join procs")
    # if not _wifi_state(): Popen("shutdown -h now",shell=True) # bash('ip link set wlan0 up')
     bash(f"bluetoothctl disconnect {mac}")
@@ -186,9 +185,6 @@ def on_screen(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, main_pipe=main_pipe2
     finally:
         back_pipe.send("STOP")
         dash_pipe.send("STOP")
-        while not "STOP" == back_pipe.recv(): pass
-        while not "STOP" == dash_pipe.recv(): pass
-        for pipe in [back_pipe, dash_pipe]: pipe.close()
         print("leaving show process")
 
 def get_image(pipe=backup_pipe2):
@@ -213,15 +209,12 @@ def get_image(pipe=backup_pipe2):
                 if camera is not None: camera.release()
                 print(f'failed reads: {read_fail_count}')
     finally:
-        pipe.send("STOP")
-        pipe.close()
         print("leaving backup cam process")
 
 def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
                    show_pipe=dash_pipe2, save_pipe=save_pipe1):
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    view_flag = False
-    exit_flag = False
+    view_flag, exit_flag = False, False
     try:
         while not exit_flag:
             try:
@@ -248,8 +241,6 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
     finally:
         show_pipe.send("STOP")
         save_pipe.send("STOP")
-        while not "STOP" == save_pipe.recv(): pass
-        save_pipe.close()
         print("leaving dash process")
 
 def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
@@ -264,8 +255,8 @@ def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
                 while not exit_flag:
                     if pipe.poll(0.119):
                         msg = pipe.recv()
-                        if "STOP" == msg: exit_flag = True
-                        else: output.write(msg)
+                        if not isinstance(msg, str): output.write(msg)
+                        else: exit_flag = True
                     else: logger.error("no dash image to save!")
             except (EOFError, BrokenPipeError, OSError): break
             except Exception as e: logger.exception(e)
@@ -273,7 +264,6 @@ def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
                 if output is not None: output.release()
                 print("output released")
     finally:
-        pipe.send("STOP")
         bash("sync; sync; sync")
         if not _wifi_state(): Popen("sleep 1; shutdown -h now", shell=True)
         print("leaving save process")
