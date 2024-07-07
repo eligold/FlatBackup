@@ -119,7 +119,8 @@ def leave(touch_input, process_list):
     if touch_input is not None: touch_input.close()
     start_time = time()
     for proc in process_list: proc.join()
-    print(f"{time() - start_time}s")
+    main_pipe1.close()
+    logger.info(f"{time() - start_time}s to join procs")
    # if not _wifi_state(): Popen("shutdown -h now",shell=True) # bash('ip link set wlan0 up')
     bash(f"bluetoothctl disconnect {mac}")
 
@@ -148,103 +149,134 @@ def display_image(pipe=main_pipe1,queue=sidebar_queue):
             try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = queue.get(block=False)
             except Empty: pass
             if pipe.poll(FRAME_DELAY):
-                frame_buffer[:,:-SIDEBAR_WIDTH] = pipe.recv()
+                msg = pipe.recv()
+                if "STOP" == msg and exit_flag != True: exit_flag = True
+                else: frame_buffer[:,:-SIDEBAR_WIDTH] = msg
                 if show_graph: build_graph(psi_list.copy(), frame_buffer)
                 frame_buffer.flush()
         except (EOFError, BrokenPipeError, OSError): exit_flag = True
         except Exception as e: logger.exception(e)
-        if exit_flag: break
-    pipe.close()
+        if exit_flag: break # PROBABLY EXTRANEOUS
 
 def on_screen(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, main_pipe=main_pipe2):
     back_image, dash_image = None, None
-    view_flag, show_graph = False, False
-    while True:
-        try:
-            if main_pipe.poll():
-                msg = main_pipe.recv()
-                if "VIEW" == msg: 
-                    view_flag = not view_flag
-                    dash_pipe.send("START" if view_flag else "STOP")
-                elif "GRAPH" == msg: show_graph = not show_graph
-                else: print(f"bad message from main: {msg}")
-            if back_pipe.poll(FRAME_DELAY): back_image = back_pipe.recv()
-            else: raise Empty # image = display_queue.get(timeout=0.057)
-            if view_flag:
-                if dash_pipe.poll(): dash_image = dash_pipe.recv()
-                if dash_image is not None: image = output_alt(back_image,dash_image)
-            if not view_flag or dash_image is None: image = build_output_image(back_image)
-            if show_graph: image = addOverlay(image)
-            main_pipe.send(cv.cvtColor(image, BGR565))
-        except Empty: pass
-        except (EOFError, BrokenPipeError, OSError): break
-        except Exception as e: logger.exception(e)
-    for pipe in [back_pipe, dash_pipe, main_pipe]: pipe.close()
+    view_flag, show_graph, exit_flag = False, False, False
+    try:
+        while not exit_flag:
+            try:
+                if exit_flag: break
+                if main_pipe.poll():
+                    msg = main_pipe.recv()
+                    if "VIEW" == msg: 
+                        view_flag = not view_flag
+                        dash_pipe.send("START_VIEW" if view_flag else "STOP_VIEW")
+                    elif "GRAPH" == msg: show_graph = not show_graph
+                    elif "STOP" == msg: exit_flag = True
+                    else: print(f"bad message from main: {msg}")
+                if back_pipe.poll(FRAME_DELAY): back_image = back_pipe.recv()
+                else: continue # image = display_queue.get(timeout=0.057)
+                if view_flag:
+                    if dash_pipe.poll(): dash_image = dash_pipe.recv()
+                    if dash_image is not None: image = output_alt(back_image,dash_image)
+                if not view_flag or dash_image is None: image = build_output_image(back_image)
+                if show_graph: image = addOverlay(image)
+                main_pipe.send(cv.cvtColor(image, BGR565))
+            except (EOFError, BrokenPipeError, OSError): break
+            except Exception as e: logger.exception(e)
+    finally:
+        back_pipe.send("STOP")
+        dash_pipe.send("STOP")
+        while not "STOP" == back_pipe.recv(): pass
+        while not "STOP" == dash_pipe.recv(): pass
+        for pipe in [back_pipe, dash_pipe]: pipe.close()
+        print("leaving show process")
 
 def get_image(pipe=backup_pipe2):
     width, height = DIM
     read_fail_count = 0
     camera = None
-    while True:
-        try:
-            camera = get_camera(extract_index(),width,height)
-            camera.read()
-            while camera.isOpened():
-                success, image = camera.read()
-                if success: pipe.send(image)
-                else: read_fail_count += 1
-            if pipe.poll(): pipe.recv()
-        except (EOFError, BrokenPipeError, OSError): break
-        except Exception as e: logger.exception(e)
-        finally:
-            if camera is not None: camera.release()
-            print(f'failed reads: {read_fail_count}')
-    pipe.close()
+    exit_flag = False
+    try:
+        while not exit_flag:
+            try:
+                camera = get_camera(extract_index(),width,height)
+                camera.read()
+                while camera.isOpened():
+                    if exit_flag: break
+                    success, image = camera.read()
+                    if success: pipe.send(image)
+                    else: read_fail_count += 1
+                    if pipe.poll(): exit_flag = True
+            except (EOFError, BrokenPipeError, OSError): break
+            except Exception as e: logger.exception(e)
+            finally:
+                if camera is not None: camera.release()
+                print(f'failed reads: {read_fail_count}')
+    finally:
+        pipe.send("STOP")
+        pipe.close()
+        print("leaving backup cam process")
 
 def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video_format="MJPG",
                    show_pipe=dash_pipe2, save_pipe=save_pipe1):
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     view_flag = False
-    while True:
-        try:
-            with Device.from_id(extract_index(camPath)) as cam:
-                video_capture = VideoCapture(cam)
-                video_capture.set_format(width,height,video_format)
-                with video_capture as stream:
-                    for frame in stream: # dashcam_queue.join()
-                        if video_format == "MJPG": image = cv.imdecode(frame.array, COLOR)
-                        else: image = cv.cvtColor(frame.array.reshape(height, width, 2), YUYV)
-                        save_pipe.send(image)
-                        if show_pipe.poll():
-                            msg = show_pipe.recv()
-                            if "START" == msg: view_flag = True
-                            elif "STOP" == msg: view_flag = False
-                            else: logger.error(f"bad message from main process: {msg}")
-                        if view_flag:
-                            show_pipe.send(image.copy())
-        except (EOFError, BrokenPipeError, OSError): break
-        except AssertionError: print("can't find usb") # reset_usb()
-        except Exception as e: logger.exception(e)
-    for pipe in [save_pipe, show_pipe]: pipe.close()
+    exit_flag = False
+    try:
+        while not exit_flag:
+            try:
+                with Device.from_id(extract_index(camPath)) as cam:
+                    video_capture = VideoCapture(cam)
+                    video_capture.set_format(width,height,video_format)
+                    with video_capture as stream:
+                        for frame in stream:
+                            if video_format == "MJPG": image = cv.imdecode(frame.array, COLOR)
+                            else: image = cv.cvtColor(frame.array.reshape(height, width, 2), YUYV)
+                            save_pipe.send(image)
+                            if show_pipe.poll():
+                                msg = show_pipe.recv()
+                                if "START_VIEW" == msg: view_flag = True
+                                elif "STOP_VIEW" == msg: view_flag = False
+                                elif "STOP" == msg: exit_flag = True
+                                else: logger.error(f"bad message from main process: {msg}")
+                            if view_flag:
+                                show_pipe.send(image) # .copy())
+                            if exit_flag: break
+            except (EOFError, BrokenPipeError, OSError): break
+            except AssertionError: print("can't find usb") # reset_usb()
+            except Exception as e: logger.exception(e)
+    finally:
+        show_pipe.send("STOP")
+        save_pipe.send("STOP")
+        while not "STOP" == save_pipe.recv(): pass
+        save_pipe.close()
+        print("leaving dash process")
 
 def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
                height=DASHCAM_IMAGE_HEIGHT, fourcc=cv.VideoWriter_fourcc(*'MJPG')):
-    bash('mount -a')
-    while True:
-        output = None
-        try:
-            output = cv.VideoWriter(get_video_path(camera),FFMPEG,fourcc,fps,(width, height))
-            while True:
-                if pipe.poll(0.119): output.write(pipe.recv())
-                else: logger.error("no dash image to save!")
-        except (EOFError, BrokenPipeError, OSError): break
-        except Exception as e: logger.exception(e)
-        finally:
-            if output is not None: output.release()
-            print("output released")
-    pipe.close()
-    bash("sync; sync; sync")
-    if not _wifi_state(): Popen("sleep 1; shutdown -h now", shell=True)
+    exit_flag = False
+    try:
+        bash('mount -a')
+        while not exit_flag:
+            output = None
+            try:
+                output = cv.VideoWriter(get_video_path(camera),FFMPEG,fourcc,fps,(width, height))
+                while not exit_flag:
+                    if pipe.poll(0.119):
+                        msg = pipe.recv()
+                        if "STOP" == msg: exit_flag = True
+                        else: output.write(msg)
+                    else: logger.error("no dash image to save!")
+            except (EOFError, BrokenPipeError, OSError): break
+            except Exception as e: logger.exception(e)
+            finally:
+                if output is not None: output.release()
+                print("output released")
+    finally:
+        pipe.send("STOP")
+        bash("sync; sync; sync")
+        if not _wifi_state(): Popen("sleep 1; shutdown -h now", shell=True)
+        print("leaving save process")
 
 if __name__ == "__main__":
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'

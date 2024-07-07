@@ -35,10 +35,11 @@ class ELM327:
         else:
             logger.info(f"ELM327 port: {portstr.split('/')[-1]} -> {port}")
         elm = OBD(port)
-        if self.connected():
+        if self.connected(): # seems to read high on first try, my battery
+            print(elm.query(VOLT).value) # has never produced 13.1V
             voltage = elm.query(VOLT)
             print(voltage.value)
-            if not voltage.is_null() and voltage.value.magnitude > 12.9: self.carOn = True
+            if not voltage.is_null() and voltage.value.magnitude > 13.8: self.carOn = True
             self.elm327 = elm
         else: self.close()
 
