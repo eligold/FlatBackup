@@ -38,9 +38,9 @@ class ELM327:
         elm = OBD(port)
         if self.connected():
             try: # seems to read high on first try, my battery has never produced 13.1V
-                print(elm.query(VOLT).value)
+                print(elm.query(VOLT))
                 voltage = elm.query(VOLT)
-                print(voltage.value)
+                print(voltage)
                 if not voltage.is_null() and voltage.value.magnitude > 13.8: self.carOn = True
             except: elm.close()
             else: self.elm327 = elm

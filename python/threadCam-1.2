@@ -242,8 +242,9 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
                                 show_pipe.send(image) # .copy())
                             if exit_flag: break
             except (EOFError, BrokenPipeError, OSError): break
-            except AssertionError: print("can't find usb") # reset_usb()
+            except AssertionError: logger.error("can't find usb") # reset_usb()
             except Exception as e: logger.exception(e)
+            if exit_flag: break
     finally:
         show_pipe.send("STOP")
        # save_pipe.send("STOP")
