@@ -1,4 +1,4 @@
-import os, logging, traceback
+import os, logging, obd
 from obd import OBD, OBDCommand, OBDStatus, commands
 from obd.utils import bytes_to_int
 from obd.protocols import ECU
@@ -34,13 +34,16 @@ class ELM327:
             logger.warning("ELM327 not found!")
         else:
             logger.info(f"ELM327 port: {portstr.split('/')[-1]} -> {port}")
+        obd.logger.setLevel(obd.logging.DEBUG)
         elm = OBD(port)
-        if self.connected(): # seems to read high on first try, my battery
-            print(elm.query(VOLT).value) # has never produced 13.1V
-            voltage = elm.query(VOLT)
-            print(voltage.value)
-            if not voltage.is_null() and voltage.value.magnitude > 13.8: self.carOn = True
-            self.elm327 = elm
+        if self.connected():
+            try: # seems to read high on first try, my battery has never produced 13.1V
+                print(elm.query(VOLT).value)
+                voltage = elm.query(VOLT)
+                print(voltage.value)
+                if not voltage.is_null() and voltage.value.magnitude > 13.8: self.carOn = True
+            except: elm.close()
+            else: self.elm327 = elm
         else: self.close()
 
     def speed(self):
