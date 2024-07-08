@@ -92,7 +92,7 @@ def data():
                                     if event.value > SCREEN_HEIGHT/2:
                                         msg = f'touch input (X ⇁,Y ⇃) -> {x},{event.value}'
                                         logger.info(msg)
-                                        main_pipe1.close()
+                                        main_pipe1.send("STOP")
                                         raise KeyboardInterrupt()
                                     else:
                                         show_graph = not show_graph
@@ -115,7 +115,10 @@ def data():
 
 def leave(touch_input, process_list):
     global exit_flag
-    if not exit_flag: exit_flag = True
+    if not exit_flag:
+        print("EXIT FLAG NOT SET")
+        exit_flag = True
+    print("DEBUGME")
     if touch_input is not None: touch_input.close()
     start_time = time()
     for proc in process_list: proc.join()
@@ -131,13 +134,16 @@ def make_sidebar(queue=sidebar_queue,color=COLOR_NORMAL):
         while not exit_flag:
             try:
                 while not exit_flag:
+                    print(exit_flag)
                     sidebar = sidebar_base.copy()
                     psi = car_connection.psi()
                     psi_list.append(max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),1))
                     sidebar=putText(sidebar,f"{psi:.1f}",(4,57),color=color,fontScale=1.19,thickness=3)
                     sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
                     queue.put(sidebar)
+                    if exit_flag: break
             except Exception as e: logger.exception(e)
+            if exit_flag: break
     finally: car_connection.close()
 
 def display_image(pipe=main_pipe1,queue=sidebar_queue):
@@ -149,7 +155,7 @@ def display_image(pipe=main_pipe1,queue=sidebar_queue):
             except Empty: pass
             if pipe.poll(FRAME_DELAY):
                 msg = pipe.recv()
-                if "STOP" == msg and exit_flag != True: exit_flag = True
+                if isinstance(msg, str) and exit_flag != True: exit_flag = True
                 else: frame_buffer[:,:-SIDEBAR_WIDTH] = msg
                 if show_graph: build_graph(psi_list.copy(), frame_buffer)
                 frame_buffer.flush()
@@ -240,7 +246,7 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, video
             except Exception as e: logger.exception(e)
     finally:
         show_pipe.send("STOP")
-        save_pipe.send("STOP")
+       # save_pipe.send("STOP")
         print("leaving dash process")
 
 def save_video(pipe=save_pipe2, camera=None, fps=15, width=DASHCAM_IMAGE_WIDTH,
