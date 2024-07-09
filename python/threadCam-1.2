@@ -115,10 +115,7 @@ def data():
 
 def leave(touch_input, process_list):
     global exit_flag
-    if not exit_flag:
-        print("EXIT FLAG NOT SET")
-        exit_flag = True
-    print("DEBUGME")
+    if not exit_flag: exit_flag = True
     if touch_input is not None: touch_input.close()
     start_time = time()
     for proc in process_list: proc.join()
