@@ -79,17 +79,17 @@ class ELM327:
                                 bps = elm.query(BPS).value.to('psi'))
                     return self.obdd.psi()
             except Exception as e: self.logger.exception(e)
-        return self.reset(19.0)
+        else: return self.reset(19.0)
 
     def volts(self):
-        elm = self.elm327
-        if elm is not None:
+        if self.connected():
+            elm = self.elm327
             try:
                 vr = elm.query(VOLT)
                 if not vr.is_null():
                     return vr.value.magnitude
             except Exception as e: self.logger.exception(e)
-        return self.reset(12.0)
+        else: return self.reset(12.0)
 
     def reset(self, default_value=None):
         self.close()

@@ -212,22 +212,23 @@ def get_image(pipe=backup_pipe2):
     finally:
         print("leaving backup cam process")
 
-def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, fps=15,
-                   fourcc=cv.VideoWriter_fourcc(*'MJPG'), show_pipe=dash_pipe2):
+def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, show_pipe=dash_pipe2):
     camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
     view_flag, exit_flag = False, False
+    queue = SimpleQueue()
+    thread = None
     try:
+        thread = Thread(target=save_video,args=(queue,exit_flag,),name="save")
+        thread.start()
         while not exit_flag:
-            output = None
             try:
-                output = cv.VideoWriter(get_video_path(),FFMPEG,fourcc,fps,(width, height))
                 with Device.from_id(extract_index(camPath)) as cam:
                     video_capture = VideoCapture(cam)
                     video_capture.set_format(width,height,"MJPG")
                     with video_capture as stream:
                         for frame in stream:
                             image = cv.imdecode(frame.array, COLOR)
-                            output.write(image)
+                            queue.put(image)
                             if show_pipe.poll():
                                 msg = show_pipe.recv()
                                 if "START_VIEW" == msg: view_flag = True
@@ -240,16 +241,33 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, fps=1
             except (EOFError, BrokenPipeError, OSError): break
             except AssertionError: logger.error("can't find usb") # reset_usb()
             except Exception as e: logger.exception(e)
+            if exit_flag: break
+    finally:
+        show_pipe.send("STOP")
+        if thread is not None: thread.join()
+        if not _wifi_state(): Popen("sleep 1; shutdown -h now", shell=True)
+        print("leaving dash process")
+
+def save_video(queue, exit_flag, camera=None, fps=15, fourcc=MJPG, width=DASHCAM_IMAGE_WIDTH,
+               height=DASHCAM_IMAGE_HEIGHT):
+    try:
+        bash('mount -a')
+        while not exit_flag:
+            output = None
+            try:
+                output = cv.VideoWriter(get_video_path(camera),FFMPEG,fourcc,fps,(width, height))
+                while not exit_flag:
+                    try: output.write(queue.get(timeout=0.119))
+                    except Empty: logger.error("no dash image to save!")
+                    if exit_flag: break
+            except Exception as e: logger.exception(e)
             finally:
                 if output is not None: output.release()
                 print("output released")
             if exit_flag: break
     finally:
-        show_pipe.send("STOP")
         bash("sync; sync; sync")
-       # save_pipe.send("STOP")
-        if not _wifi_state(): Popen("sleep 1; shutdown -h now", shell=True)
-        print("leaving dash process")
+        print("leaving save process")
 
 if __name__ == "__main__":
     fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
