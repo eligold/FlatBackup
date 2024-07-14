@@ -14,6 +14,7 @@ from os.path import realpath
 from time import localtime, sleep
 import cv2 as cv, numpy as np
 
+MJPG = cv.VideoWriter_fourcc(*'MJPG')
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
 DASHCAM_IMAGE_HEIGHT = 1944
