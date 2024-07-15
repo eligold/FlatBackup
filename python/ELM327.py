@@ -18,6 +18,7 @@ class ELM327:
     carOn = False
     elm327 = None
     checktime = None
+    delay_sec = 5
     obdd = OBDData()
     logger = logging.getLogger()
     def _gear(messages):
@@ -27,7 +28,8 @@ class ELM327:
 
     def __init__(self,portstr="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"):
         logger = self.logger
-        self.checktime = time() + 10
+        self.delay_sec *= 2
+        self.checktime = time() + self.delay_sec
         self.carOn = False
         port = os.path.realpath(portstr)
         if port == portstr:
@@ -39,12 +41,14 @@ class ELM327:
         try:
             elm = OBD(port)
             print("finish set up elm")
-            if self.connected():
+            if self.connected(elm):
                 try: # seems to read high on first try, my battery has never produced 13.1V
-                    print(elm.query(VOLT))
+                    print(elm.query(VOLT).value)
                     voltage = elm.query(VOLT)
-                    print(voltage)
-                    if not voltage.is_null() and voltage.value.magnitude > 13.8: self.carOn = True
+                    print(voltage.value)
+                    logger.info(f"ELM327 read voltage as {voltage.value}")
+                    self.carOn = elm.is_connected()
+                   # if not voltage.is_null() and voltage.value.magnitude > 13.8: self.carOn = True
                 except: elm.close()
                 else: self.elm327 = elm
             else: self.close()
@@ -67,7 +71,7 @@ class ELM327:
             except Exception as e: self.logger.exception(e)
         return None
 
-    def psi(self):
+    def psi(self,retry = False):
         elm = self.elm327
         if self.carOn:
             try:
@@ -78,6 +82,8 @@ class ELM327:
                                 maf = elm.query(MAF).value,
                                 bps = elm.query(BPS).value.to('psi'))
                     return self.obdd.psi()
+                elif not retry: return self.psi(retry=True)
+                else: self.carOn = False
             except Exception as e: self.logger.exception(e)
         else: return self.reset(19.0)
 
@@ -92,8 +98,8 @@ class ELM327:
         else: return self.reset(12.0)
 
     def reset(self, default_value=None):
-        self.close()
-        if time() - self.checktime > 10: self.checktime = time()
+        if self.car_on(): self.close()
+        if time() - self.checktime > self.delay_sec: self.checktime = time() + self.delay_sec / 2
         sleep(0.19)
         if time() > self.checktime: self.__init__()
         if default_value is not None: return default_value
@@ -103,9 +109,13 @@ class ELM327:
         if elm is not None:
             elm.close()
             elm = None
+        self.carOn = False
 
-    def connected(self):
+    def car_on(self):
         elm = self.elm327
-        if elm is not None:
-            return elm.is_connected() or elm.status() == OBDStatus.OBD_CONNECTED
+        if elm is not None: return elm.is_connected()
+        return False
+
+    def connected(self, elm = elm327):
+        if elm is not None: return elm.is_connected() or OBDStatus.OBD_CONNECTED == elm.status()
         return False
