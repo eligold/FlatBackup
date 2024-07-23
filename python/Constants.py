@@ -8,6 +8,7 @@ from cv2 import IMREAD_COLOR as COLOR
 from cv2 import CAP_PROP_FPS as FPS
 from cv2 import CAP_V4L2 as V4L2
 from cv2 import CAP_FFMPEG as FFMPEG
+from cv2 import FILLED as FILL
 
 from subprocess import run, Popen, PIPE, STDOUT
 from os.path import realpath
@@ -77,23 +78,28 @@ def extract_index(fully_qualified_path=usb_capture_id_path):
     return int(usb_capture_real_path.split("video")[-1])
 
 # make boost graph here ~+15 psi to ~-1 bar
-def addOverlay(image):
-    h,w = image.shape[:2]
+def addOverlay(image, color = COLOR_OVERLAY):
+    h,w = FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH
     radius,offset = 19,38
     overlay_image = image.copy()
     overlay_image[20:461,39:1442] = COLOR_OVERLAY
     overlay_image[39:442,20:1461] = COLOR_OVERLAY
-    overlay_image = cv.circle(overlay_image,(offset,offset),radius,COLOR_OVERLAY,-1)
-    overlay_image = cv.circle(overlay_image,(offset,h-offset),radius,COLOR_OVERLAY,-1)
-    overlay_image = cv.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
-    overlay_image = cv.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
+   # for top_left, bottom_right in (((39,20),(1442,461)),((20,39),(1461,442))):
+   #     overlay_image = cv.rectangle(overlay_image,top_left,bottom_right,color,FILL)
+   # overlay_image = cv.rectangle(overlay_image,(39,20),(1442,461),color,cv.FILLED)
+   # overlay_image = cv.rectangle(overlay_image,(20,39),(1461,442),color,cv.FILLED)
+    for center in ((offset,offset),(offset,h-offset),(w-offset,h-offset),(w-offset,offset)):
+        overlay_image = cv.circle(overlay_image,center,radius,color,-1)
+   # overlay_image = cv.circle(overlay_image,(offset,h-offset),radius,COLOR_OVERLAY,-1)
+   # overlay_image = cv.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
+   # overlay_image = cv.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
     cv.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
-    image[25:455,44:46] = BLACK
-    image[405:407,25:1456] = BLACK
-    image[135:137,38:45] = BLACK
     return putText(image,"10",(25,133),color=BLACK,fontScale=0.38,thickness=1)
 
 def build_graph(graph_list, frame_buffer, depth=PSI_BUFFER_DEPTH):
+    frame_buffer[25:455,44:46] = BLACK[:2]
+    frame_buffer[405:407,25:1456] = BLACK[:2]
+    frame_buffer[135:137,38:45] = BLACK[:2]
     coordinates=np.column_stack((np.array(graph_list),np.arange(depth-len(graph_list)+1,depth+1)))
     for i in range(4): frame_buffer[coordinates[:,0]-1+i//2, coordinates[:,1]-1+i%2] = (0xf8,0)
     for i in range(1,4): frame_buffer[coordinates[:,0]+i//2, coordinates[:,1]+i%2] = (0x30,0x21)
@@ -109,14 +115,20 @@ def get_camera(cam_index:int,width,height,apiPreference=V4L2,brightness=25) -> c
 def build_output_image(img): # MAYBE ALSO TRY mapx, mapy ?
     height, width = FINAL_IMAGE_HEIGHT, EDGEBAR_WIDTH
     intermediate = cv.remap(img,map1,map2,interpolation=LINEAR)
-    image = cv.resize(intermediate,SDIM,interpolation=LINEAR)[64:556]
+    image = cv.resize(intermediate,SDIM,interpolation=LINEAR)[64:552]
     large = cv.resize(image[213:453,width:-width],FDIM,interpolation=LINEAR)
-    return cv.hconcat([image[8:height+8,:width], large, image[4:height+4,-width:]])
+    return cv.hconcat([image[8:,:width], large, image[4:height+4,-width:]])
 
 def output_alt(image_backup, image_dash):
     intermediate = cv.remap(image_backup,map1,map2,interpolation=LINEAR)
     flat = cv.resize(intermediate,(840,672),interpolation=LINEAR)[56:536]
     return cv.hconcat([flat,cv.resize(image_dash,(640,480),interpolation=LINEAR)])
+
+def output_waveshare(img):
+    frame = np.zeros((720,576,3),np.uint8)
+    frame[48:-48] = img
+    intermediate = cv.remap(frame,map1,map2,interpolation=LINEAR)
+    return cv.resize(intermediate,(1440,1152),interpolation=LINEAR)[:720]
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30
