@@ -1,7 +1,20 @@
 # SETUP
-Project details can be found in the [Readme](./README.md)
+Project details can be found in the [Readme](../README.md)
 
 [visit this page for helpful references](./REFERENCE.md)
+
+## Project Components
+
+#### > Touchscreen and Raspberry Pi
+
+My solution runs on a Raspberry Pi, serving as the central hub for image correction and OBDII data processing. Python scripts handle the integration of these components with multi-threaded processing to promote seamless operation. In order to maximize the useable regions of the undistorted image this project required an extra wide screen and luckily I found a screen on amazon that provided the optimal aspect ratio and even integrated support for mounting the Pi directly to it. This exact screen is no longer available but  is nearly identical and there are [many](https://www.amazon.com/ElecLab-Touchscreen-Capacitive-1280x480-10-3-inch-hdmi-1280x480/dp/B0BWSSKDV4/ref=sr_1_2) [other](https://www.amazon.com/gp/product/B09SVDCSQJ/ref=ox_sc_act_title_2) [options](https://www.amazon.com/ElecLab-Raspberry-Touchscreen-Capacitive-1280x400/dp/B09YJ37SBH/ref=sr_1_3) to choose from depending on your application. Touch input was the last piece of the puzzle, and after a failed attempt to implement it in pure python using the `async` library I instead opted to pipe the output of the shell command `evtest` through the `Popen` construct of the `Subprocess` python module to a queue that is handled in the main thread.
+
+#### > OEM Camera Fisheye Image Correction
+
+Utilizing the power of OpenCV and Python, I've implemented built-in undistortion algorithms to correct fisheye lens-distorted images captured with the replacement OEM backup camera. A digitizer facilitates analog video conversion enabling real-time processing on the Raspberry Pi for display in a more natural perspective.
+`threading`, `queue`s, and `c++` oh my
+__FIXME__
+Between the regular undistortion method and the fisheye submodule verison, the latter seemed to suit my backup camera lens better with testing. Through some trial and error with a small helper script crafted to generate a set of baseline calibration images, a fairly consistent and replicable list of numbers was produced by the module's undistortion method. This list is used to create a matrix for reconstructing the raw image in a flattened perspective. The calibration script became more complicated yet more precise as additional tutorials and documentation for the fisheye submodule of OpenCV were reviewed.
 
 
 #### > Camera Selection
@@ -9,16 +22,36 @@ Initially the goal was a low-effort, surreptitious aftermarket camera to pair wi
 
 ...the distortion is pretty wild. I'm guessing whatever head unit that is installed natively with the camera in an A6 or a Q7 is doing a bit of post-processing under the hood because it is genuinely hard to look at. I've edited it out in these images but most of the rear license plate can be read in the uncropped original. At the time I thought about the possibility of using a Raspberry Pi and OpenCV but the poor mounting solution for the existing screen and no immediately apparent way to seamlessly mount the Pi it seemed like nothing more than a pipedream.
 
+
+#### > OBDII Data Integration
+
+An extraordinarily wide screen proved to be the most practical way to display the useful viewing area of the undistorted image however after tweaking the final layout some unused space remained to one side. I decided to use this space for displaying the boost pressure from the car's turbocharger. There are a number of ways to measure boost pressure in a forced induction car though most of them require invasive modifications that can compromise the weatherproofing of the interior. Rather than adding an air hose for a mechanical guage or running a wire through the heat shield to the engine bay I opted to use the built in sensors from the factory. The output of these sensors can be accessed through the OBDII port with an ELM327 USB adapter thanks to some handy code from [brendan-w](https://github.com/brendan-w/) with this [python-OBD project](https://github.com/brendan-w/python-OBD/).
+
+My car comes with a Manifold Absolute Pressure (MAP) sensor but Audi in their infinite wisdom decided not to break out values from reading that particular sensor via the standard OBD protocol. Not to worry; using only the total engine displacement volume, the RPM, readings from the Intake Air Temperature (IAT) sensor, and readings from the Mass Air Flow (MAF) sensor combined with some fancy high school math the boost pressure can be calculated within a reasonable margin of error:
+
+<p align="center">
+    <img src="./assets/doc/eq_r2.png" alt="P x V̇ = ṅ x R x T [1]">
+</p>
+
+$$ P \times V̇ = ṅ \times R \times T^{[1]} $$
+
+The above equation is derived from the ideal gas law $PV = nRT$ to relate the volumetric flow rate and molar mass flow rate of the intake air in order to calculate instantaneous boost pressure. All the necessary information is available through the OBDII connection to facilitate calculations as fast as the protocol can supply new data. Breaking down the terms:
+
+1. $P$ is the instantaneous boost pressure we are calculating
+1. $V̇$ is the volumetric flow rate of gas through the engine or 1984$cc$ for every two rotations of the crankshaft
+1. $ṅ$ is the molar flow rate of air determined by dividing the MAF sensor output ($ṁ$) in $g \over s$ by the molar mass of air, 28.949 $g\over mol$
+1. $R$ is the gas constant, helpfully provided by the `Unit` python library
+1. $T$ is the absolute temperature read from the IAT sensor and converted to Kelvin
+
+Rather than assume a constant atmospheric pressure the car's barometric pressure sensor (BPS) readings are subtracted from calculated absolute pressure to determine true boost pressure. If the result is negative that means the system is in vacuum and the reading is converted from $PSI$ to $bar$ since I don't really care as much about the magnitude. All of this is handled by the aptly named `Unit` python library.
+
 #### > Wiring and Mounting
 <img src="./assets/doc/Fakra.jpg" alt="fakra key chart failed to load" height="240px">
 <img src="./assets/doc/fakraBNC.jpeg" alt="fakra bnc image failed to load" height="240px">
 
 Video is carried through a Fakra antenna connector which come with many different key options. This is typically indicated by the housing color according to the internet and I spent much too long on a fruitless search for a high quality adapter specific to the key of the plug for the camera. A plethora of cheap options were forthcoming but the quality of the plug housings on most leave a lot to be desired and I don't look forward to repeating the interior trim disassembly to replace a broken plug. With a deeper dive through my references I realized that a universal "Z" key Fakra variation exists which works with most of the key options including our camera plug. High quality RF cables with custom terminations are typically expensive from reputable suppliers but [Amazon came to the rescue](https://a.co/d/6lxqHxw) with a mass-produced solution. The one from the link is no longer offered but I'm sure there are plenty of similar products available now. I used a small BNC to RCA adapter and slim RCA cable from [monoprice](https://www.monoprice.com/product?p_id=4127) although they no longer appear to offer the latter.
 
-
-included the camera with both power and signal plug sets intact.
-
-The most convenient place to tap power consisted of a cable run from a janky splitter in the dash fuse panel across the steering wheel to where I had centered the screen which did nothing to hold it in place while driving.
+The most convenient place to tap power consisted of a cable run from a janky splitter in the dash fuse panel across the steering wheel.
 
 <img src="./assets/doc/hatch_mess.png" alt="torn apart hatch image failed to load" width="75%">
 <br>
