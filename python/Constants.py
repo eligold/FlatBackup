@@ -112,6 +112,11 @@ def get_camera(cam_index:int,width,height,apiPreference=V4L2,brightness=25) -> c
     assert EXPECTED_SIZE == (int(camera.get(WIDTH)),int(camera.get(HEIGHT)),int(camera.get(FPS)))
     return camera
 
+def fullsize(img):
+    frame = np.zeros((576,720,3),np.uint8)
+    frame[48:-48] = img
+    return frame
+
 def build_output_image(img): # MAYBE ALSO TRY mapx, mapy ?
     height, width = FINAL_IMAGE_HEIGHT, EDGEBAR_WIDTH
     intermediate = cv.remap(img,map1,map2,interpolation=LINEAR)
@@ -125,10 +130,9 @@ def output_alt(image_backup, image_dash):
     return cv.hconcat([flat,cv.resize(image_dash,(640,480),interpolation=LINEAR)])
 
 def output_waveshare(img):
-    frame = np.zeros((720,576,3),np.uint8)
-    frame[48:-48] = img
-    intermediate = cv.remap(frame,map1,map2,interpolation=LINEAR)
-    return cv.resize(intermediate,(1440,1152),interpolation=LINEAR)[:720]
+    if img.shape[1] < 576: img = fullsize(img)
+    intermediate = cv.remap(img,map1,map2,interpolation=LINEAR)
+    return cv.resize(intermediate,(1440,1152),interpolation=LINEAR)[100:820]
 
 def start_dash_cam(): # sets camera attributes for proper output size and format before running
     runtime = DASHCAM_FPS * 60 * 30
