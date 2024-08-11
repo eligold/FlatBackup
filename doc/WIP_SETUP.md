@@ -203,3 +203,50 @@ The connection to the pi is facilitated by setting my phone hotspot credentials 
 1. Run `systemctl --user enable pulseaudio bluetooth-connect` to enable an audio endpoint for the bluetooth connection
 
 1. --bt-agent.service--ExecStartPost=
+
+
+#### Building OpenCV on Pi 4
+
+using USB 3.1 flash drive for swap
+```
+apt update && apt upgrade -y
+apt install -y build-essential cmake pkg-config 
+apt install -y libjpeg-dev libtiff5-dev libpng-dev 
+apt install -y libavcodec-dev libavformat-dev libswscale-dev libavresample-dev
+apt install -y libv4l-dev v4l-utils libxvidcore-dev libx264-dev
+apt install -y libgtk2.0-dev libgtk-3-dev libcanberra-gtk*
+apt install -y libatlas-base-dev gfortran python3-dev python3-pip python3-numpy
+apt install -y libtbb-dev libtbb2 libdc1394-22-dev
+apt install -y libopenblas-dev libblas-dev liblapacke-dev libhdf5-dev
+apt install -y libprotobuf-dev libgflags-dev
+apt install -y protobuf-compiler
+pip3 install obd
+
+
+sudo raspi-config 
+mkdir workspace && cd workspace
+wget https://downloads.sourceforge.net/project/libjpeg-turbo/2.1.91%20%283.0%20beta2%29/libjpeg-turbo-official_2.1.91_arm64.deb
+sudo apt install -y ./libjpeg-turbo-official_2.1.91_arm64.deb
+mkdir OpenCV && cd OpenCV
+wget -O opencv.zip https://github.com/opencv/opencv/archive/4.7.0.zip
+wget -O opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/4.7.0.zip
+unzip opencv.zip
+unzip opencv_contrib.zip && mv opencv_contrib-4.7.0 opencv_contrib
+cd opencv-4.7.0
+mkdir build && cd build 
+#increase max swap sudo vim /sbin/dphys-swapfile 6144
+#increase swap sudo vim /etc/dphys-swapfile  100->5120
+sudo /etc/init.d/dphys-swapfile {stop/start}
+`cat cmd`
+
+
+make -j4
+
+sudo make install
+sudo ldconfig
+make clean
+```
+
+
+
+
