@@ -1,8 +1,6 @@
-import os, traceback, cv2 as cv, numpy as np
+import cv2 as cv, numpy as np
 from queue import Empty, Full, SimpleQueue
-from time import sleep, time, localtime, perf_counter_ns as perf_counter
 from threading  import Thread
-
 
 DIM = (720,576) # PAL video dimensions
 SDIM = (600,480) # same ratio at screen height
@@ -106,7 +104,7 @@ def get_image():
                     fp[:,-960:] = undistort(frame)[8:488]
                 else:
                     fp[:,-600:] = cv.resize(frame,SDIM,iterpolation=cv.INTER_LINEAR)
-                # fb.flush()       # doesn't appear to be necessary
+                fp.flush()       # doesn't appear to be necessary
             else: pass
     finally:
         if cap: cap.release()
