@@ -21,13 +21,16 @@ class ELM327:
     delay_sec = 5
     obdd = OBDData()
     logger = logging.getLogger()
+    portstr= "/dev/ttyS0" # "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
     def _gear(messages):
         """ decoder for gear select """
         return bytes_to_int(messages[0].data[2:]) / 1000.0
     gear_command = OBDCommand("GEAR","Gear Select",b"01A4",4,_gear,ECU.ENGINE,False)
 
-    def __init__(self,portstr="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"):
+    def __init__(self,portstr=None):
         logger = self.logger
+        if portstr is None: portstr = self.portstr
+        elif self.portstr is not portsr: self.portstr = portstr
         self.delay_sec *= 2
         self.checktime = time() + self.delay_sec
         self.carOn = False
@@ -36,7 +39,7 @@ class ELM327:
             logger.warning("ELM327 not found!")
         else:
             logger.info(f"ELM327 port: {portstr.split('/')[-1]} -> {port}")
-        obd.logger.setLevel(obd.logging.DEBUG)
+       # obd.logger.setLevel(obd.logging.DEBUG)
         print("set up elm")
         try:
             elm = OBD(port)

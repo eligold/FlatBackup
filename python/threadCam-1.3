@@ -64,7 +64,7 @@ def data():
         if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
         else: 
             bash('ip link set wlan0 down') # else turn off radio to save power
-            Popen(f"sleep 5; bluetoothctl connect {mac}", shell=True)
+            Popen(f"sleep 5; bluetoothctl connect {mac}; echo 'bt cmd run'", shell=True)
         for func, name in [(get_dash_image,"dash"),
                            (get_image,"read"),
                            (on_screen,"proc")]:
@@ -125,7 +125,7 @@ def make_sidebar(queue=sidebar_queue,color=COLOR_NORMAL):
     global psi_list
     global exit_flag
     try:
-        car_connection = ELM327()
+        car_connection = ELM327("/dev/ttyS0")
         while not exit_flag:
             sidebar = sidebar_base.copy()
             try: psi = car_connection.psi()
