@@ -21,6 +21,21 @@
     h, w, c = 1024, 1280, 4
     fb = np.memmap('/dev/fb0', dtype='uint8',mode='w+', shape=(h,w,c)) 
     ```
+1. ] https://forums.raspberrypi.com/viewtopic.php?t=343341
+    ```
+    # restart USB, needs uhubctl?
+    if not {conditions}:
+        cmd = "echo '1-1' > /sys/bus/usb/drivers/usb/unbind"
+        p = subprocess.Popen(cmd, shell=True, preexec_fn=os.setsid)
+        time.sleep(2)
+        cmd = "echo '1-1' > /sys/bus/usb/drivers/usb/bind"
+        p = subprocess.Popen(cmd, shell=True, preexec_fn=os.setsid)
+    ```
+1. ] https://stackoverflow.com/questions/59772765/how-to-turn-usb-port-power-on-and-off-in-raspberry-pi-4
+    ```
+    echo '0' | sudo tee /sys/devices/platform/soc/3f980000.usb/buspower # turn off
+    echo '1' | sudo tee /sys/devices/platform/soc/3f980000.usb/buspower # on
+    ```
 1. ] https://stackoverflow.com/questions/11436502/closing-all-threads-with-a-keyboard-interrupt h/t [Paul Seeb](https://stackoverflow.com/a/11436603)
     ```
     from threading import Thread, Event
@@ -48,6 +63,7 @@ AptX > A2DP
 1. ] https://github.com/tmckay1/pi_bluetooth_auto_connect
 1. ] https://github.com/lukasjapan/bt-speaker
 1. ] https://github.com/elsampsa/btdemo
+1. ] https://github.com/RPi-Distro/pi-bluetooth/blob/master/usr/bin/bthelper
 1. ] https://github.com/nicokaiser/rpi-audio-receiver/
 1. ] https://github.com/Douglas6/blueplayer/
     This script will come in handy for using touch input to control iphone audio, calls, etc.
