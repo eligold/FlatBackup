@@ -107,6 +107,7 @@ AptX > A2DP
 1. ] https://rotational.io/blog/spooky-asyncio-errors-and-how-to-fix-them/
 1. ] https://peps.python.org/pep-0492/#why-stopasynciteration
 1. ] https://learn.adafruit.com/adding-a-real-time-clock-to-raspberry-pi/overview
+1. ] https://forums.balena.io/t/disable-console-over-serial-in-dev-on-rpi3/1412/7
 1. ] [https://13945096965777909312.googlegroups.com/attach/d7c59fe234298ded/minicom.cpp](https://13945096965777909312.googlegroups.com/attach/d7c59fe234298ded/minicom.cpp?part=0.1&view=1&view=1&vt=ANaJVrGAA71JEVEd4XEuxt4VG5FwYI41tF0sUnwR5UahihIrjmiCfS_xpkNKyNVPVjY8P9OESmx3ShNeygnof3162UaTuSNlbdUcoqu1T7HRyUoyHgYL-nc)
 1. ] https://people.eecs.ku.edu/~jrmiller/Courses/JavaToC++/BasicPointerUse.html
 1. ] https://cplusplus.com/reference/cstdio/scanf/
