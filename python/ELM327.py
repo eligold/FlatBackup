@@ -30,12 +30,12 @@ class ELM327:
     def __init__(self,portstr=None):
         logger = self.logger
         if portstr is None: portstr = self.portstr
-        elif self.portstr is not portsr: self.portstr = portstr
+        elif self.portstr is not portstr: self.portstr = portstr
         self.delay_sec *= 2
         self.checktime = time() + self.delay_sec
         self.carOn = False
         port = os.path.realpath(portstr)
-        if port == portstr:
+        if port == portstr and len(portstr.split("/")) > 3:
             logger.warning("ELM327 not found!")
         else:
             logger.info(f"ELM327 port: {portstr.split('/')[-1]} -> {port}")
