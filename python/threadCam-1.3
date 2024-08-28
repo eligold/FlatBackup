@@ -27,9 +27,7 @@ FRAME_DELAY = 0.119
 
 sidebar_hot = cv.cvtColor(cv.imread("/root/turboSB_hot.png"),BGR565)[-160:,:120]
 sidebar_cool = cv.cvtColor(cv.imread("/root/turboSB.png"),BGR565)[-160:,:120]
-def _sidebar_hot():
-    logger.warning(f"temp over {int(HIGH_TEMP)}C")
-    _change_sidebar(sidebar_hot)
+def _sidebar_hot(): _change_sidebar(sidebar_hot)
 def _change_sidebar(img=sidebar_cool):
     global sidebar_base
     sidebar_base=img.copy()

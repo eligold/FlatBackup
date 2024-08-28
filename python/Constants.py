@@ -96,6 +96,9 @@ def addOverlay(image, color = COLOR_OVERLAY):
     cv.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
     return putText(image,"10",(25,133),color=BLACK,fontScale=0.38,thickness=1)
 
+def pixel_psi(psi): # fancy math converts value to pixel height with 30 pixels per PSI
+    return max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),1)
+
 def build_graph(graph_list, frame_buffer, depth=PSI_BUFFER_DEPTH):
     frame_buffer[25:455,44:46] = BLACK[:2]
     frame_buffer[405:407,25:1456] = BLACK[:2]
