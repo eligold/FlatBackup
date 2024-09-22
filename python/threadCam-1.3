@@ -2,7 +2,8 @@
 import logging, traceback, ffmpeg
 from multiprocessing import Process, Pipe
 from queue import SimpleQueue, Empty
-from v4l2py import Device, VideoCapture
+try: from linuxpy.video.device import Device, VideoCapture
+except: from v4l2py import Device, VideoCapture
 from gpiozero import CPUTemperature
 from evdev import InputDevice
 from collections import deque
@@ -11,6 +12,14 @@ from time import time
 
 from Constants import *
 from ELM327 import ELM327
+
+
+# with Device.from_id(0) as cam:
+#   for frame in cam:
+#     img = frame.array.reshape(frame.height,frame.width,2),cv.COLOR_YUV2BGR_Y422)
+#     image = cv.vconcat([f[27:],f[:27]]) # bc v4l2/driver issues, line 0 aka [452] garbled
+#     fb[:frame.height,:frame.width] = cv.cvtColor(img,cv.COLOR_BGR2BGR565)
+
 
 # communications between threads:
 sidebar_queue = SimpleQueue()
