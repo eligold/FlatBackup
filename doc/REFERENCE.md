@@ -130,6 +130,9 @@ AptX > A2DP
 1. ] https://forums.raspberrypi.com/viewtopic.php?t=291358
     `select-editor`
     `update-alternatives --config editor`
+1. ] https://askubuntu.com/questions/237963/how-do-i-rotate-my-display-when-not-using-an-x-server
+    `echo 3 | sudo tee /sys/class/graphics/fbcon/rotate`
+
 Additional resources regarding the generation of python bindings for custom C++ OpenCV modules using OpenCV4 can be found [in the cpp subdirectory](./cpp/README.md)
 
  git clone --single-branch --branch code --depth 1 git@github.com:eligold/FlatBackup.git
