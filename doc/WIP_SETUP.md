@@ -30,7 +30,7 @@ An extraordinarily wide screen proved to be the most practical way to display th
 My car comes with a Manifold Absolute Pressure (MAP) sensor but Audi in their infinite wisdom decided not to break out values from reading that particular sensor via the standard OBD protocol. Not to worry; using only the total engine displacement volume, the RPM, readings from the Intake Air Temperature (IAT) sensor, and readings from the Mass Air Flow (MAF) sensor combined with some fancy high school math the boost pressure can be calculated within a reasonable margin of error:
 
 <p align="center">
-    <img src="./assets/doc/eq_r2.png" alt="P x V̇ = ṅ x R x T [1]">
+    <img src="../assets/doc/eq_r2.png" alt="P x V̇ = ṅ x R x T [1]">
 </p>
 
 $$ P \times V̇ = ṅ \times R \times T^{[1]} $$
@@ -46,14 +46,14 @@ The above equation is derived from the ideal gas law $PV = nRT$ to relate the vo
 Rather than assume a constant atmospheric pressure the car's barometric pressure sensor (BPS) readings are subtracted from calculated absolute pressure to determine true boost pressure. If the result is negative that means the system is in vacuum and the reading is converted from $PSI$ to $bar$ since I don't really care as much about the magnitude. All of this is handled by the aptly named `Unit` python library.
 
 #### > Wiring and Mounting
-<img src="./assets/doc/Fakra.jpg" alt="fakra key chart failed to load" height="240px">
-<img src="./assets/doc/fakraBNC.jpeg" alt="fakra bnc image failed to load" height="240px">
+<img src="../assets/doc/Fakra.jpg" alt="fakra key chart failed to load" height="240px">
+<img src="../assets/doc/fakraBNC.jpeg" alt="fakra bnc image failed to load" height="240px">
 
 Video is carried through a Fakra antenna connector which come with many different key options. This is typically indicated by the housing color according to the internet and I spent much too long on a fruitless search for a high quality adapter specific to the key of the plug for the camera. A plethora of cheap options were forthcoming but the quality of the plug housings on most leave a lot to be desired and I don't look forward to repeating the interior trim disassembly to replace a broken plug. With a deeper dive through my references I realized that a universal "Z" key Fakra variation exists which works with most of the key options including our camera plug. High quality RF cables with custom terminations are typically expensive from reputable suppliers but [Amazon came to the rescue](https://a.co/d/6lxqHxw) with a mass-produced solution. The one from the link is no longer offered but I'm sure there are plenty of similar products available now. I used a small BNC to RCA adapter and slim RCA cable from [monoprice](https://www.monoprice.com/product?p_id=4127) although they no longer appear to offer the latter.
 
 The most convenient place to tap power consisted of a cable run from a janky splitter in the dash fuse panel across the steering wheel.
 
-<img src="./assets/doc/hatch_mess.png" alt="torn apart hatch image failed to load" width="75%">
+<img src="../assets/doc/hatch_mess.png" alt="torn apart hatch image failed to load" width="75%">
 <br>
 
  __a heatsink with fan to keep things cool. A Meanwell DC/DC converter steps the car voltage down to 5V__
@@ -66,11 +66,11 @@ Wiring involved removing the interior trim of the rear hatch and running wires a
 __picture of progress, picture of final wire arrangement__
 
 I connected the 12V power supply in-line with harness wires for the trunk 12V accesory plug using some high current waterproof connectors I had on hand keeping nearly the entire wire run out of the cabin. I left a small loop with a pair of connectors running through some vent slots in the side panel as a quick disconnect in case any work needs to be done with the wiring down the line. With the trim removed I also took the oppotunity to wire up some high power Philips LEDs on custom-made aluminum PCBs to replace the pathetically dim single incandescent bulb that used to illuminate my trunk. As you might imagine from the below image, I don't think I'll have much trouble finding anything back there ever again.
-<img src="./assets/doc/hatch_light_inset.png" alt="trunk light image failed to load" width="57%">
+<img src="../assets/doc/hatch_light_inset.png" alt="trunk light image failed to load" width="57%">
 
 A recently purchased [Clearmounts phone adapter](https://www.audiphoneholder.com/product/78/clearmounts-bracket-low-profile-magnetic-holder-part-8p-low), pictured below, serves to conveniently and robustly secure my homebrew solution between the two centermost vents on my dashboard. After removing the simple magnetic holder that came with it I installed an articulated Scosche handsfree wireless charging mount similar to one that previously mounted to my windshield with a suction cup. I realized this model would be unsuitable for adapting to my project only after disassembling it completely so I purchased the articulated vent-mount model, securing a length of scrap aluminum angle extrusion to the back with the ball joint retaining screw through the Clearmounts adapter. Using a small L-bracket and some fastening hardware I mounted a second length of extrusion with holes drilled out to match the mounting pattern of my new widescreen display. It's practical but I'd like to replace it with something a bit more attractive down the line, perhaps in the vein of the beautiful custom devices built by [DIY Perks on YouTube](https://www.youtube.com/c/diyperks).
 
-<img src="./assets/doc/clearmounts.png" alt="clearmounts image failed to load" width="50%">
+<img src="../assets/doc/clearmounts.png" alt="clearmounts image failed to load" width="50%">
 
 Fast forward many months of annoyance with the warped image and my screen toppling over every time an inattentive driver would cut me off (in VA it's weird when people drive well), I was browsing amazon when I happened upon the perfect screen for the image layout I had in mind with included mounting hardware for the Pi. For only \$60 I realized I had run out of excuses not to try my hand with this OpenCV business. I figured it would be a quick and easy project however as I was working on the core functionality other ideas kept occuring to me and the project sort of snowballed from there. On top of an undistorted backup camera viewer the project now also implements touch input for control, records dashcam footage from an additionally installed camera to an external flash drive, and some visual tweaks just for me. Using a \$15 cable I'm able to pipeline diagnostic data from the car's ECU via the OBD port to continuously calculate and display instantaneous air intake pressure, a metric that means nothing to most people but for which car enthusiasts will pay hundreds of dollars and perform potentially destructive modifications to visualize. I've even run the car's stereo auxiliary connection to the Pi and scripted an automatic connection to my phone so my music switches over from a headset to playing on the car speakers automatically.
 
