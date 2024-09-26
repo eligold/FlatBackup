@@ -1,0 +1,293 @@
+#!/usr/bin/env /root/carcam/bin/python
+import logging, traceback, ffmpeg
+from multiprocessing import Process, Pipe
+from queue import SimpleQueue, Empty
+try: from linuxpy.video.device import Device, VideoCapture
+except: from v4l2py import Device, VideoCapture
+from gpiozero import CPUTemperature
+from evdev import InputDevice
+from collections import deque
+from threading import Thread
+from time import time, sleep
+
+from Constants import *
+from ELM327 import ELM327
+
+
+# with Device.from_id(0) as cam:
+#   for frame in cam:
+#     img = frame.array.reshape(frame.height,frame.width,2),cv.COLOR_YUV2BGR_Y422)
+#     image = cv.vconcat([f[27:],f[:27]]) # bc v4l2/driver issues, line 0 aka [452] garbled
+#     fb[:frame.height,:frame.width] = cv.cvtColor(img,cv.COLOR_BGR2BGR565)
+
+
+# communications between threads:
+sidebar_queue = SimpleQueue()
+psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
+# communications between processes:
+backup_pipe1, backup_pipe2 = Pipe()
+dash_pipe1, dash_pipe2 = Pipe()
+show_pipe1, show_pipe2 = Pipe()
+ctrl_pipe1, ctrl_pipe2 = Pipe()
+
+show_graph = False
+exit_flag = False
+HIGH_TEMP = 55.0
+FRAME_DELAY = 0.119
+
+sidebar_hot = cv.cvtColor(cv.imread("/root/turboSB_hot.png"),BGR565)[-160:,:120]
+sidebar_cool = cv.cvtColor(cv.imread("/root/turboSB.png"),BGR565)[-160:,:120]
+def _sidebar_hot(): _change_sidebar(sidebar_hot)
+def _change_sidebar(img=sidebar_cool):
+    global sidebar_base
+    sidebar_base=img.copy()
+_change_sidebar()
+
+intemp = CPUTemperature(threshold=HIGH_TEMP,event_delay=1.9)
+intemp.when_activated = _sidebar_hot
+intemp.when_deactivated = _change_sidebar
+
+# Display frame buffer memory mapped with numpy
+frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,2))
+frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
+frame_buffer[:] = np.fromfunction(
+    (lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,2),dtype=np.uint8)
+
+def _show_message(text,loc=(500,250),color=COLOR_LAYM,fontScale=3,thickness=4,width=SIDEBAR_WIDTH):
+    frame_buffer[:,:-width] = putText(frame_buffer[:,:-width], text, loc, color,
+                                      fontScale=fontScale, thickness=thickness)
+_show_message("Initializing", (500,250))
+
+# load private bluetooth MAC address for my phone
+with open("/root/.btmac","r") as file: mac = file.readline()
+def _wifi_state(): return bash('cat /sys/class/net/wlan0/operstate').stdout == b'up\n'
+
+def data():
+    global exit_flag
+    global show_graph
+    touch_input, x = None, None
+    touch_time = time() + 0.19
+    dash_proc = None
+    procs = []
+    try: # is the wifi connected?
+        if _wifi_state(): pass # raise KeyboardInterrupt("wifi connected")
+        else: 
+            bash('ip link set wlan0 down') # else turn off radio to save power
+            Popen(f"sleep 5 && bluetoothctl connect {mac}",shell=True)
+        dash_proc = Process(target=get_dash_image, name="dash")
+        dash_proc.start()
+        for func, name in [(get_image,"read"), (on_screen,"proc")]:
+            procs.append(Process(target=func, name=name))
+        for proc in procs: proc.start()
+        _show_message("Initializing...", (500,250))
+        touch_dev_path = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
+        Thread(target=display_image, name="show", daemon=True).start()
+        Thread(target=make_sidebar, name="data", daemon=True).start()
+        counter = 0
+        proc_flag = False
+        while True:
+            if proc_flag:
+                if dash_proc is not None: dash_proc.join()
+                for proc in procs: proc.kill()
+                break
+            if ctrl_pipe1.poll():
+                proc_flag = True
+                msg = ctrl_pipe1.recv()
+            if not proc_flag and time() > touch_time:
+                try:
+                    if touch_input is None: touch_input = InputDevice(touch_dev_path)
+                    for event in touch_input.read():
+                        if event.type == 3:
+                            if event.code == 0:
+                                if event.value > FINAL_IMAGE_WIDTH: x = event.value
+                                else: ctrl_pipe1.send("VIEW")
+                            else:
+                                if x is not None and event.code == 1:
+                                    if event.value > SCREEN_HEIGHT/2:
+                                        msg = f'touch input (X ⇁,Y ⇃) -> {x},{event.value}'
+                                        logger.info(msg)
+                                        ctrl_pipe1.send("STOP")
+                                       # raise KeyboardInterrupt()
+                                    else:
+                                        show_graph = not show_graph
+                                        ctrl_pipe1.send("GRAPH")
+                                x = None
+                except BlockingIOError: pass # no new input
+                except (OSError, FileNotFoundError): # janky mcu is ailing
+                    if counter > 3:
+                        if touch_input is not None:
+                            touch_input.close()
+                            touch_input = None
+                        touch_time = time() + 0.38
+                        counter = 0
+                    else: counter += 1
+    except KeyboardInterrupt as kb:
+        exit_flag = True
+        raise kb
+    except Exception as ex:
+        traceback.print_exc()
+        logger.exception(ex)
+    finally: leave(touch_input)
+
+def leave(touch_input):
+    if touch_input is not None: touch_input.close()
+    map_pipes()
+   # if not _wifi_state(): Popen("shutdown -h now",shell=True) # bash('ip link set wlan0 up')
+    if not _wifi_state(): bash(f"bluetoothctl disconnect {mac}")
+
+def map_pipes():
+    sleep(0.019)
+    idx = 0
+    for pipe in (backup_pipe1,backup_pipe2,show_pipe1,show_pipe2,dash_pipe1,dash_pipe2,ctrl_pipe1,ctrl_pipe2):
+        idx += 1
+        try:
+            while pipe.poll(): print(f"{idx}: {pipe.recv()}\t{pipe}")
+        except: traceback.print_exc()
+
+def make_sidebar(queue=sidebar_queue,color=COLOR_NORMAL):
+    global psi_list
+    global exit_flag
+    car_connection = None
+    try:
+        car_connection = ELM327("/dev/ttyS0")
+        while not exit_flag:
+            sidebar = sidebar_base.copy()
+            try: psi = car_connection.psi()
+            except Exception as e: logger.exception(e) # fancy math converts value to pixel height
+            psi_list.append(max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),1)) #  with 30px per PSI
+            sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=color,fontScale=1.19,thickness=3)
+            sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
+            queue.put(sidebar) # send it along to the display thread
+            if exit_flag: break
+    except Exception as e: logger.exception(e)
+    finally:
+        if car_connection is not None: car_connection.close()
+
+def display_image(pipe=show_pipe2,queue=sidebar_queue):
+    global exit_flag  # control flow bool
+    global show_graph # same deal
+    while not exit_flag:
+        try:
+            try: frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = queue.get(block=False)
+            except Empty: pass # nbd if no sidebar, ELM327 is slow
+            if pipe.poll():
+                msg = pipe.recv() # hot and fresh from the pipe, if its stringy:
+                if isinstance(msg, str):
+                    if exit_flag != True: exit_flag = True
+                else: frame_buffer[:,:-SIDEBAR_WIDTH] = msg # .get() # it's a frame
+                if show_graph: build_graph(psi_list.copy(), frame_buffer) # boost over time
+                frame_buffer.flush() # round and round we go to keep OS happy
+            if exit_flag: break
+        except (EOFError, BrokenPipeError, OSError): exit_flag = True
+        except Exception as e: logger.exception(e)
+        if exit_flag: break # PROBABLY EXTRANEOUS
+    pipe.send("STOP")
+
+def on_screen(back_pipe=backup_pipe1,dash_pipe=dash_pipe1,show_pipe=show_pipe1,ctrl_pipe=ctrl_pipe2):
+    back_image, dash_image, dashmsg = None, None, None
+    view_flag, show_graph = False, False
+    while True:
+        try:
+            if ctrl_pipe.poll():
+                ctrlmsg = ctrl_pipe.recv()
+                if "VIEW" == ctrlmsg: 
+                    view_flag = not view_flag
+                    dash_pipe.send("START_VIEW" if view_flag else "STOP_VIEW")
+                elif "GRAPH" == ctrlmsg: show_graph = not show_graph
+                elif "STOP" == ctrlmsg:
+                    for pipe in back_pipe,show_pipe,dash_pipe:
+                        pipe.send("STOP")
+                        while not pipe.poll(0.19): pass
+                        ctrlmsg = pipe.recv()
+                        while not (isinstance(ctrlmsg,str) and "STOP" == ctrlmsg): ctrlmsg = pipe.recv()
+                    raise EOFError("program ending time to shut down")
+                else: logger.warning(f"bad message from main: {msg}")
+            if dash_pipe.poll(): dashmsg = dash_pipe.recv()
+            if back_pipe.poll(FRAME_DELAY): back_image = back_pipe.recv()
+            else: continue
+            if view_flag:
+                if dashmsg is not None:
+                    dash_image = dashmsg
+                    dashmsg = None
+                image = output_alt(adv(back_image),dash_image)
+            else: image = build_output_image(adv(back_image))
+            if show_graph: image = addOverlay(image)
+            show_pipe.send(cv.cvtColor(image, BGR565))
+        except (EOFError, BrokenPipeError, OSError): break
+        except Exception as e: logger.exception(e)
+    ctrl_pipe.send("STOP")
+
+def get_image(pipe=backup_pipe2):
+    width, height = DIM[0], 480
+    exit_flag = False
+    camPath = "/dev/v4l/by-path/platform-fe801000.csi-video-index0"
+    while not exit_flag:
+        try:
+            with Device.from_id(extract_index(camPath)) as cam:
+                for frame in cam:
+                    if pipe.poll():
+                        pipe.recv()
+                        exit_flag = True
+                    if exit_flag: break
+                    pipe.send(cv.cvtColor(frame.array.reshape(frame.height,frame.width,2),YUV422))
+        except Exception as e: logger.exception(e)
+    pipe.send("STOP")
+
+def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, dash_pipe=dash_pipe2):
+    camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+    view_flag, exit_flag = False, False
+    lines = []
+    process = (ffmpeg.input('pipe:', format='mjpeg', framerate=15)
+        .output(get_video_path(), vcodec='copy', framerate=15, format='matroska')
+        .overwrite_output().run_async(pipe_stdin=True,pipe_stderr=True))
+    stderr_iterator = iter(process.stderr.readline, b'')
+    while not exit_flag:
+        try:
+            with Device.from_id(extract_index(camPath)) as cam:
+                video_capture = VideoCapture(cam)
+                video_capture.set_format(width,height,"MJPG")
+                with video_capture as stream:
+                    for frame in stream:
+                        if exit_flag: break
+                        process.stdin.write(frame.data)
+                        if dash_pipe.poll():
+                            msg = dash_pipe.recv()
+                            if "START_VIEW" == msg: view_flag = True
+                            elif "STOP_VIEW" == msg: view_flag = False
+                            elif "STOP" == msg: 
+                                process.stdin.flush()
+                                process.stdin.close()
+                                try:
+                                    for line in stderr_iterator:
+                                        if line.startswith(b'frame='): line = line.split(b'\r')[-1]
+                                        lines.append(line)
+                                    process.stderr.close()
+                                except Exception as e: logger.exception(e)
+                                exit_flag = True
+                            else: logger.error(f"bad message from main process: {msg}")
+                        if exit_flag: break
+                        if view_flag:
+                            dash_pipe.send(cv.imdecode(frame.array, COLOR))
+        except (EOFError, BrokenPipeError, OSError): break
+        except AssertionError: logger.error("can't find usb") # reset_usb()
+        except Exception as e: logger.exception(e)
+        if exit_flag: break
+    dash_pipe.send("STOP")
+    try:
+        process.terminate()
+        process.kill()
+    except: traceback.print_exc()
+    if len(lines) > 0: logger.info(lines)
+    if not _wifi_state(): Popen("sleep 1; shutdown -h now", shell=True)
+
+if __name__ == "__main__":
+    fmtString = '%(asctime)s[%(levelname)-4s]%(threadName)s: %(message)s'
+    handler = logging.FileHandler("/root/runtime-carCam.log")
+    level = logging.INFO # DEBUG
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter(fmtString))
+    logger = logging.getLogger()
+    logger.setLevel(level)
+    logger.addHandler(handler) # turn off red LED \/  \/
+   # bash('echo none > /sys/class/leds/PWR/trigger; echo 0 > /sys/class/leds/PWR/brightness')
+    data()
