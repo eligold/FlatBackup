@@ -1,0 +1,182 @@
+/dts-v1/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target = <0xffffffff>;
+
+		__overlay__ {
+			#address-cells = <0x01>;
+			#size-cells = <0x00>;
+			status = "okay";
+
+			adv728x@21 {
+				compatible = "adi,adv7282-m";
+				reg = <0x21>;
+				status = "okay";
+				clock-frequency = <0x16e3600>;
+				phandle = <0x03>;
+
+				port {
+
+					endpoint {
+						remote-endpoint = <0x01>;
+						clock-lanes = <0x00>;
+						data-lanes = <0x01>;
+						link-frequencies = <0x00 0x11b3dc40>;
+						mclk-frequency = <0xb71b00>;
+						phandle = <0x02>;
+					};
+				};
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <0xffffffff>;
+
+		__overlay__ {
+			status = "okay";
+
+			port {
+
+				endpoint {
+					remote-endpoint = <0x02>;
+					data-lanes = <0x01>;
+					phandle = <0x01>;
+				};
+			};
+		};
+	};
+
+	fragment@2 {
+		target = <0xffffffff>;
+
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	fragment@3 {
+		target = <0xffffffff>;
+
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	fragment@4 {
+		target = <0xffffffff>;
+
+		__dormant__ {
+			brcm,media-controller;
+		};
+	};
+
+	__overrides__ {
+		addr = [00 00 00 03 72 65 67 3a 30 00];
+		media-controller = [00 00 00 00 3d 34 00];
+		adv7280m = [00 00 00 00 2b 31 30 31 00];
+		adv7281m = [00 00 00 00 2b 31 30 32 00];
+		adv7281ma = [00 00 00 00 2b 31 30 33 00];
+		adv7280am = [00 00 00 00 2b 31 30 34 00];
+	};
+
+	fragment@101 {
+		target = <0x03>;
+
+		__dormant__ {
+			compatible = "adi,adv7280-m";
+		};
+	};
+
+	fragment@102 {
+		target = <0x03>;
+
+		__dormant__ {
+			compatible = "adi,adv7281-m";
+		};
+	};
+
+	fragment@103 {
+		target = <0x03>;
+
+		__dormant__ {
+			compatible = "adi,adv7281-ma";
+		};
+	};
+
+	fragment@104 {
+		target = <0x03>;
+		
+		__dormant__ {
+			compatible = "adi,adv7280a-m";
+		};
+	};
+
+	__symbols__ {
+		adv728x = "/fragment@0/__overlay__/adv728x@21";
+		adv728x_0 = "/fragment@0/__overlay__/adv728x@21/port/endpoint";
+		csi1_ep = "/fragment@1/__overlay__/port/endpoint";
+	};
+
+	__fixups__ {
+		i2c_csi_dsi = "/fragment@0:target:0";
+		csi1 = "/fragment@1:target:0\0/fragment@4:target:0";
+		i2c0if = "/fragment@2:target:0";
+		i2c0mux = "/fragment@3:target:0";
+	};
+
+	__local_fixups__ {
+
+		fragment@0 {
+
+			__overlay__ {
+
+				adv728x@21 {
+
+					port {
+
+						endpoint {
+							remote-endpoint = <0x00>;
+						};
+					};
+				};
+			};
+		};
+
+		fragment@1 {
+
+			__overlay__ {
+
+				port {
+
+					endpoint {
+						remote-endpoint = <0x00>;
+					};
+				};
+			};
+		};
+
+		__overrides__ {
+			addr = <0x00>;
+		};
+
+		fragment@101 {
+			target = <0x00>;
+		};
+
+		fragment@102 {
+			target = <0x00>;
+		};
+
+		fragment@103 {
+			target = <0x00>;
+		};
+
+		fragment@104 {
+			target = <0x00>;
+		};
+	};
+};

@@ -50,9 +50,7 @@ with open("/root/.btmac","r") as file: mac = file.readline()
 wifi_command= 'cat /sys/class/net/wlan0/operstate'
 
 def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
-    global exit_flag
-    global show_graph
-    view_flag = False
+    show_graph, view_flag, exit_flag = False, False, False
     back_proc, dash_proc, dash_image = None, None, None
     if bash(wifi_command).stdout == b'up\n': pass # return # is wifi connected?
     else: 
@@ -78,12 +76,13 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
                 elif "STOP" == data_msg: exit_flag = True
                 else: logger.warning(f"bad message from data: {data_msg}")
             elif not exit_flag:
-                back_image = cv.cvtColor(data_msg,YUV422)
+                img_data = data_msg[0] if show_graph else data_msg
+                back_image = cv.cvtColor(img_data,YUV422)
                 if view_flag: image = output_alt(adv(back_image), dash_image)
                 else: image = build_output_image(adv(back_image))
                 if show_graph: image = addOverlay(image)
                 frame_buffer[:,:-SIDEBAR_WIDTH] = cv.cvtColor(image, BGR565)
-                if show_graph: build_graph(psi_list.copy(), frame_buffer) # boost over time
+                if show_graph: build_graph(data_msg[1], frame_buffer) # boost over time
                 frame_buffer.flush() # round and round we go to keep OS happy
     for pipe in dash_pipe, back_pipe:
         pipe.send("STOP")
@@ -94,7 +93,8 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
     if back_proc is not None: back_proc.kill()
         
 
-def touch_thread(exit_flag, queue=touch_queue):
+def touch_thread(queue=touch_queue):
+    global exit_flag
     touch_input, x = None, None
     touch_time, counter = time() + 0.19, 0
     while not exit_flag:
@@ -118,6 +118,7 @@ def touch_thread(exit_flag, queue=touch_queue):
     if touch_input is not None: touch_input.close()
 
 def _touch_logic(event,x):
+    global show_graph
     if event.code == 0: # Code 0 gives the X coordinate
         if event.value > FINAL_IMAGE_WIDTH: x = event.value
         else: return "VIEW" # tap image to change view
@@ -126,11 +127,14 @@ def _touch_logic(event,x):
             if event.value > SCREEN_HEIGHT/2: # bottom half exits
                 logger.info(f'touch input (X ⇁,Y ⇃) -> {x},{event.value}')
                 return "STOP"
-            else: return "GRAPH" # top half displays PSI graph
+            else:
+                show_graph = not show_graph
+                return "GRAPH" # top half displays PSI graph
         x = None # TODO VALIDATE THIS CHANGES X IN THREAD!!!
     return None
 
-def make_sidebar(exit_flag, pipe=sidebar_pipe2,color=COLOR_NORMAL):
+def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL):
+    global exit_flag
     global psi_list
     car_connection = None
     try:
@@ -149,15 +153,17 @@ def make_sidebar(exit_flag, pipe=sidebar_pipe2,color=COLOR_NORMAL):
         if car_connection is not None: car_connection.close()
 
 def get_image(pipe=backup_pipe2):
-    exit_flag = False
+    global exit_flag
+    global show_graph
     while not exit_flag:
         try:
             with Device.from_id(extract_index(backupCamPath)) as cam:
-                Thread(target=make_sidebar, args=(exit_flag,), name="data", daemon=True).start()
-                Thread(target=touch_thread, args=(exit_flag,), name="touch", daemon=True).start()
+                Thread(target=make_sidebar, name="data", daemon=True).start()
+                Thread(target=touch_thread, name="touch", daemon=True).start()
                 for frame in cam:
                     if not pipe.poll():
-                        pipe.send(frame.array.reshape(frame.height,frame.width,2))
+                        img = frame.array.reshape(frame.height,frame.width,2)
+                        pipe.send((img, psi_list.copy()) if show_graph else img)
                         try: pipe.send(touch_queue.get(block=False))
                         except Empty: pass
                     else:
