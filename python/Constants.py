@@ -1,6 +1,7 @@
 from cv2 import CAP_PROP_BRIGHTNESS as BRIGHTNESS
 from cv2 import CAP_PROP_FRAME_HEIGHT as HEIGHT
 from cv2 import CAP_PROP_FRAME_WIDTH as WIDTH
+from cv2 import COLOR_YUV2BGR_Y422 as YUV422
 from cv2 import COLOR_YUV2BGR_YUYV as YUYV
 from cv2 import COLOR_BGR2BGR565 as BGR565
 from cv2 import INTER_LINEAR as LINEAR
@@ -74,7 +75,8 @@ no_signal_frame = putText(no_signal_frame, "No Signal", (500,200))
 
 def extract_index(fully_qualified_path=usb_capture_id_path):
     usb_capture_real_path = realpath(fully_qualified_path)
-    assert usb_capture_id_path != usb_capture_real_path
+    try: assert usb_capture_id_path != usb_capture_real_path
+    except: return usb_capture_id_path
     return int(usb_capture_real_path.split("video")[-1])
 
 # make boost graph here ~+15 psi to ~-1 bar
@@ -117,15 +119,21 @@ def get_camera(cam_index:int,width,height,apiPreference=V4L2,brightness=25) -> c
 
 def fullsize(img):
     frame = np.zeros((576,720,3),np.uint8)
-    frame[48:-48] = img
+    y=38
+    frame[y:img.shape[1]+y] = img # 48:-48
     return frame
 
 def build_output_image(img): # MAYBE ALSO TRY mapx, mapy ?
     height, width = FINAL_IMAGE_HEIGHT, EDGEBAR_WIDTH
+    y=48 # 48
     intermediate = cv.remap(img,map1,map2,interpolation=LINEAR)
-    image = cv.resize(intermediate,SDIM,interpolation=LINEAR)[64:552]
+    image = cv.resize(intermediate,SDIM,interpolation=LINEAR)[64-y:552-y]
     large = cv.resize(image[213:453,width:-width],FDIM,interpolation=LINEAR)
     return cv.hconcat([image[8:,:width], large, image[4:height+4,-width:]])
+
+def adv(img):
+   # image = cv.vconcat([img[27:],img[:27]])
+    return fullsize(img) if img.shape[1] < 576 else img
 
 def output_alt(image_backup, image_dash):
     intermediate = cv.remap(image_backup,map1,map2,interpolation=LINEAR)
