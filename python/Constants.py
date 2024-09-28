@@ -14,7 +14,10 @@ from cv2 import FILLED as FILL
 from subprocess import run, Popen, PIPE, STDOUT
 from os.path import realpath
 from time import localtime, sleep
-import cv2 as cv, numpy as np
+import cv2 as cv, numpy as np, numba as nb
+
+HIGH_TEMP = 55.0
+FRAME_DELAY = 0.119
 
 MJPG = cv.VideoWriter_fourcc(*'MJPG')
 DASHCAM_FPS = 15
@@ -64,6 +67,10 @@ mapx, mapy = cv.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv.
 map1, map2 = cv.convertMaps(mapx,mapy,cv.CV_16SC2) # fixed point maps run faster
 
 usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
+dashCamPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
+backupCamPath = "/dev/v4l/by-path/platform-fe801000.csi-video-index0"
+touchDevPath = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
+
 
 def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv.FONT_HERSHEY_SIMPLEX,
@@ -145,19 +152,6 @@ def output_waveshare(img):
     intermediate = cv.remap(img,map1,map2,interpolation=LINEAR)
     return cv.resize(intermediate,(1440,1152),interpolation=LINEAR)[100:820]
 
-def start_dash_cam(): # sets camera attributes for proper output size and format before running
-    runtime = DASHCAM_FPS * 60 * 30
-    camPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-    format = f"width={DASHCAM_IMAGE_WIDTH},height={DASHCAM_IMAGE_HEIGHT},pixelformat=MJPG"
-    bash(f"v4l2-ctl -d {camPath} -v {format}")
-    local_time = localtime()
-    date = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
-    clock_time = f"{local_time.tm_hour:02d}.{local_time.tm_min:02d}.{local_time.tm_sec:02d}"
-    weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
-    filepath = f"/media/usb/{'_'.join([date,clock_time,weekday])}.mjpeg"
-    cmd = f"v4l2-ctl -d {camPath} --stream-mmap=3 --stream-count={runtime} --stream-to={filepath}"
-    return shell(cmd,stderr=STDOUT,text=True)
-
 def get_video_path(explicit_camera=None): # e.g. "backup", "cabin"
     local_time = localtime()
     date = f"{local_time.tm_year}-{local_time.tm_mon:02d}-{local_time.tm_mday:02d}"
@@ -178,3 +172,12 @@ def bash(cmd:str,shell=True,capture_output=True,check=False):
 
 def shell(cmd:str,shell=True,stdout=PIPE,stderr=PIPE,**kwargs):
     return Popen(cmd,shell=shell,stdout=stdout,stderr=stderr,**kwargs)
+
+@nb.njit
+def i2p(a1,a2): # https://stackoverflow.com/a/48489150
+    h,w,d = a1.shape
+    output = np.empty((h*2,w,d),dtype=a1.dtype)
+    for i, (row1,row2) in enumerate(zip(a1,a2)):
+        output[i*2] = row1
+        output[i*2+1] = row2
+    return output
