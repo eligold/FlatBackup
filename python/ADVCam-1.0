@@ -54,7 +54,7 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
     global show_graph
     view_flag = False
     back_proc, dash_proc, dash_image = None, None, None
-    if bash(wifi_command).stdout == b'up\n': return # is wifi connected?
+    if bash(wifi_command).stdout == b'up\n': pass # return # is wifi connected?
     else: 
         bash('ip link set wlan0 down') # else turn off radio to save power
         Popen(f"sleep 5 && bluetoothctl connect {mac}",shell=True)

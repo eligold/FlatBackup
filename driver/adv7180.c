@@ -242,10 +242,10 @@ struct adv7180_state {
 	struct v4l2_ctrl	*link_freq;
 };
 
-struct adv7280A_m_state {
-    struct adv7180_state;
-    struct v4l2_ctrl *toggle_ace;
-}
+//struct adv7280A_m_state {
+//    struct adv7180_state;
+//    struct v4l2_ctrl *toggle_ace;
+///}
 #define to_adv7180_sd(_ctrl) (&container_of(_ctrl->handler,		\
 					    struct adv7180_state,	\
 					    ctrl_hdl)->sd)
@@ -678,9 +678,9 @@ static int adv7180_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_TEST_PATTERN:
 		ret = adv7180_test_pattern(state, val);
 		break;
-    case V4L2_CID_AUTO_WHITE_BALANCE:
-        ret = adv7180_write(state, ADV7180_REG_ACE_CTRL1, val ? 0x80 : 0)
-        break;
+	case V4L2_CID_AUTO_WHITE_BALANCE:
+		ret = adv7180_write(state, ADV7180_REG_ACE_CTRL1, val ? 0x80 : 0);
+		break;
 	default:
 		ret = -EINVAL;
 	}
@@ -709,7 +709,7 @@ static const struct v4l2_ctrl_ops adv7280a_m_ctrl_ace_gamma_gain = {
 };
 static int adv7180_init_controls(struct adv7180_state *state)
 {
-	if (&state->chip_info->flags & ADV7280A_FLAG_ACE) {
+	if (state->chip_info->flags & ADV7280A_FLAG_ACE) {
         v4l2_ctrl_handler_init(&state->ctrl_hdl, 6);
         v4l2_ctrl_new_std(&state->ctrl_hdl, &adv7180_ctrl_ops, 
               V4L2_CID_AUTO_WHITE_BALANCE, 0, 1, 1, 0);

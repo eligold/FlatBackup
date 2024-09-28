@@ -1,9 +1,9 @@
-KERNEL_HEADERS=/lib/modules/$(shell uname -r)/build
-
+KERNEL_HEADERS:=/lib/modules/$(shell uname -r)/build
+PWD:=$(shell pwd)
 obj-m := adv7180.o
 
 all:
-    @$(MAKE) -C $(KERNEL_HEADERS) M=$(PWD) modules
+	make -C $(KERNEL_HEADERS) M=$(PWD) modules
 
 clean:      
-    @$(MAKE) -C $(KERNEL_HEADERS) M=$(PWD) clean
+	make -C $(KERNEL_HEADERS) M=$(PWD) clean
