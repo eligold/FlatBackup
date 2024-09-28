@@ -1,5 +1,6 @@
 #!/usr/bin/env /root/carcam/bin/python
 import logging, ffmpeg
+from logging.handlers import RotatingFileHandler
 from multiprocessing import Process, Pipe
 from queue import SimpleQueue, Empty
 from linuxpy.video.device import Device, VideoCapture
@@ -65,7 +66,7 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
     dash_proc.start()
     _show_message("Initializing...", (500,250))
     while not exit_flag:
-        if side_pipe.poll(): frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:]=side_pipe.recv()
+        if side_pipe.poll(): frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = side_pipe.recv()
         if dash_pipe.poll(): dash_image = dash_pipe.recv()
         if back_pipe.poll(FRAME_DELAY):
             data_msg = back_pipe.recv()
@@ -129,9 +130,8 @@ def _touch_logic(event,x):
         x = None # TODO VALIDATE THIS CHANGES X IN THREAD!!!
     return None
 
-def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL):
+def make_sidebar(exit_flag, pipe=sidebar_pipe2,color=COLOR_NORMAL):
     global psi_list
-    global exit_flag
     car_connection = None
     try:
         car_connection = ELM327("/dev/ttyS0") # hardware UART
@@ -214,7 +214,7 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, dash_
 if __name__ == "__main__":
     fmtString = '%(asctime)s [%(levelname)-4s] %(threadName)s: %(message)s'
     logFilePath = "/media/usb/runtime-carCam.log"
-    handler = logging.RotatingFileHandler(logFilePath, maxBytes=209715200, backupCount=2)
+    handler = RotatingFileHandler(logFilePath, maxBytes=209715200, backupCount=2)
     level = logging.INFO # DEBUG
     handler.setLevel(level)
     handler.setFormatter(logging.Formatter(fmtString))
