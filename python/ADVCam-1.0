@@ -64,12 +64,11 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
     dash_proc.start()
     _show_message("Initializing...", (500,250))
     while not exit_flag:
-        frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = side_pipe.recv() if side_pipe.poll() else sidebar_base
+        if side_pipe.poll(): frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = side_pipe.recv()
         if dash_pipe.poll(): dash_image = dash_pipe.recv()
         if back_pipe.poll(FRAME_DELAY):
             data_msg = back_pipe.recv()
             if isinstance(data_msg,str):
-                print(data_msg)
                 if "VIEW" == data_msg: 
                     view_flag = not view_flag
                     dash_pipe.send("START_VIEW" if view_flag else "STOP_VIEW")
@@ -163,11 +162,10 @@ def get_image(pipe=backup_pipe2):
     while not exit_flag:
         try:
             with Device.from_id(extract_index(backupCamPath)) as cam:
-               # Thread(target=make_sidebar, name="data", daemon=True).start()
+                Thread(target=make_sidebar, name="data", daemon=True).start()
                 Thread(target=touch_thread, name="touch", daemon=True).start()
-                for ctrl in cam.controls.values(): print(ctrl)
-               # try: cam.controls.auto_white_balance.value = True
-               # except: pass
+                try: cam.controls.auto_white_balance.value = True
+                except: pass
                 for frame in cam:
                     if not pipe.poll():
                         img = frame.array.reshape(frame.height,frame.width,2)
