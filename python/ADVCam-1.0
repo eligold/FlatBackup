@@ -69,6 +69,7 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
         if back_pipe.poll(FRAME_DELAY):
             data_msg = back_pipe.recv()
             if isinstance(data_msg,str):
+                print(data_msg)
                 if "VIEW" == data_msg: 
                     view_flag = not view_flag
                     dash_pipe.send("START_VIEW" if view_flag else "STOP_VIEW")
@@ -78,7 +79,7 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
             elif not exit_flag:
                 img_data = data_msg[0] if show_graph else data_msg
                 back_image = cv.cvtColor(img_data,YUV422)
-                if view_flag: image = output_alt(adv(back_image), dash_image)
+                if view_flag and dash_image is not None: image = output_alt(adv(back_image), dash_image)
                 else: image = build_output_image(adv(back_image))
                 if show_graph: image = addOverlay(image)
                 frame_buffer[:,:-SIDEBAR_WIDTH] = cv.cvtColor(image, BGR565)
@@ -104,8 +105,11 @@ def touch_thread(queue=touch_queue):
                 for event in touch_input.read():
                     if event.type == 3: touch_msg = _touch_logic(event,x)
                     if touch_msg is not None:
-                        queue.put(touch_msg)
-                        touch_msg = None
+                        if isinstance(touch_msg,int): x = touch_msg
+                        else:
+                            queue.put(touch_msg)
+                            touch_msg = None
+                            x = None
             except BlockingIOError: pass # no new input
             except (OSError, FileNotFoundError): # janky mcu is ailing
                 if counter > 3:
@@ -120,7 +124,7 @@ def touch_thread(queue=touch_queue):
 def _touch_logic(event,x):
     global show_graph
     if event.code == 0: # Code 0 gives the X coordinate
-        if event.value > FINAL_IMAGE_WIDTH: x = event.value
+        if event.value > FINAL_IMAGE_WIDTH: return event.value
         else: return "VIEW" # tap image to change view
     else: # Sidebar actions defined here
         if x is not None and event.code == 1:
@@ -130,7 +134,6 @@ def _touch_logic(event,x):
             else:
                 show_graph = not show_graph
                 return "GRAPH" # top half displays PSI graph
-        x = None # TODO VALIDATE THIS CHANGES X IN THREAD!!!
     return None
 
 def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL):
