@@ -72,13 +72,14 @@ class ELM327:
 
     def _update(self, retry = False):
         elm = self.elm327
-        rpmr = elm.query(RPM)
-        if self.carOn and not (rpmr.is_null() or rpmr.value.magnitude == 0.0):
-            self.obdd.update(rpm = rpmr.value,
-                        iat = elm.query(TEMP).value.to('degK'),
-                        maf = elm.query(MAF).value,
-                        bps = elm.query(BPS).value.to('psi'))
-            return self.obdd.psi()
+        if elm is not None:
+            rpmr = elm.query(RPM)
+            if self.carOn and not (rpmr.is_null() or rpmr.value.magnitude == 0.0):
+                self.obdd.update(rpm = rpmr.value,
+                            iat = elm.query(TEMP).value.to('degK'),
+                            maf = elm.query(MAF).value,
+                            bps = elm.query(BPS).value.to('psi'))
+                return self.obdd.psi()
         if not retry: return self._update(retry=True)
         self.carOn = False
         return self.reset(19.0)
@@ -94,7 +95,7 @@ class ELM327:
         else: return self.reset(12.0)
 
     def reset(self, default_value=None):
-        if self.carOn: self.close() # < TODO THIS NEEDS WORK  \/ bandaid for no RTC
+        if self.connected(): self.close() # < TODO THIS NEEDS WORK  \/ bandaid for no RTC
         if time() - self.checktime > self.delay_sec: self.checktime = time() + self.delay_sec / 2
         sleep(0.19)
         if time() > self.checktime: self.__init__()
@@ -106,5 +107,6 @@ class ELM327:
         self.carOn = False
         elm = None # self.elm327?
 
-    def connected(self, elm = elm327):
-        return elm is not None and (elm.is_connected() or OBDStatus.OBD_CONNECTED == elm.status())
+    def connected(self, elm=None):
+        if elm is None: elm = self.elm327
+        return (elm is not None and (elm.is_connected() or OBDStatus.OBD_CONNECTED == elm.status()))

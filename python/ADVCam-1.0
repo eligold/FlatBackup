@@ -64,7 +64,7 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
     dash_proc.start()
     _show_message("Initializing...", (500,250))
     while not exit_flag:
-        if side_pipe.poll(): frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = side_pipe.recv()
+        frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = side_pipe.recv() if side_pipe.poll() else sidebar_base
         if dash_pipe.poll(): dash_image = dash_pipe.recv()
         if back_pipe.poll(FRAME_DELAY):
             data_msg = back_pipe.recv()
@@ -96,7 +96,7 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
 
 def touch_thread(queue=touch_queue):
     global exit_flag
-    touch_input, x = None, None
+    touch_input, touch_msg, x = None, None, None
     touch_time, counter = time() + 0.19, 0
     while not exit_flag:
         if time() > touch_time:
@@ -118,6 +118,7 @@ def touch_thread(queue=touch_queue):
                         touch_input = None
                     touch_time = time() + 0.38
                     counter = 0
+                    touch_msg = None
                 else: counter += 1
     if touch_input is not None: touch_input.close()
 
@@ -146,10 +147,11 @@ def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL):
             sidebar = sidebar_base.copy()
             try: psi = car_connection.psi()
             except Exception as e: logger.exception(e) # fancy math converts value to pixel height
-            psi_list.append(max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),1)) #  with 30px per PSI
-            sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=color,fontScale=1.19,thickness=3)
-            sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
-            pipe.send(sidebar) # send it along to the display thread
+            if psi is not None:
+                psi_list.append(max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),1)) #  with 30px per PSI
+                sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=color,fontScale=1.19,thickness=3)
+                sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
+                pipe.send(sidebar) # send it along to the display thread
             if exit_flag: break
     except Exception as e: logger.exception(e)
     finally:
@@ -161,8 +163,11 @@ def get_image(pipe=backup_pipe2):
     while not exit_flag:
         try:
             with Device.from_id(extract_index(backupCamPath)) as cam:
-                Thread(target=make_sidebar, name="data", daemon=True).start()
+               # Thread(target=make_sidebar, name="data", daemon=True).start()
                 Thread(target=touch_thread, name="touch", daemon=True).start()
+                for ctrl in cam.controls.values(): print(ctrl)
+               # try: cam.controls.auto_white_balance.value = True
+               # except: pass
                 for frame in cam:
                     if not pipe.poll():
                         img = frame.array.reshape(frame.height,frame.width,2)
