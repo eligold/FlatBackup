@@ -95,20 +95,19 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
 
 def touch_thread(queue=touch_queue):
     global exit_flag
-    touch_input, touch_msg, x = None, None, None
+    touch_input, touch_msg = None, None
     touch_time, counter = time() + 0.19, 0
     while not exit_flag:
         if time() > touch_time:
             try:
+                x = None
                 if touch_input is None: touch_input = InputDevice(touchDevPath)
                 for event in touch_input.read():
                     if event.type == 3: touch_msg = _touch_logic(event,x)
                     if touch_msg is not None:
                         if isinstance(touch_msg,int): x = touch_msg
-                        else:
-                            queue.put(touch_msg)
-                            touch_msg = None
-                            x = None
+                        else: queue.put(touch_msg)
+                        touch_msg = None
             except BlockingIOError: pass # no new input
             except (OSError, FileNotFoundError): # janky mcu is ailing
                 if counter > 3:
@@ -151,7 +150,6 @@ def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL):
                 sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=color,fontScale=1.19,thickness=3)
                 sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
                 pipe.send(sidebar) # send it along to the display thread
-            if exit_flag: break
     except Exception as e: logger.exception(e)
     finally:
         if car_connection is not None: car_connection.close()
@@ -179,7 +177,8 @@ def get_image(pipe=backup_pipe2):
         except Exception as e: logger.exception(e)
     pipe.send("STOP")
 
-def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, dash_pipe=dash_pipe2):
+def get_dash_image(dash_pipe=dash_pipe2):
+    width, height = DASHCAM_IMAGE_WIDTH, DASHCAM_IMAGE_HEIGHT
     view_flag, exit_flag = False, False
     lines = []
     process = (ffmpeg.input('pipe:', format='mjpeg', framerate=15)
@@ -215,12 +214,10 @@ def get_dash_image(width=DASHCAM_IMAGE_WIDTH, height=DASHCAM_IMAGE_HEIGHT, dash_
         except (EOFError, BrokenPipeError, OSError): break
         except AssertionError: logger.error("can't find usb") # reset_usb()
         except Exception as e: logger.exception(e)
-        if exit_flag: break
-    try:
-        process.terminate()
-        process.kill()
+    try: process.terminate()
     except Exception as e: logger.exception(e)
-    if len(lines) > 0: logger.info(lines)
+    finally: process.kill()
+    for line in lines: logger.info(line)
     dash_pipe.send("STOP")
 
 if __name__ == "__main__":
