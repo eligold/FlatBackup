@@ -139,7 +139,9 @@
 #define ADV7180_REG_CSI_SLAVE_ADDR	0xFE
 
 #define ADV7180_REG_ACE_CTRL1		0x4080
+#define ADV7180_REG_ACE_CTRL4		0x4083
 #define ADV7180_REG_ACE_CTRL5		0x4084
+#define ADV7180_REG_ACE_CTRL6		0x4085
 #define ADV7180_REG_FLCONTROL		0x40e0
 #define ADV7180_FLCONTROL_FL_ENABLE 0x1
 
@@ -184,7 +186,22 @@
 #define ADV7180_DEFAULT_CSI_I2C_ADDR 0x44
 #define ADV7180_DEFAULT_VPP_I2C_ADDR 0x42
 
-#define V4L2_CID_ADV_FAST_SWITCH	(V4L2_CID_USER_ADV7180_BASE + 0x00)
+#define V4L2_CID_ADV_FAST_SWITCH		(V4L2_CID_USER_ADV7180_BASE + 0x00)
+#define V4L2_CID_ADV_ACE_EN				(V4L2_CID_USER_ADV7180_BASE + 0x01)
+#define V4L2_CID_ADV_ACE_LUMA_GAIN		(V4L2_CID_USER_ADV7180_BASE + 0x02)
+#define V4L2_CID_ADV_ACE_SPEED			(V4L2_CID_USER_ADV7180_BASE + 0x03)
+#define	V4L2_CID_ADV_ACE_CHROMA_GAIN	(V4L2_CID_USER_ADV7180_BASE + 0x04)
+#define V4L2_CID_ADV_ACE_CHROMA_MAX		(V4L2_CID_USER_ADV7180_BASE + 0x05)
+#define V4L2_CID_ADV_ACE_GAMMA_GAIN		(V4L2_CID_USER_ADV7180_BASE + 0x06)
+
+#define ADV7280A_ACE_MIN 0
+#define ADV7280A_ACE_MAX 15
+#define ADV7280A_ACE_LUMA_MAX 31
+#define ADV7280A_ACE_LUMA_DEF 13
+#define ADV7280A_ACE_SPEED_DEF 15
+#define ADV7280A_ACE_CHROMA_DEF 8
+#define ADV7280A_ACE_CHROMA_MAX_DEF 8
+#define ADV7280A_ACE_GAMMA_DEF 8
 
 /* Initial number of frames to skip to avoid possible garbage */
 #define ADV7180_NUM_OF_SKIP_FRAMES       2
@@ -678,8 +695,29 @@ static int adv7180_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_TEST_PATTERN:
 		ret = adv7180_test_pattern(state, val);
 		break;
-	case V4L2_CID_AUTO_WHITE_BALANCE:
-		ret = adv7180_write(state, ADV7180_REG_ACE_CTRL1, val ? 0x80 : 0);
+	case V4L2_CID_ADV_ACE_EN:
+		ret = adv7180_write(state, ADV7180_REG_ACE_CTRL1,
+			val ? 0x80 : 0);
+		break;
+	case V4L2_CID_ADV_ACE_LUMA_GAIN:
+		ret = adv7180_write(state, ADV7180_REG_ACE_CTRL4,
+			val & ADV7280A_ACE_LUMA_MAX);
+		break;
+	case V4L2_CID_ADV_ACE_SPEED:
+		ret = adv7180_write(state, ADV7180_REG_ACE_CTRL6,
+			(val & ADV7280A_ACE_MAX) << 4);
+		break;
+	case V4L2_CID_ADV_ACE_CHROMA_GAIN:
+		ret = adv7180_write(state, ADV7180_REG_ACE_CTRL5,
+			val & ADV7280A_ACE_MAX);
+		break;
+	case V4L2_CID_ADV_ACE_CHROMA_MAX:
+		ret = adv7180_write(state, ADV7180_REG_ACE_CTRL5,
+			(val & ADV7280A_ACE_MAX) << 4);
+		break;
+	case V4L2_CID_ADV_ACE_GAMMA_GAIN:
+		ret = adv7180_write(state, ADV7180_REG_ACE_CTRL6,
+			val & ADV7280A_ACE_MAX);
 		break;
 	default:
 		ret = -EINVAL;
@@ -703,18 +741,104 @@ static const struct v4l2_ctrl_config adv7180_ctrl_fast_switch = {
 	.max = 1,
 	.step = 1,
 };
-static const struct v4l2_ctrl_ops adv7280a_m_ctrl_ace_chroma_gain = {
+
+static const struct v4l2_ctrl_config adv7280a_m_ctrl_ace_en = {
+	.ops = &adv7180_ctrl_ops,
+	.id = V4L2_CID_ADV_ACE_EN,
+	.name = "Contrast Enhancement Enable",
+	.type = V4L2_CTRL_TYPE_BOOLEAN,
+	.min = ADV7280A_ACE_MIN,
+	.max = 1,
+	.step = 1,
+	.def = 0,
 };
-static const struct v4l2_ctrl_ops adv7280a_m_ctrl_ace_gamma_gain = {
+
+static const struct v4l2_ctrl_config adv7280a_m_ctrl_ace_luma_gain = {
+	.ops = &adv7180_ctrl_ops,
+	.id = V4L2_CID_ADV_ACE_LUMA_GAIN,
+	.name = "ACE Luma Gain",
+	.type = V4L2_CTRL_TYPE_U8,
+	.min = ADV7280A_ACE_MIN,
+	.max = ADV7280A_ACE_LUMA_MAX,
+	.step = 1,
+	.def = ADV7280A_ACE_LUMA_DEF,
 };
+
+static const struct v4l2_ctrl_config adv7280a_m_ctrl_ace_speed = {
+	.ops = &adv7180_ctrl_ops,
+	.id = V4L2_CID_ADV_ACE_SPEED,
+	.name = "ACE Response Speed",
+	.type = V4L2_CTRL_TYPE_U8,
+	.min = ADV7280A_ACE_MIN,
+	.max = ADV7280A_ACE_MAX,
+	.step = 1,
+	.def = ADV7280A_ACE_SPEED_DEF,
+};
+
+static const struct v4l2_ctrl_config adv7280a_m_ctrl_ace_chroma_gain = {
+	.ops = &adv7180_ctrl_ops,
+	.id = V4L2_CID_ADV_ACE_CHROMA_GAIN,
+	.name = "ACE Chroma Gain",
+	.type = V4L2_CTRL_TYPE_U8,
+	.min = ADV7280A_ACE_MIN,
+	.max = ADV7280A_ACE_MAX,
+	.step = 1,
+	.def = ADV7280A_ACE_CHROMA_DEF
+};
+
+static const struct v4l2_ctrl_config adv7280a_m_ctrl_ace_chroma_max = {
+	.ops = &adv7180_ctrl_ops,
+	.id = V4L2_CID_ADV_ACE_CHROMA_MAX,
+	.name = "ACE Chroma Max",
+	.type = V4L2_CTRL_TYPE_U8,
+	.min = ADV7280A_ACE_MIN,
+	.max = ADV7280A_ACE_MAX,
+	.step = 1,
+	.def = ADV7280A_ACE_CHROMA_MAX_DEF,
+};
+
+static const struct v4l2_ctrl_config adv7280a_m_ctrl_ace_gamma_gain = {
+	.ops = &adv7180_ctrl_ops,
+	.id = V4L2_CID_ADV_ACE_GAMMA_GAIN,
+	.name = "ACE Gamma Gain",
+	.type = V4L2_CTRL_TYPE_U8,
+	.min = ADV7280A_ACE_MIN,
+	.max = ADV7280A_ACE_MAX,
+	.step = 1,
+	.def = ADV7280A_ACE_GAMMA_DEF,
+};
+
 static int adv7180_init_controls(struct adv7180_state *state)
 {
+	int nr_ctrls = 5;
+	if (state->chip_info->flags & ADV7280A_FLAG_ACE) nr_ctrls += 6;
+	if (state->chip_info->flags & ADV7180_FLAG_MIPI_CSI2) nr_ctrls += 1;
+	v4l2_ctrl_handler_init(&state->ctrl_hdl, nr_ctrls);
 	if (state->chip_info->flags & ADV7280A_FLAG_ACE) {
-        v4l2_ctrl_handler_init(&state->ctrl_hdl, 6);
-        v4l2_ctrl_new_std(&state->ctrl_hdl, &adv7180_ctrl_ops, 
-              V4L2_CID_AUTO_WHITE_BALANCE, 0, 1, 1, 0);
+        v4l2_ctrl_new_custom(&state->ctrl_hdl,
+			&adv7280a_m_ctrl_ace_en, NULL);
+		v4l2_ctrl_new_custom(&state->ctrl_hdl,
+			&adv7280a_m_ctrl_ace_luma_gain, NULL);
+		v4l2_ctrl_new_custom(&state->ctrl_hdl,
+			&adv7280a_m_ctrl_ace_speed, NULL);
+		v4l2_ctrl_new_custom(&state->ctrl_hdl,
+			&adv7280a_m_ctrl_ace_chroma_gain, NULL);
+		v4l2_ctrl_new_custom(&state->ctrl_hdl,
+			&adv7280a_m_ctrl_ace_chroma_max, NULL);
+		v4l2_ctrl_new_custom(&state->ctrl_hdl,
+			&adv7280a_m_ctrl_ace_gamma_gain, NULL);
     }
-    else v4l2_ctrl_handler_init(&state->ctrl_hdl, 5);
+
+    if (state->chip_info->flags & ADV7180_FLAG_MIPI_CSI2) {
+		state->link_freq =
+			v4l2_ctrl_new_int_menu(&state->ctrl_hdl,
+					       &adv7180_ctrl_ops,
+					       V4L2_CID_LINK_FREQ,
+					       ARRAY_SIZE(adv7180_link_freqs) - 1,
+					       0, adv7180_link_freqs);
+		if (state->link_freq)
+			state->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	}
 
 	v4l2_ctrl_new_std(&state->ctrl_hdl, &adv7180_ctrl_ops,
 			  V4L2_CID_BRIGHTNESS, ADV7180_BRI_MIN,
@@ -736,17 +860,6 @@ static int adv7180_init_controls(struct adv7180_state *state)
 				      ARRAY_SIZE(test_pattern_menu) - 1,
 				      0, ARRAY_SIZE(test_pattern_menu) - 1,
 				      test_pattern_menu);
-
-	if (state->chip_info->flags & ADV7180_FLAG_MIPI_CSI2) {
-		state->link_freq =
-			v4l2_ctrl_new_int_menu(&state->ctrl_hdl,
-					       &adv7180_ctrl_ops,
-					       V4L2_CID_LINK_FREQ,
-					       ARRAY_SIZE(adv7180_link_freqs) - 1,
-					       0, adv7180_link_freqs);
-		if (state->link_freq)
-			state->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-	}
 
 	state->sd.ctrl_handler = &state->ctrl_hdl;
 	if (state->ctrl_hdl.error) {
@@ -1325,7 +1438,7 @@ static const struct adv7180_chip_info adv7280_m_info = {
 	.set_std = adv7182_set_std,
 	.select_input = adv7182_select_input,
 };
-//########################### I'm new!!!!
+
 static const struct adv7180_chip_info adv7280a_m_info = {
 	.flags = ADV7180_FLAG_V2 | ADV7180_FLAG_MIPI_CSI2 | ADV7180_FLAG_I2P | ADV7280A_FLAG_ACE,
 	.valid_input_mask = BIT(ADV7182_INPUT_CVBS_AIN1) |
@@ -1666,7 +1779,7 @@ static const struct i2c_device_id adv7180_id[] = {
 	{ "adv7281-ma", (kernel_ulong_t)&adv7281_ma_info },
 	{ "adv7282", (kernel_ulong_t)&adv7282_info },
 	{ "adv7282-m", (kernel_ulong_t)&adv7282_m_info },
-    { "adv7280a-m", (kernel_ulong_t)&adv7280a_m_info },
+	{ "adv7280a-m", (kernel_ulong_t)&adv7280a_m_info },
 	{},
 };
 MODULE_DEVICE_TABLE(i2c, adv7180_id);
@@ -1717,7 +1830,7 @@ static const struct of_device_id adv7180_of_id[] = {
 	{ .compatible = "adi,adv7281-ma", },
 	{ .compatible = "adi,adv7282", },
 	{ .compatible = "adi,adv7282-m", },
-    { .compatible = "adi,adv7280a-m", },
+	{ .compatible = "adi,adv7280a-m", },
 	{ },
 };
 
