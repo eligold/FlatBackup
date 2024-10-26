@@ -132,6 +132,8 @@ AptX > A2DP
     `update-alternatives --config editor`
 1. ] https://askubuntu.com/questions/237963/how-do-i-rotate-my-display-when-not-using-an-x-server
     `echo 3 | sudo tee /sys/class/graphics/fbcon/rotate`
+1. ] https://stackoverflow.com/a/52398424
+    `ffmpeg -pix_fmt yuv420p [...]` to convert mjpeg into playable mkv
 
 Additional resources regarding the generation of python bindings for custom C++ OpenCV modules using OpenCV4 can be found [in the cpp subdirectory](./cpp/README.md)
 
