@@ -52,6 +52,7 @@ ALPHA = 0.57
 # BGR 565 bits: BBBB BGGG  GGGR RRRR
 DOT = np.full((3,3,2),SHADOW,np.uint8)
 DOT[:-1,:-1] = (0xF8,0)  # (0xFF,0,0)
+PADDING = cv.cvtColor(np.full((640,SCREEN_HEIGHT,2),COLOR_NEW,np.uint8),cv.COLOR_BGR5652BGR)
 
 # below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
 K = np.array([[309.41085232860985,              0.0, 355.4094868125207],   # phone screen. YMMV
@@ -71,6 +72,9 @@ dashCamPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-v
 backupCamPath = "/dev/v4l/by-path/platform-fe801000.csi-video-index0"
 touchDevPath = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
 
+# load up sidebar prototypes for normal and high temp
+sidebar_hot = cv.cvtColor(cv.imread("/root/turboSB_hot.png"),BGR565)[-160:,:120]
+sidebar_fine = cv.cvtColor(cv.imread("/root/turboSB.png"),BGR565)[-160:,:120]
 
 def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21),fontFace=cv.FONT_HERSHEY_SIMPLEX,
@@ -91,17 +95,14 @@ def addOverlay(image, color = COLOR_OVERLAY):
     h,w = FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH
     radius,offset = 19,38
     overlay_image = image.copy()
-    overlay_image[20:461,39:1442] = COLOR_OVERLAY
-    overlay_image[39:442,20:1461] = COLOR_OVERLAY
-   # for top_left, bottom_right in (((39,20),(1442,461)),((20,39),(1461,442))):
-   #     overlay_image = cv.rectangle(overlay_image,top_left,bottom_right,color,FILL)
-   # overlay_image = cv.rectangle(overlay_image,(39,20),(1442,461),color,cv.FILLED)
-   # overlay_image = cv.rectangle(overlay_image,(20,39),(1461,442),color,cv.FILLED)
+   # overlay_image[20:461,39:1442] = COLOR_OVERLAY
+   # overlay_image[39:442,20:1461] = COLOR_OVERLAY
+    for top_left, bottom_right in (((39,20),(1442,461)),((20,39),(1461,442))):
+        overlay_image = cv.rectangle(overlay_image,top_left,bottom_right,color,FILL)
+   # overlay_image = cv.rectangle(overlay_image,(39,20),(1442,461),color,FILL)
+   # overlay_image = cv.rectangle(overlay_image,(20,39),(1461,442),color,FILL)
     for center in ((offset,offset),(offset,h-offset),(w-offset,h-offset),(w-offset,offset)):
         overlay_image = cv.circle(overlay_image,center,radius,color,-1)
-   # overlay_image = cv.circle(overlay_image,(offset,h-offset),radius,COLOR_OVERLAY,-1)
-   # overlay_image = cv.circle(overlay_image,(w-offset,h-offset),radius,COLOR_OVERLAY,-1)
-   # overlay_image = cv.circle(overlay_image,(w-offset,offset),radius,COLOR_OVERLAY,-1)
     cv.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
     return putText(image,"10",(25,133),color=BLACK,fontScale=0.38,thickness=1)
 
@@ -124,9 +125,8 @@ def get_camera(cam_index:int,width,height,apiPreference=V4L2,brightness=25) -> c
     assert EXPECTED_SIZE == (int(camera.get(WIDTH)),int(camera.get(HEIGHT)),int(camera.get(FPS)))
     return camera
 
-def fullsize(img):
+def fullsize(img,y=38):
     frame = np.zeros((576,720,3),np.uint8)
-    y=38
     frame[y:img.shape[1]+y] = img # 48:-48
     return frame
 
@@ -138,14 +138,12 @@ def build_output_image(img): # MAYBE ALSO TRY mapx, mapy ?
     large = cv.resize(image[213:453,width:-width],FDIM,interpolation=LINEAR)
     return cv.hconcat([image[8:,:width], large, image[4:height+4,-width:]])
 
-def adv(img):
-   # image = cv.vconcat([img[27:],img[:27]])
+def adv(img): # image = cv.vconcat([img[27:],img[:27]])
     return fullsize(img) if img.shape[1] < 576 else img
 
-def output_alt(image_backup, image_dash):
+def output_alt(image_backup):
     intermediate = cv.remap(image_backup,map1,map2,interpolation=LINEAR)
-    flat = cv.resize(intermediate,(840,672),interpolation=LINEAR)[56:536]
-    return cv.hconcat([flat,cv.resize(image_dash,(640,480),interpolation=LINEAR)])
+    return cv.hconcat([cv.resize(intermediate,(840,672),interpolation=LINEAR)[56:536],PADDING])
 
 def output_waveshare(img):
     if img.shape[1] < 576: img = fullsize(img)

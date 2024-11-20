@@ -18,13 +18,10 @@ psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 # communications between processes:
 backup_pipe1, backup_pipe2 = Pipe()
 sidebar_pipe1, sidebar_pipe2 = Pipe()
-dash_pipe1, dash_pipe2 = Pipe()
 # global flags
 show_graph = False
 exit_flag = False
-# load up sidebar prototypes for normal and high temp
-sidebar_hot = cv.cvtColor(cv.imread("/root/turboSB_hot.png"),BGR565)[-160:,:120]
-sidebar_fine = cv.cvtColor(cv.imread("/root/turboSB.png"),BGR565)[-160:,:120]
+
 def _sidebar_hot(): _change_sidebar(sidebar_hot)
 def _change_sidebar(img=sidebar_fine):
     global sidebar_base
@@ -49,25 +46,33 @@ with open("/root/.btmac","r") as file: mac = file.readline()
 # use with subprocess to check if wifi is connected
 wifi_command= 'cat /sys/class/net/wlan0/operstate'
 
-def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
+def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1):
     show_graph, view_flag, exit_flag = False, False, False
     back_proc, dash_proc = None, None
+    lines = []
+    _show_message("Initializing", (500,250))
+    back_proc = Process(target=get_image, name="read")
+    back_proc.start()
+    _show_message("Initializing.", (500,250))
     if bash(wifi_command).stdout == b'up\n': pass # return # is wifi connected?
     else: 
         bash('ip link set wlan0 down') # else turn off radio to save power
         Popen(f"sleep 5 && bluetoothctl connect {mac}",shell=True)
-    _show_message("Initializing.", (500,250))
-    back_proc = Process(target=get_image, name="read")
-    back_proc.start()
-    _show_message("Initializing..", (500,250))
-    dash_proc = Process(target=get_dash_image, name="dash")
-    dash_proc.start()
+    try: inputPath = f"/dev/video{extract_index(dashCamPath)}"
+    except AssertionError: logger.error("can't find usb") # TODO display no dashcam
+    else:
+        _show_message("Initializing..", (500,250))
+        size = f"{DASHCAM_IMAGE_WIDTH}x{DASHCAM_IMAGE_HEIGHT}"
+        dash_proc = (ffmpeg.input(inputPath, format='mjpeg', framerate=15, video_size=size)
+            .output(get_video_path(), vcodec='copy', framerate=15, format='matroska')
+            .overwrite_output().run_async(pipe_stderr=True))
+        stderr_iterator = iter(dash_proc.stderr.readline, b'')
     _show_message("Initializing...", (500,250))
-    while not exit_flag:
+    while not exit_flag: # main loop
         if side_pipe.poll(): frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = side_pipe.recv()
-        if back_pipe.poll(FRAME_DELAY):
+        if back_pipe.poll(FRAME_DELAY): # check pipes for sidebars, frames, or messages
             data_msg = back_pipe.recv()
-            if isinstance(data_msg,str):
+            if isinstance(data_msg,str): # strings must be messages
                 if "VIEW" == data_msg: 
                     view_flag = not view_flag
                 elif "GRAPH" == data_msg: show_graph = not show_graph
@@ -82,12 +87,22 @@ def show(back_pipe=backup_pipe1, dash_pipe=dash_pipe1, side_pipe=sidebar_pipe1):
                 frame_buffer[:,:-SIDEBAR_WIDTH] = cv.cvtColor(image, BGR565)
                 if show_graph: build_graph(data_msg[1], frame_buffer) # boost over time
                 frame_buffer.flush() # round and round we go to keep OS happy
-    for pipe in dash_pipe, back_pipe:
-        pipe.send("STOP")
-        while not pipe.poll(0.19): pass
-        data_msg = pipe.recv()
-        while not (isinstance(data_msg,str) and "STOP" == data_msg): data_msg = pipe.recv()
-    if dash_proc is not None: dash_proc.join()
+        if exit_flag: break # idk why i would need this but...
+    if dash_proc is not None:
+        try: dash_proc.terminate()
+        except Exception as e: logger.exception(e)
+        finally: dash_proc.kill()
+        for line in stderr_iterator:
+            line = line.decode().strip()
+            if line.startswith('frame='): line = line.split('\r')[-1]
+            lines.append(line)
+        dash_proc.stderr.close()
+    for line in lines: logger.info(line)
+    if not b'up\n' == bash(wifi_command).stdout: shell("shutdown -h now")
+    back_pipe.send("STOP")
+    while not back_pipe.poll(0.19): pass
+    data_msg = back_pipe.recv()
+    while not (isinstance(data_msg,str) and "STOP" == data_msg): data_msg = back_pipe.recv()
     if back_proc is not None: back_proc.kill()
         
 
@@ -160,8 +175,6 @@ def get_image(pipe=backup_pipe2):
             with Device.from_id(extract_index(backupCamPath)) as cam:
                 Thread(target=make_sidebar, name="data", daemon=True).start()
                 Thread(target=touch_thread, name="touch", daemon=True).start()
-                try: cam.controls.auto_white_balance.value = True
-                except: pass
                 for frame in cam:
                     if not pipe.poll():
                         img = frame.array.reshape(frame.height,frame.width,2)
@@ -174,40 +187,6 @@ def get_image(pipe=backup_pipe2):
                     if exit_flag: break   
         except Exception as e: logger.exception(e)
     pipe.send("STOP")
-
-def get_dash_image(dash_pipe=dash_pipe2):
-    width, height = DASHCAM_IMAGE_WIDTH, DASHCAM_IMAGE_HEIGHT
-    size = f"{width}x{height}"
-    exit_flag = False
-    lines = []
-    inputPath = f"/dev/video{extract_index(dashCamPath)}"
-    process = (ffmpeg.input(inputPath, format='mjpeg', framerate=15, video_size=size)
-        .output(get_video_path(), vcodec='copy', framerate=15, format='matroska')
-        .overwrite_output().run_async(pipe_stderr=True))
-    stderr_iterator = iter(process.stderr.readline, b'')
-    while not exit_flag:
-        try:
-            if dash_pipe.poll():
-                msg = dash_pipe.recv()
-                if "STOP" == msg:
-                    try:
-                        for line in stderr_iterator:
-                            line = line.decode().strip()
-                            if line.startswith('frame='): line = line.split('\r')[-1]
-                            lines.append(line)
-                        process.stderr.close()
-                    except Exception as e: logger.exception(e)
-                    exit_flag = True
-                else: logger.error(f"bad message from main process: {msg}")
-            if exit_flag: break
-        except (EOFError, BrokenPipeError, OSError): break
-        except AssertionError: logger.error("can't find usb") # reset_usb()
-        except Exception as e: logger.exception(e)
-    try: process.terminate()
-    except Exception as e: logger.exception(e)
-    finally: process.kill()
-    for line in lines: logger.info(line)
-    dash_pipe.send("STOP")
 
 if __name__ == "__main__":
     fmtString = '%(asctime)s [%(levelname)-4s] %(threadName)s: %(message)s'
@@ -224,5 +203,3 @@ if __name__ == "__main__":
          echo 38 > /sys/class/leds/ACT/brightness')
     try: show() # turn off red LED  /\  /\
     except Exception as ex: logger.exception(ex)
-    finally:
-        if not b'up\n' == bash(wifi_command).stdout: shell("shutdown -h now")
