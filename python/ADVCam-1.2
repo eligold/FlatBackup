@@ -62,9 +62,8 @@ def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1):
     except AssertionError: logger.error("can't find usb") # TODO display no dashcam
     else:
         _show_message("Initializing..", (500,250))
-        size = (DASHCAM_IMAGE_WIDTH,DASHCAM_IMAGE_HEIGHT)
-        dash_proc = (ffmpeg.input(inputPath, format='v4l2',
-                                  input_format='mjpeg', framerate=15, video_size=size)
+        dash_proc = (ffmpeg.input(inputPath, format='v4l2', input_format='mjpeg', framerate=15,
+                                  video_size=(DASHCAM_IMAGE_WIDTH,DASHCAM_IMAGE_HEIGHT))
             .output(get_video_path(), vcodec='copy', framerate=15, format='matroska')
             .overwrite_output().run_async(pipe_stderr=True))
         stderr_iterator = iter(dash_proc.stderr.readline, b'')
