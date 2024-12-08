@@ -134,6 +134,8 @@ AptX > A2DP
     `echo 3 | sudo tee /sys/class/graphics/fbcon/rotate`
 1. ] https://stackoverflow.com/a/52398424
     `ffmpeg -pix_fmt yuv420p [...]` to convert mjpeg into playable mkv
+1. ] https://www.reddit.com/r/podman/comments/12931nx/enabling_services_as_the_nonssh_user_systemctl/
+    `sudo systemctl --user -M dietpi@ restart {service}`
 
 Additional resources regarding the generation of python bindings for custom C++ OpenCV modules using OpenCV4 can be found [in the cpp subdirectory](./cpp/README.md)
 
