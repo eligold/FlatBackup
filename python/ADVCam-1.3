@@ -2,12 +2,13 @@
 import logging, ffmpeg
 from logging.handlers import RotatingFileHandler
 from multiprocessing import Process, Pipe
-from queue import SimpleQueue, Empty
+from threading import Thread
+from subprocess import Popen
 from linuxpy.video.device import Device
 from gpiozero import CPUTemperature
 from evdev import InputDevice
+from queue import SimpleQueue, Empty
 from collections import deque
-from threading import Thread
 from time import time
 # local imports
 from Constants import *
@@ -24,7 +25,7 @@ show_graph = False # hare-brained construct of Threads and Processes
 with open("/root/.btmac","r") as file: mac = file.readline() # load phone MAC address for BT music
 def _sidebar_hot(): _change_sidebar(sidebar_hot)
 def _change_sidebar(img=sidebar_fine): # convenience functions change sidebar color with CPU temp
-    global sidebar_base
+    global sidebar_base # this is rickety at best
     sidebar_base=img.copy()
 _change_sidebar() # run it to instantiate a sidebar prototype
 # CPU temp tracked with gpio library reading internal ADC
@@ -37,7 +38,7 @@ frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base # display sidebar
 frame_buffer[:] = np.fromfunction( # this function generates a cool pattern on the screen
     (lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k if k<3 else 0xff))),(480,1600,4),dtype=np.uint8)
 
-def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1):
+def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1): # The real meat and potatoes of it
     show_graph, view_flag, exit_flag = False, False, False # flags for managing views, exiting
     dash_proc = None # will need to gracefully end this process only
     lines = [] # empty list for ffmpeg output lines
@@ -81,7 +82,7 @@ def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1):
             lines.append(line)
         dash_proc.stderr.close()
     for line in lines: logger.info(line)
-    shell(f"bluetoothctl disconnect {mac} && shutdown -h now")
+    Popen(f"bluetoothctl disconnect {mac} && shutdown -h now",shell=True)
 
 def touch_thread(queue=touch_queue): # Touchscreen Thread runs from get_image process
     touch_input_device = None

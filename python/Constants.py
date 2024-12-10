@@ -1,32 +1,21 @@
+import cv2 as cv, numpy as np
 from cv2 import CAP_PROP_BRIGHTNESS as BRIGHTNESS
 from cv2 import CAP_PROP_FRAME_HEIGHT as HEIGHT
 from cv2 import CAP_PROP_FRAME_WIDTH as WIDTH
 from cv2 import COLOR_YUV2BGR_Y422 as YUV422
-from cv2 import COLOR_YUV2BGR_YUYV as YUYV
-from cv2 import COLOR_BGR2BGR565 as BGR565
 from cv2 import COLOR_BGR2BGRA as BGRA
-from cv2 import COLOR_BGR2RGBA as RGBA
 from cv2 import INTER_LINEAR as LINEAR
-from cv2 import IMREAD_COLOR as COLOR
 from cv2 import CAP_PROP_FPS as FPS
-from cv2 import CAP_V4L2 as V4L2
-from cv2 import CAP_FFMPEG as FFMPEG
 from cv2 import FILLED as FILL
-
-from subprocess import run, Popen, PIPE, STDOUT
 from os.path import realpath
-from time import localtime, sleep
-import cv2 as cv, numpy as np
+from time import localtime
 
 HIGH_TEMP = 55.0
 FRAME_DELAY = 0.119
-
-MJPG = cv.VideoWriter_fourcc(*'MJPG')
 DASHCAM_FPS = 15
 DASHCAM_IMAGE_WIDTH = 2592
 DASHCAM_IMAGE_HEIGHT = 1944
-# /sys/class/graphics/fb0/{modes,stride}
-SCREEN_HEIGHT = 480
+SCREEN_HEIGHT = 480 # /sys/class/graphics/fb0/{modes,stride}
 SCREEN_WIDTH = 1600
 SCREEN_DEPTH = 4
 FINAL_IMAGE_WIDTH = 1480
@@ -39,8 +28,7 @@ PPPSI = 30      # pixels per PSI and negative Bar
 DIM = (720,576) # PAL video dimensions
 SDIM = (960,768)
 FDIM = (1040,FINAL_IMAGE_HEIGHT)
-EXPECTED_SIZE = (*DIM,30) # 25?
-
+# BGR 565 bits: BBBB BGGG  GGGR RRRR
 COLOR_REC = (0x00,0x58) # 0x00, 0xfa?
 COLOR_GOOD = 0x871a
 COLOR_LOW = (0xc4,0xe4)
@@ -51,10 +39,11 @@ COLOR_LAYM = (0xf8,0x94,0xe0,0xff) # 0xbfe4
 COLOR_OVERLAY = (199,199,190) # (0xc7,0xc7,0xbe,0xff)
 SHADOW = (0x80,0x24,0x20,0xff) # (0x30,0x21) # (133,38,38)
 BLACK = (0,0,0,0xff)
-BLUE = (0xFF,0,0,0xFF)
-ALPHA = 0.57 # BGR 565 bits: BBBB BGGG  GGGR RRRR
+BLUE = (0xff,0,0,0xff)
+ALPHA = 0.57
+
 DOT = np.full((3,3,4),SHADOW,np.uint8)
-DOT[:-1,:-1] = (0xFF,0,0,0xFF)  # (0xFF,0,0)
+DOT[:-1,:-1] = BLUE
 PADDING = cv.cvtColor(np.full((SCREEN_HEIGHT,640,SCREEN_DEPTH),COLOR_NEW,np.uint8),cv.COLOR_BGRA2BGR)
 # below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
 K = np.array([[309.41085232860985,              0.0, 355.4094868125207],   # phone screen. YMMV
@@ -68,13 +57,11 @@ D = np.array([[0.013301372417500422],
 new_K = cv.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
 mapx, mapy = cv.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv.CV_32FC1)
 map1, map2 = cv.convertMaps(mapx,mapy,cv.CV_16SC2) # fixed point maps run faster
-
-usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
+# important filesystem paths
 dashCamPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
 backupCamPath = "/dev/v4l/by-path/platform-fe801000.csi-video-index0"
 touchDevPath = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
 storageRoot = "/mnt/usb/"
-
 # load up sidebar prototypes for normal and high temp
 sidebar_hot = cv.cvtColor(cv.imread("/root/turboSB_hot.png"),BGRA)[-160:,:120]
 sidebar_fine = cv.cvtColor(cv.imread("/root/turboSB.png"),BGRA)[-160:,:120]
@@ -87,10 +74,10 @@ def putText(img, text, origin=(0,480), #bottom left
 no_signal_frame = np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH,SCREEN_DEPTH),COLOR_BAD,np.uint8)
 no_signal_frame = putText(no_signal_frame, "No Signal", (500,200))
 
-def extract_index(fully_qualified_path=usb_capture_id_path):
+def extract_index(fully_qualified_path=dashCamPath):
     usb_capture_real_path = realpath(fully_qualified_path)
-    try: assert usb_capture_id_path != usb_capture_real_path
-    except: return usb_capture_id_path
+    try: assert dashCamPath != usb_capture_real_path
+    except: return dashCamPath
     return int(usb_capture_real_path.split("video")[-1])
 
 # make boost graph here ~+15 psi to ~-1 bar
@@ -119,14 +106,6 @@ def build_graph(graph_list, frame_buffer, depth=PSI_BUFFER_DEPTH):
     coordinates=np.column_stack((np.array(graph_list),np.arange(depth-len(graph_list)+1,depth+1)))
     for i in range(4): frame_buffer[coordinates[:,0]-1+i//2, coordinates[:,1]-1+i%2] = BLUE
     for i in range(1,4): frame_buffer[coordinates[:,0]+i//2, coordinates[:,1]+i%2] = SHADOW
-
-def get_camera(cam_index:int,width,height,apiPreference=V4L2,brightness=25) -> cv.VideoCapture:
-    camera = cv.VideoCapture(cam_index,apiPreference=apiPreference)
-    camera.set(WIDTH,width)
-    camera.set(HEIGHT,height)
-    camera.set(BRIGHTNESS,brightness)
-    assert EXPECTED_SIZE == (int(camera.get(WIDTH)),int(camera.get(HEIGHT)),int(camera.get(FPS)))
-    return camera
 
 def fullsize(img,y=38):
     frame = np.zeros((576,720,3),np.uint8)
@@ -161,15 +140,3 @@ def get_video_path(explicit_camera=None): # e.g. "backup", "cabin"
     join_list = [date,clock_time,weekday]
     if explicit_camera is not None: join_list.append(explicit_camera)
     return storageRoot + f"{'_'.join(join_list)}.mkv"
-
-def reset_usb():
-    print("resetting the USB chip! THIS IS FUBAR")
-    bash("echo '1-1' > /sys/bus/usb/drivers/usb/unbind",capture_output=False)
-    sleep(1)
-    bash("echo '1-1' > /sys/bus/usb/drivers/usb/bind",capture_output=False)
-
-def bash(cmd:str,shell=True,capture_output=True,check=False):
-    return run(cmd,shell=shell,capture_output=capture_output,check=check)
-
-def shell(cmd:str,shell=True,stdout=PIPE,stderr=PIPE,**kwargs):
-    return Popen(cmd,shell=shell,stdout=stdout,stderr=stderr,**kwargs)
