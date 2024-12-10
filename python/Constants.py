@@ -4,6 +4,8 @@ from cv2 import CAP_PROP_FRAME_WIDTH as WIDTH
 from cv2 import COLOR_YUV2BGR_Y422 as YUV422
 from cv2 import COLOR_YUV2BGR_YUYV as YUYV
 from cv2 import COLOR_BGR2BGR565 as BGR565
+from cv2 import COLOR_BGR2BGRA as BGRA
+from cv2 import COLOR_BGR2RGBA as RGBA
 from cv2 import INTER_LINEAR as LINEAR
 from cv2 import IMREAD_COLOR as COLOR
 from cv2 import CAP_PROP_FPS as FPS
@@ -14,7 +16,7 @@ from cv2 import FILLED as FILL
 from subprocess import run, Popen, PIPE, STDOUT
 from os.path import realpath
 from time import localtime, sleep
-import cv2 as cv, numpy as np, numba as nb
+import cv2 as cv, numpy as np
 
 HIGH_TEMP = 55.0
 FRAME_DELAY = 0.119
@@ -26,6 +28,7 @@ DASHCAM_IMAGE_HEIGHT = 1944
 # /sys/class/graphics/fb0/{modes,stride}
 SCREEN_HEIGHT = 480
 SCREEN_WIDTH = 1600
+SCREEN_DEPTH = 4
 FINAL_IMAGE_WIDTH = 1480
 FINAL_IMAGE_HEIGHT = SCREEN_HEIGHT
 SIDEBAR_WIDTH = SCREEN_WIDTH - FINAL_IMAGE_WIDTH
@@ -41,19 +44,18 @@ EXPECTED_SIZE = (*DIM,30) # 25?
 COLOR_REC = (0x00,0x58) # 0x00, 0xfa?
 COLOR_GOOD = 0x871a
 COLOR_LOW = (0xc4,0xe4)
-COLOR_NEW = (0xe4,0xc4)
-COLOR_BAD = (0x82,0x48)
-COLOR_NORMAL = 0x19ae
-COLOR_LAYM = 0xbfe4
-COLOR_OVERLAY = (199,199,190)
-SHADOW = (0x30,0x21) # (133,38,38)
-BLACK = (0,0,0)
-ALPHA = 0.57
-# BGR 565 bits: BBBB BGGG  GGGR RRRR
-DOT = np.full((3,3,2),SHADOW,np.uint8)
-DOT[:-1,:-1] = (0xF8,0)  # (0xFF,0,0)
-PADDING = cv.cvtColor(np.full((640,SCREEN_HEIGHT,2),COLOR_NEW,np.uint8),cv.COLOR_BGR5652BGR)
-
+COLOR_NEW = (0x20,0x9c,0xc0,0xff)
+COLOR_BAD = (0x10,0x10,0x48,0xff)
+COLOR_NORMAL = (0xc8,0xc0,0xa8,0xff) # 0x19ae
+COLOR_LAYM = (0xf8,0x94,0xe0,0xff) # 0xbfe4
+COLOR_OVERLAY = (199,199,190) # (0xc7,0xc7,0xbe,0xff)
+SHADOW = (0x80,0x24,0x20,0xff) # (0x30,0x21) # (133,38,38)
+BLACK = (0,0,0,0xff)
+BLUE = (0xFF,0,0,0xFF)
+ALPHA = 0.57 # BGR 565 bits: BBBB BGGG  GGGR RRRR
+DOT = np.full((3,3,4),SHADOW,np.uint8)
+DOT[:-1,:-1] = (0xFF,0,0,0xFF)  # (0xFF,0,0)
+PADDING = cv.cvtColor(np.full((SCREEN_HEIGHT,640,SCREEN_DEPTH),COLOR_NEW,np.uint8),cv.COLOR_BGRA2BGR)
 # below values are specific to my backup camera run thru my knock-off easy-cap calibrated with my
 K = np.array([[309.41085232860985,              0.0, 355.4094868125207],   # phone screen. YMMV
               [0.0,              329.90981352161924, 292.2015284112677],
@@ -71,17 +73,18 @@ usb_capture_id_path="/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
 dashCamPath = "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
 backupCamPath = "/dev/v4l/by-path/platform-fe801000.csi-video-index0"
 touchDevPath = "/dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00"
+storageRoot = "/mnt/usb/"
 
 # load up sidebar prototypes for normal and high temp
-sidebar_hot = cv.cvtColor(cv.imread("/root/turboSB_hot.png"),BGR565)[-160:,:120]
-sidebar_fine = cv.cvtColor(cv.imread("/root/turboSB.png"),BGR565)[-160:,:120]
+sidebar_hot = cv.cvtColor(cv.imread("/root/turboSB_hot.png"),BGRA)[-160:,:120]
+sidebar_fine = cv.cvtColor(cv.imread("/root/turboSB.png"),BGRA)[-160:,:120]
 
 def putText(img, text, origin=(0,480), #bottom left
-            color=(0xc5,0x9e,0x21),fontFace=cv.FONT_HERSHEY_SIMPLEX,
+            color=(0xc5,0x9e,0x21,0xff),fontFace=cv.FONT_HERSHEY_SIMPLEX,
             fontScale=1.19,thickness=2,lineType=cv.LINE_AA):
     return cv.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
 
-no_signal_frame = np.full((FINAL_IMAGE_HEIGHT, FINAL_IMAGE_WIDTH, 2), COLOR_BAD, np.uint8)
+no_signal_frame = np.full((FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH,SCREEN_DEPTH),COLOR_BAD,np.uint8)
 no_signal_frame = putText(no_signal_frame, "No Signal", (500,200))
 
 def extract_index(fully_qualified_path=usb_capture_id_path):
@@ -91,7 +94,7 @@ def extract_index(fully_qualified_path=usb_capture_id_path):
     return int(usb_capture_real_path.split("video")[-1])
 
 # make boost graph here ~+15 psi to ~-1 bar
-def addOverlay(image, color = COLOR_OVERLAY):
+def addOverlay(image, color=COLOR_OVERLAY):
     h,w = FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH
     radius,offset = 19,38
     overlay_image = image.copy()
@@ -106,16 +109,16 @@ def addOverlay(image, color = COLOR_OVERLAY):
     cv.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
     return putText(image,"10",(25,133),color=BLACK,fontScale=0.38,thickness=1)
 
-def pixel_psi(psi): # fancy math converts value to pixel height with 30 pixels per PSI
+def pixels_psi(psi): # fancy math converts value to pixel height with 30 pixels per PSI
     return max(FDIM[1] - 2 * PPPSI - 15 - int(psi*PPPSI),1)
 
 def build_graph(graph_list, frame_buffer, depth=PSI_BUFFER_DEPTH):
-    frame_buffer[25:455,44:46] = BLACK[:2]
-    frame_buffer[405:407,25:1456] = BLACK[:2]
-    frame_buffer[135:137,38:45] = BLACK[:2]
+    frame_buffer[25:455,44:46] = BLACK
+    frame_buffer[405:407,25:1456] = BLACK
+    frame_buffer[135:137,38:45] = BLACK
     coordinates=np.column_stack((np.array(graph_list),np.arange(depth-len(graph_list)+1,depth+1)))
-    for i in range(4): frame_buffer[coordinates[:,0]-1+i//2, coordinates[:,1]-1+i%2] = (0xf8,0)
-    for i in range(1,4): frame_buffer[coordinates[:,0]+i//2, coordinates[:,1]+i%2] = (0x30,0x21)
+    for i in range(4): frame_buffer[coordinates[:,0]-1+i//2, coordinates[:,1]-1+i%2] = BLUE
+    for i in range(1,4): frame_buffer[coordinates[:,0]+i//2, coordinates[:,1]+i%2] = SHADOW
 
 def get_camera(cam_index:int,width,height,apiPreference=V4L2,brightness=25) -> cv.VideoCapture:
     camera = cv.VideoCapture(cam_index,apiPreference=apiPreference)
@@ -157,7 +160,7 @@ def get_video_path(explicit_camera=None): # e.g. "backup", "cabin"
     weekday = (lambda i : ['Mo','Tu','We','Th','Fr','Sa','Su'][i])(local_time.tm_wday)
     join_list = [date,clock_time,weekday]
     if explicit_camera is not None: join_list.append(explicit_camera)
-    return f"/media/usb/{'_'.join(join_list)}.mkv"
+    return storageRoot + f"{'_'.join(join_list)}.mkv"
 
 def reset_usb():
     print("resetting the USB chip! THIS IS FUBAR")
@@ -170,12 +173,3 @@ def bash(cmd:str,shell=True,capture_output=True,check=False):
 
 def shell(cmd:str,shell=True,stdout=PIPE,stderr=PIPE,**kwargs):
     return Popen(cmd,shell=shell,stdout=stdout,stderr=stderr,**kwargs)
-
-@nb.njit
-def i2p(a1,a2): # https://stackoverflow.com/a/48489150
-    h,w,d = a1.shape
-    output = np.empty((h*2,w,d),dtype=a1.dtype)
-    for i, (row1,row2) in enumerate(zip(a1,a2)):
-        output[i*2] = row1
-        output[i*2+1] = row2
-    return output

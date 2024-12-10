@@ -1,15 +1,15 @@
-#!/usr/bin/env /root/carcam/bin/python
+#!/usr/bin/env python3
 import logging, ffmpeg
 from logging.handlers import RotatingFileHandler
 from multiprocessing import Process, Pipe
 from queue import SimpleQueue, Empty
-from linuxpy.video.device import Device, VideoCapture
+from linuxpy.video.device import Device
 from gpiozero import CPUTemperature
 from evdev import InputDevice
 from collections import deque
 from threading import Thread
 from time import time
-
+# local imports
 from Constants import *
 from ELM327 import ELM327
 # communications between threads:
@@ -18,54 +18,40 @@ psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
 # communications between processes:
 backup_pipe1, backup_pipe2 = Pipe()
 sidebar_pipe1, sidebar_pipe2 = Pipe()
-# global flags
-show_graph = False
-exit_flag = False
+# global flag helps coordinate PSI data transmission but is a bad idea with this tenuous, fragile,
+show_graph = False # hare-brained construct of Threads and Processes
 
+with open("/root/.btmac","r") as file: mac = file.readline() # load phone MAC address for BT music
 def _sidebar_hot(): _change_sidebar(sidebar_hot)
-def _change_sidebar(img=sidebar_fine):
+def _change_sidebar(img=sidebar_fine): # convenience functions change sidebar color with CPU temp
     global sidebar_base
     sidebar_base=img.copy()
-_change_sidebar()
+_change_sidebar() # run it to instantiate a sidebar prototype
 # CPU temp tracked with gpio library reading internal ADC
 intemp = CPUTemperature(threshold=HIGH_TEMP,event_delay=1.9)
 intemp.when_activated = _sidebar_hot
 intemp.when_deactivated = _change_sidebar
 # Display frame buffer memory mapped with numpy
 frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,SCREEN_DEPTH))
-frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base
-frame_buffer[:] = np.fromfunction(
-    (lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),(480,1600,4),dtype=np.uint8)
-# convenience method to print message on screen
-def _show_message(text,loc=(500,250),color=COLOR_LAYM,fontScale=3,thickness=4,width=SIDEBAR_WIDTH):
-    frame_buffer[:,:-width] = putText(frame_buffer[:,:-width], text, loc, color,
-                                      fontScale=fontScale, thickness=thickness)
-_show_message("Initializing", (500,250))
-# load private bluetooth MAC address for my phone
-with open("/root/.btmac","r") as file: mac = file.readline()
-# use with subprocess to check if wifi is connected
-wifi_command= 'cat /sys/class/net/wlan0/operstate'
+frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base # display sidebar
+frame_buffer[:] = np.fromfunction( # this function generates a cool pattern on the screen
+    (lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k if k<3 else 0xff))),(480,1600,4),dtype=np.uint8)
 
 def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1):
-    show_graph, view_flag, exit_flag = False, False, False
-    back_proc, dash_proc = None, None
-    lines = []
-    _show_message("Initializing", (500,250))
-    back_proc = Process(target=get_image, name="read")
-    back_proc.start()
-    _show_message("Initializing.", (500,250))
-    Popen(f"sleep 5 && bluetoothctl connect {mac}",shell=True)
+    show_graph, view_flag, exit_flag = False, False, False # flags for managing views, exiting
+    dash_proc = None # will need to gracefully end this process only
+    lines = [] # empty list for ffmpeg output lines
+    Process(target=get_image, name="read").start() # Start reading from the camera first thing
+    Popen(f"sleep 5 && bluetoothctl connect {mac}",shell=True) # connect phone, delay req?
     try: inputPath = f"/dev/video{extract_index(dashCamPath)}"
-    except AssertionError: logger.error("can't find usb") # TODO display no dashcam
-    else:
-        _show_message("Initializing..", (500,250))
+    except AssertionError: logger.error("can't find dashcam") # TODO display no dashcam on screen
+    else: # construct an asynchronous process for saving dashcam video to external disk
         dash_proc = (ffmpeg.input(inputPath, format='v4l2', input_format='mjpeg', framerate=15,
                                   video_size=(2048,1536))
             .output(get_video_path(), vcodec='copy', framerate=15, format='matroska')
-            .overwrite_output().run_async(pipe_stderr=True))
-        stderr_iterator = iter(dash_proc.stderr.readline, b'')
-    _show_message("Initializing...", (500,250))
-    while not exit_flag: # main loop
+            .overwrite_output().run_async(pipe_stderr=True)) # ,pipe_stdin=True))
+        stderr_iterator = iter(dash_proc.stderr.readline, b'') # for interpreting ffmpeg output
+    while not exit_flag: # main loop to process and display images alongside car performance data
         if side_pipe.poll(): frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = side_pipe.recv()
         if back_pipe.poll(FRAME_DELAY): # check pipes for sidebars, frames, or messages
             data_msg = back_pipe.recv()
@@ -81,12 +67,12 @@ def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1):
                 if view_flag: image = output_alt(adv(back_image)) # normal view or unbroken image?
                 else: image = build_output_image(adv(back_image))
                 if show_graph: image = addOverlay(image) # check for display PSI data
-                frame_buffer[:,:-SIDEBAR_WIDTH] = cv.cvtColor(image, BGRA)
+                frame_buffer[:,:-SIDEBAR_WIDTH] = cv.cvtColor(image, BGRA) # frame buffer is 32-bit
                 if show_graph: build_graph(data_msg[1], frame_buffer) # boost over time
                 frame_buffer.flush() # round and round we go to keep OS happy
         if exit_flag: break # idk why i would need this but...
-    if dash_proc is not None:
-        try: dash_proc.terminate()
+    if dash_proc is not None: # only process we need to handle is dashcam to ensure video is saved
+        try: dash_proc.terminate() # need to try sending b'q' to stdin
         except Exception as e: logger.exception(e)
         finally: dash_proc.kill()
         for line in stderr_iterator:
@@ -97,16 +83,16 @@ def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1):
     for line in lines: logger.info(line)
     shell(f"bluetoothctl disconnect {mac} && shutdown -h now")
 
-def touch_thread(queue=touch_queue):
-    global exit_flag # can use global var in threads from cam process. This is not advised.
-    touch_input, touch_msg = None, None
-    touch_time, counter = time() + 0.19, 0
-    while not exit_flag:
+def touch_thread(queue=touch_queue): # Touchscreen Thread runs from get_image process
+    touch_input_device = None
+    touch_time = time() + 0.19
+    while True:
         if time() > touch_time:
+            touch_msg = None
             try:
                 x = None
-                if touch_input is None: touch_input = InputDevice(touchDevPath)
-                for event in touch_input.read():
+                if touch_input_device is None: touch_input_device = InputDevice(touchDevPath)
+                for event in touch_input_device.read():
                     if event.type == 3: touch_msg = _touch_logic(event,x)
                     if touch_msg is not None:
                         if isinstance(touch_msg,int): x = touch_msg
@@ -114,18 +100,12 @@ def touch_thread(queue=touch_queue):
                         touch_msg = None
             except BlockingIOError: pass # no new input
             except (OSError, FileNotFoundError): # janky mcu is ailing
-                if counter > 3:
-                    if touch_input is not None:
-                        touch_input.close()
-                        touch_input = None
-                    touch_time = time() + 0.38
-                    counter = 0
-                    touch_msg = None
-                else: counter += 1
-    if touch_input is not None: touch_input.close()
+                if touch_input_device is not None: touch_input_device.close()
+                touch_input_device = None
+                touch_time = time() + 0.38
 
-def _touch_logic(event,x):
-    global show_graph
+def _touch_logic(event,x): # logic to be improved for interpreting touchscreen input
+    global show_graph # can use global var in threads from cam process. This is not advised.
     if event.code == 0: # Code 0 gives the X coordinate
         if event.value > FINAL_IMAGE_WIDTH: return event.value
         else: return "VIEW" # tap image to change view
@@ -139,46 +119,34 @@ def _touch_logic(event,x):
                 return "GRAPH" # top half displays PSI graph
     return None
 
-def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL):
-    global exit_flag
+def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL): # OBD Thread runs from get_image process
     global psi_list # deque is thread safe but gets copied before sending to main process
-    car_connection = None
+    car_connection, psi = None, None
     try:
         car_connection = ELM327("/dev/ttyS0") # hardware UART
-        while not exit_flag:
+        while True:
             sidebar = sidebar_base.copy()
             try: psi = car_connection.psi()
-            except Exception as e: logger.exception(e) # fancy math converts value to pixel height
-            if psi is not None:
-                psi_list.append(max(FDIM[1] - 2 * PPPSI - 15 - int(psi * PPPSI),1)) # with 30px/PSI
+            except Exception as e: logger.exception(e)
+            if psi is not None: # if we have new data build a sidebar and send to main process
+                psi_list.append(pixels_psi(psi)) # 30px/PSI on top, /BAR below zero
                 sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=color,fontScale=1.19,thickness=3)
-                sidebar = putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD)
-                pipe.send(sidebar) # send it along to the display thread
+                pipe.send(putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD))
     except Exception as e: logger.exception(e)
-    finally:
-        if car_connection is not None: car_connection.close()
-        pipe.send("STOP")
 
-def get_image(pipe=backup_pipe2):
-    global exit_flag
-    global show_graph
-    while not exit_flag:
-        try:
+def get_image(pipe=backup_pipe2): # This Process will pull images from the camera
+    global show_graph # can use global var in threads from cam process. This is not advised.
+    while True: # After successfully opening the camera, run accessory threads here to optimize
+        try: #  scheduling of IO-bound operations and isolate from compute-heavy main process
             with Device.from_id(extract_index(backupCamPath)) as cam:
                 Thread(target=make_sidebar, name="data", daemon=True).start()
                 Thread(target=touch_thread, name="touch", daemon=True).start()
-                for frame in cam:
-                    if not pipe.poll(): # \/ rearrange raw buffer data to raw YUV frame
-                        img = frame.array.reshape(frame.height,frame.width,2)
-                        pipe.send((img, psi_list.copy()) if show_graph else img)
-                        try: pipe.send(touch_queue.get(block=False)) # send touch input
-                        except Empty: pass # fail silently if there isn't any
-                    else: # received exit message
-                        pipe.recv()
-                        exit_flag = True
-                    if exit_flag: break   
-        except Exception as e: logger.exception(e)
-    pipe.send("STOP")
+                for frame in cam: # \/ Rearrange raw buffer data to raw YUV frame
+                    img = frame.array.reshape(frame.height,frame.width,2)
+                    pipe.send((img, psi_list.copy()) if show_graph else img)
+                    try: pipe.send(touch_queue.get(block=False)) # Send touch input
+                    except Empty: pass # Fail silently if there isn't any  
+        except Exception as e: logger.exception(e) # Log unexpected error
 
 if __name__ == "__main__":
     fmtString = '%(asctime)s [%(levelname)-4s] %(threadName)s: %(message)s'
@@ -190,8 +158,5 @@ if __name__ == "__main__":
     logger = logging.getLogger()
     logger.setLevel(level)
     logger.addHandler(handler)
- #   bash('echo none > /sys/class/leds/PWR/trigger; \
- #        echo 0 > /sys/class/leds/PWR/brightness; \
- #        echo 38 > /sys/class/leds/ACT/brightness')
-    try: show() # turn off red LED  /\  /\
+    try: show() # run the program's main method
     except Exception as ex: logger.exception(ex)

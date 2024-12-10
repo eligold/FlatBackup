@@ -1,0 +1,14 @@
+[Unit]
+Description=Update files when available and run code
+After=local-fs.target
+Requires=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/root/updateandrun.sh
+StandardOutput=journal
+StandardError=journal
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
