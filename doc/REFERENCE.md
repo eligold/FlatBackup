@@ -148,7 +148,8 @@ AptX > A2DP
 1. ] https://www.kernel.org/doc/Documentation/devicetree/bindings/regulator/gpio-regulator.txt
 1. ] https://stackoverflow.com/questions/50658326/device-tree-compiler-not-recognizes-c-syntax-for-include-files
 1. ] https://hackerbikepacker.com/device-driver-development-with-rpi-setup
-
+1. ] https://www.reddit.com/r/podman/comments/12931nx/enabling_services_as_the_nonssh_user_systemctl/
+    `sudo systemctl --user -M dietpi@ restart {service}`
 
 Additional resources regarding the generation of python bindings for custom C++ OpenCV modules using OpenCV4 can be found [in the cpp subdirectory](./cpp/README.md)
 
