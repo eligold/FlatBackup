@@ -134,6 +134,21 @@ AptX > A2DP
     `echo 3 | sudo tee /sys/class/graphics/fbcon/rotate`
 1. ] https://stackoverflow.com/a/52398424
     `ffmpeg -pix_fmt yuv420p [...]` to convert mjpeg into playable mkv
+1. ] https://www.linuxtv.org/downloads/v4l-dvb-internals/device-drivers/API-v4l2-ctrl-handler-init-class.html
+1. ] https://www.kernel.org/doc/Documentation/media/kapi/v4l2-controls.rst
+1. ] https://xillybus.com/tutorials/device-tree-zynq-3
+1. ] https://forums.raspberrypi.com/viewtopic.php?t=109137&start=125
+1. ] https://elixir.bootlin.com/linux/v4.19.81/source/drivers/media/platform/soc_camera/soc_camera.c#L112
+1. ] https://forums.developer.nvidia.com/t/issue-migration-of-mcp23s08-from-jetpack-4-x-y-to-jetpack-5-0-1/233164/12
+1. ] https://patches.linaro.org/project/linux-media/patch/20230421124428.393261-1-tomi.valkeinen@ideasonboard.com/
+1. ] https://git.toradex.com/cgit/linux-toradex.git/tree/drivers/media/i2c/soc_camera/adv7280.c?h=toradex_tk1_l4t_r21.5A
+1. ] https://community.nxp.com/t5/i-MX-Processors/Integrate-ADV7280-M-with-IMX8X/m-p/1637897
+1. ] https://community.nxp.com/t5/i-MX-Processors/iMX6-acquisition-display-problem-with-mipi-adv7282-m-device/m-p/602146
+1. ] https://www.cnblogs.com/qiengo/p/5915508.html
+1. ] https://www.kernel.org/doc/Documentation/devicetree/bindings/regulator/gpio-regulator.txt
+1. ] https://stackoverflow.com/questions/50658326/device-tree-compiler-not-recognizes-c-syntax-for-include-files
+1. ] https://hackerbikepacker.com/device-driver-development-with-rpi-setup
+
 
 Additional resources regarding the generation of python bindings for custom C++ OpenCV modules using OpenCV4 can be found [in the cpp subdirectory](./cpp/README.md)
 
