@@ -18,6 +18,7 @@ DASHCAM_IMAGE_HEIGHT = 1944
 SCREEN_HEIGHT = 480 # /sys/class/graphics/fb0/{modes,stride}
 SCREEN_WIDTH = 1600
 SCREEN_DEPTH = 4
+SCREEN_SHAPE = (SCREEN_HEIGHT,SCREEN_WIDTH,SCREEN_DEPTH)
 FINAL_IMAGE_WIDTH = 1480
 FINAL_IMAGE_HEIGHT = SCREEN_HEIGHT
 SIDEBAR_WIDTH = SCREEN_WIDTH - FINAL_IMAGE_WIDTH
@@ -34,8 +35,9 @@ COLOR_GOOD = 0x871a
 COLOR_LOW = (0xc4,0xe4)
 COLOR_NEW = (0x20,0x9c,0xc0,0xff)
 COLOR_BAD = (0x10,0x10,0x48,0xff)
-COLOR_NORMAL = (0xc8,0xc0,0xa8,0xff) # 0x19ae
+COLOR_NORMAL = (0xae,0x19,0x03,0xff) # 0x19ae
 COLOR_LAYM = (0xf8,0x94,0xe0,0xff) # 0xbfe4
+COLOR_LAYM_INDIGO = (0x99,0x11,0x33,0xff)
 COLOR_OVERLAY = (199,199,190) # (0xc7,0xc7,0xbe,0xff)
 SHADOW = (0x80,0x24,0x20,0xff) # (0x30,0x21) # (133,38,38)
 BLACK = (0,0,0,0xff)
@@ -80,17 +82,12 @@ def extract_index(fully_qualified_path=dashCamPath):
     except: return dashCamPath
     return int(usb_capture_real_path.split("video")[-1])
 
-# make boost graph here ~+15 psi to ~-1 bar
 def addOverlay(image, color=COLOR_OVERLAY):
     h,w = FINAL_IMAGE_HEIGHT,FINAL_IMAGE_WIDTH
-    radius,offset = 19,38
-    overlay_image = image.copy()
-   # overlay_image[20:461,39:1442] = COLOR_OVERLAY
-   # overlay_image[39:442,20:1461] = COLOR_OVERLAY
+    radius,offset = 19,38        # overlay_image[20:461,39:1442] = COLOR_OVERLAY
+    overlay_image = image.copy() # overlay_image[39:442,20:1461] = COLOR_OVERLAY \/
     for top_left, bottom_right in (((39,20),(1442,461)),((20,39),(1461,442))):
         overlay_image = cv.rectangle(overlay_image,top_left,bottom_right,color,FILL)
-   # overlay_image = cv.rectangle(overlay_image,(39,20),(1442,461),color,FILL)
-   # overlay_image = cv.rectangle(overlay_image,(20,39),(1461,442),color,FILL)
     for center in ((offset,offset),(offset,h-offset),(w-offset,h-offset),(w-offset,offset)):
         overlay_image = cv.circle(overlay_image,center,radius,color,-1)
     cv.addWeighted(overlay_image,ALPHA,image,1-ALPHA,0,image)
@@ -101,7 +98,7 @@ def pixels_psi(psi): # fancy math converts value to pixel height with 30 pixels 
 
 def build_graph(graph_list, frame_buffer, depth=PSI_BUFFER_DEPTH):
     frame_buffer[25:455,44:46] = BLACK
-    frame_buffer[405:407,25:1456] = BLACK
+    frame_buffer[405:407,25:1456] = BLACK # make boost graph here: ~+15 psi to ~-1 bar
     frame_buffer[135:137,38:45] = BLACK
     coordinates=np.column_stack((np.array(graph_list),np.arange(depth-len(graph_list)+1,depth+1)))
     for i in range(4): frame_buffer[coordinates[:,0]-1+i//2, coordinates[:,1]-1+i%2] = BLUE

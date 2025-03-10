@@ -3,7 +3,7 @@ import logging, ffmpeg
 from logging.handlers import RotatingFileHandler
 from multiprocessing import Process, Pipe
 from threading import Thread
-from subprocess import Popen
+from subprocess import Popen, run
 from linuxpy.video.device import Device
 from gpiozero import CPUTemperature
 from evdev import InputDevice
@@ -12,7 +12,7 @@ from collections import deque
 from time import time
 # local imports
 from Constants import *
-from ELM327 import ELM327
+from ELM327 import ELM327 # TODO REWORK FOR EXTERNAL GAUGE
 # communications between threads:
 touch_queue = SimpleQueue()
 psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
@@ -21,8 +21,8 @@ backup_pipe1, backup_pipe2 = Pipe()
 sidebar_pipe1, sidebar_pipe2 = Pipe()
 # global flag helps coordinate PSI data transmission but is a bad idea with this tenuous, fragile,
 show_graph = False # hare-brained construct of Threads and Processes
-
-with open("/root/.btmac","r") as file: mac = file.readline() # load phone MAC address for BT music
+# height, width, channels = image.shape
+with open('/root/.btmac','r') as file: mac = file.readline() # load phone MAC address for BT music
 def _sidebar_hot(): _change_sidebar(sidebar_hot)
 def _change_sidebar(img=sidebar_fine): # convenience functions change sidebar color with CPU temp
     global sidebar_base # this is rickety at best
@@ -33,24 +33,24 @@ intemp = CPUTemperature(threshold=HIGH_TEMP,event_delay=1.9)
 intemp.when_activated = _sidebar_hot
 intemp.when_deactivated = _change_sidebar
 # Display frame buffer memory mapped with numpy
-frame_buffer = np.memmap("/dev/fb0",dtype='uint8',shape=(SCREEN_HEIGHT,SCREEN_WIDTH,SCREEN_DEPTH))
+frame_buffer = np.memmap('/dev/fb0',dtype='uint8',shape=SCREEN_SHAPE)
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base # display sidebar
 frame_buffer[:] = np.fromfunction( # this function generates a cool pattern on the screen
-    (lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k if k<3 else 0xff))),(480,1600,4),dtype=np.uint8)
+    (lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),SCREEN_SHAPE,dtype=np.uint8)
 
 def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1): # The real meat and potatoes of it
     show_graph, view_flag, exit_flag = False, False, False # flags for managing views, exiting
     dash_proc = None # will need to gracefully end this process only
     lines = [] # empty list for ffmpeg output lines
-    Process(target=get_image, name="read").start() # Start reading from the camera first thing
-    Popen(f"sleep 5 && bluetoothctl connect {mac}",shell=True) # connect phone, delay req?
-    try: inputPath = f"/dev/video{extract_index(dashCamPath)}"
-    except AssertionError: logger.error("can't find dashcam") # TODO display no dashcam on screen
+    Process(target=get_image, name='read').start() # Start reading from the camera first thing
+    Popen(f'sleep 5 && bluetoothctl connect {mac}',shell=True) # connect phone, delay req?
+    try: inputPath = f'/dev/video{extract_index(dashCamPath)}'
+    except AssertionError: logger.error('dashcam not found') # TODO display no dashcam on screen
     else: # construct an asynchronous process for saving dashcam video to external disk
         dash_proc = (ffmpeg.input(inputPath, format='v4l2', input_format='mjpeg', framerate=15,
-                                  video_size=(2048,1536))
+                                  video_size=(2048,1536)) # The pi chokes at full 2592x1944 output
             .output(get_video_path(), vcodec='copy', framerate=15, format='matroska')
-            .overwrite_output().run_async(pipe_stderr=True)) # ,pipe_stdin=True))
+            .overwrite_output().run_async(pipe_stderr=True)) # ,pipe_stdin=True)) # <- b'q'
         stderr_iterator = iter(dash_proc.stderr.readline, b'') # for interpreting ffmpeg output
     while not exit_flag: # main loop to process and display images alongside car performance data
         if side_pipe.poll(): frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = side_pipe.recv()
@@ -61,9 +61,9 @@ def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1): # The real meat and p
                     view_flag = not view_flag
                 elif "GRAPH" == data_msg: show_graph = not show_graph
                 elif "STOP" == data_msg: exit_flag = True
-                else: logger.warning(f"bad message from data: {data_msg}")
-            elif not exit_flag:
-                img_data = data_msg[0] if show_graph else data_msg # can be delivered with PSI list
+                else: logger.warning(f'bad message from data pipe: {data_msg}')
+            elif not exit_flag: # check if the image is delivered with psi data:
+                img_data = data_msg[0] if len(data_msg) == 2 else data_msg
                 back_image = cv.cvtColor(img_data,YUV422) # convert raw image to useful format
                 if view_flag: image = output_alt(adv(back_image)) # normal view or unbroken image?
                 else: image = build_output_image(adv(back_image))
@@ -82,7 +82,7 @@ def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1): # The real meat and p
             lines.append(line)
         dash_proc.stderr.close()
     for line in lines: logger.info(line)
-    Popen(f"bluetoothctl disconnect {mac} && shutdown -h now",shell=True)
+    Popen(f'bluetoothctl disconnect {mac} && shutdown -h now',shell=True)
 
 def touch_thread(queue=touch_queue): # Touchscreen Thread runs from get_image process
     touch_input_device = None
@@ -126,8 +126,8 @@ def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL): # OBD Thread runs from 
     try:
         car_connection = ELM327("/dev/ttyS0") # hardware UART
         while True:
-            sidebar = sidebar_base.copy()
-            try: psi = car_connection.psi()
+            sidebar = sidebar_base.copy() # clone base image set by temp subroutine
+            try: psi = car_connection.psi() # Read data channels and calculate latest PSI reading
             except Exception as e: logger.exception(e)
             if psi is not None: # if we have new data build a sidebar and send to main process
                 psi_list.append(pixels_psi(psi)) # 30px/PSI on top, /BAR below zero
@@ -136,17 +136,19 @@ def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL): # OBD Thread runs from 
     except Exception as e: logger.exception(e)
 
 def get_image(pipe=backup_pipe2): # This Process will pull images from the camera
-    global show_graph # can use global var in threads from cam process. This is not advised.
+    global show_graph # The below command chain reloads CSI chip driver, seems to work better
+    try: run('dtoverlay -r adv728x-m && sleep 0.019 && dtoverlay adv728x-m adv7280m=1',shell=True)
+    except Exception as e: logger.exception(e)
     while True: # After successfully opening the camera, run accessory threads here to optimize
         try: #  scheduling of IO-bound operations and isolate from compute-heavy main process
             with Device.from_id(extract_index(backupCamPath)) as cam:
                 Thread(target=make_sidebar, name="data", daemon=True).start()
-                Thread(target=touch_thread, name="touch", daemon=True).start()
-                for frame in cam: # \/ Rearrange raw buffer data to raw YUV frame
+                Thread(target=touch_thread, name="taps", daemon=True).start()
+                for frame in cam: # \/ Rearrange buffer data to raw YUV422 frame
                     img = frame.array.reshape(frame.height,frame.width,2)
                     pipe.send((img, psi_list.copy()) if show_graph else img)
                     try: pipe.send(touch_queue.get(block=False)) # Send touch input
-                    except Empty: pass # Fail silently if there isn't any  
+                    except Empty: pass # Fail silently if there isn't any new input 
         except Exception as e: logger.exception(e) # Log unexpected error
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 DIR="/root/"
 EXT_DRIVE="/mnt/usb"
 # Ensure the external drive is mounted
@@ -18,7 +18,7 @@ else # Check for matching files and update
     done
     gpioset 0 25=1
     sleep 0.019
-    dt-overlay adv728x-m adv7280m=1
+    dtoverlay adv728x-m adv7280m=1
     /usr/bin/screen -d -m /root/CarCam.py
 fi
 
