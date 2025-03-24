@@ -1,15 +1,14 @@
 [Unit]
-Description=Backup Camera Script
-DefaultDependencies=no
+Description=Update files when available and run code
 After=local-fs.target
 Requires=local-fs.target
-#systemd-fsckd.socket
-ConditionPathIsDirectory=/media/usb/lost+found
 
 [Service]
-ExecStart=/bin/bash -c "sudo screen -d -m /root/carCam.py"
-StandardInput=tty
-StandardOutput=tty
+Type=oneshot
+ExecStart=/root/updateandrun.sh
+StandardOutput=journal
+StandardError=journal
+RemainAfterExit=true
 
 [Install]
 WantedBy=multi-user.target

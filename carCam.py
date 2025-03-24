@@ -1,237 +1,165 @@
 #!/usr/bin/env python3
-import os, sys, traceback, cv2, logging, numpy as np #, asyncio, aiofiles
-from subprocess import run, Popen, PIPE
-from threading  import Thread
-from queue import Queue, Empty, Full
-from time import sleep, time, localtime
-from ELM327 import ELM327
-#import evdev
-# from evdev.ecodes import (ABS_MT_TRACKING_ID, ABS_MT_POSITION_X,
-#                           ABS_MT_POSITION_Y, EV_ABS)
-IMAGE_WIDTH = 1480
-IMAGE_HEIGHT = 480
-DIM = (720,576) # video dimensions
-SDIM = (960,768)
-FDIM = (1040,IMAGE_HEIGHT)
+import logging, ffmpeg
+from logging.handlers import RotatingFileHandler
+from multiprocessing import Process, Pipe
+from threading import Thread
+from subprocess import Popen, run
+from linuxpy.video.device import Device
+from gpiozero import CPUTemperature
+from evdev import InputDevice
+from queue import SimpleQueue, Empty
+from collections import deque
+from time import time
+# local imports
+from Constants import *
+from ELM327 import ELM327 # TODO REWORK FOR EXTERNAL GAUGE
+# communications between threads:
+touch_queue = SimpleQueue()
+psi_list = deque(maxlen=PSI_BUFFER_DEPTH)
+# communications between processes:
+backup_pipe1, backup_pipe2 = Pipe()
+sidebar_pipe1, sidebar_pipe2 = Pipe()
+# global flag helps coordinate PSI data transmission but is a bad idea with this tenuous, fragile,
+show_graph = False # hare-brained construct of Threads and Processes
+# height, width, channels = image.shape
+with open('/root/.btmac','r') as file: mac = file.readline() # load phone MAC address for BT music
+def _sidebar_hot(): _change_sidebar(sidebar_hot)
+def _change_sidebar(img=sidebar_fine): # convenience functions change sidebar color with CPU temp
+    global sidebar_base # this is rickety at best
+    sidebar_base=img.copy()
+_change_sidebar() # run it to instantiate a sidebar prototype
+# CPU temp tracked with gpio library reading internal ADC
+intemp = CPUTemperature(threshold=HIGH_TEMP,event_delay=1.9)
+intemp.when_activated = _sidebar_hot
+intemp.when_deactivated = _change_sidebar
+# Display frame buffer memory mapped with numpy
+frame_buffer = np.memmap('/dev/fb0',dtype='uint8',shape=SCREEN_SHAPE)
+frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base # display sidebar
+frame_buffer[:] = np.fromfunction( # this function generates a cool pattern on the screen
+    (lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),SCREEN_SHAPE,dtype=np.uint8)
 
-COLOR_REC = 0xfa00 # 0x58
-COLOR_GOOD = 0x871a
-COLOR_LOW = 0xc4e4
-COLOR_BAD = 0x8248
-COLOR_NORMAL = 0x19ae
-COLOR_LAYM = 0xbfe4
-WIDTH = cv2.CAP_PROP_FRAME_WIDTH
-HEIGHT = cv2.CAP_PROP_FRAME_HEIGHT
-FPS = cv2.CAP_PROP_FPS
+def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1): # The real meat and potatoes of it
+    show_graph, view_flag, exit_flag = False, False, False # flags for managing views, exiting
+    dash_proc = None # will need to gracefully end this process only
+    lines = [] # empty list for ffmpeg output lines
+    Process(target=get_image, name='read').start() # Start reading from the camera first thing
+    Popen(f'sleep 5 && bluetoothctl connect {mac}',shell=True) # connect phone, delay req?
+    try: inputPath = f'/dev/video{extract_index(dashCamPath)}'
+    except AssertionError: logger.error('dashcam not found') # TODO display no dashcam on screen
+    else: # construct an asynchronous process for saving dashcam video to external disk
+        dash_proc = (ffmpeg.input(inputPath, format='v4l2', input_format='mjpeg', framerate=15,
+                                  video_size=(2048,1536)) # The pi chokes at full 2592x1944 output
+            .output(get_video_path(), vcodec='copy', framerate=15, format='matroska')
+            .overwrite_output().run_async(pipe_stderr=True)) # ,pipe_stdin=True)) # <- b'q'
+        stderr_iterator = iter(dash_proc.stderr.readline, b'') # for interpreting ffmpeg output
+    while not exit_flag: # main loop to process and display images alongside car performance data
+        if side_pipe.poll(): frame_buffer[:SIDEBAR_HEIGHT,-SIDEBAR_WIDTH:] = side_pipe.recv()
+        if back_pipe.poll(FRAME_DELAY): # check pipes for sidebars, frames, or messages
+            data_msg = back_pipe.recv()
+            if isinstance(data_msg,str): # strings must be messages
+                if "VIEW" == data_msg: 
+                    view_flag = not view_flag
+                elif "GRAPH" == data_msg: show_graph = not show_graph
+                elif "STOP" == data_msg: exit_flag = True
+                else: logger.warning(f'bad message from data pipe: {data_msg}')
+            elif not exit_flag: # check if the image is delivered with psi data:
+                img_data = data_msg[0] if len(data_msg) == 2 else data_msg
+                back_image = cv.cvtColor(img_data,YUV422) # convert raw image to useful format
+                if view_flag: image = output_alt(adv(back_image)) # normal view or unbroken image?
+                else: image = build_output_image(adv(back_image))
+                if show_graph: image = addOverlay(image) # check for display PSI data
+                frame_buffer[:,:-SIDEBAR_WIDTH] = cv.cvtColor(image, BGRA) # frame buffer is 32-bit
+                if show_graph: build_graph(data_msg[1], frame_buffer) # boost over time
+                frame_buffer.flush() # round and round we go to keep OS happy
+        if exit_flag: break # idk why i would need this but...
+    if dash_proc is not None: # only process we need to handle is dashcam to ensure video is saved
+        try: dash_proc.terminate() # need to try sending b'q' to stdin
+        except Exception as e: logger.exception(e)
+        finally: dash_proc.kill()
+        for line in stderr_iterator:
+            line = line.decode().strip()
+            if line.startswith('frame='): line = line.split('\r')[-1]
+            lines.append(line)
+        dash_proc.stderr.close()
+    for line in lines: logger.info(line)
+    Popen(f'bluetoothctl disconnect {mac} && shutdown -h now',shell=True)
 
-# below values are specific to my backup camera run thru
-# my knock-off easy-cap calibrated with my phone screen. 
-# YMMV
-K = np.array([[309.41085232860985, 0.0, 355.4094868125207], [0.0, 329.90981352161924, 292.2015284112677], [0.0, 0.0, 1.0]])
-D = np.array([[0.013301372417500422], [0.03857464918863361], [0.004117306147228716], [-0.008896442339724364]])
-# calculate camera values to upscale and undistort. TODO upscale later vs now
-new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, DIM, np.eye(3), balance=1)
-mapx, mapy = cv2.fisheye.initUndistortRectifyMap(K, D, np.eye(3), new_K, DIM, cv2.CV_32FC1)
-fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-touch_queue = Queue()
-display_queue = Queue()
-sidebar_queue = Queue(2)
-
-sidebar_base = np.full((IMAGE_HEIGHT,120),COLOR_LOW,np.uint16)
-for i in range(160,480): #(320,480):
-    for j in range(120):
-        sidebar_base[i][j] = np.uint16(i*2&(i-255-j))
-
-no_signal_frame = cv2.putText(
-    np.full((IMAGE_HEIGHT,IMAGE_WIDTH),COLOR_BAD,np.uint16),
-    "No Signal!",(500,200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0xc4,0xe4), 2, cv2.LINE_AA)
-
-def begin():
-    wifi = True
-    try:
-        res=run('cat /sys/class/net/wlan0/operstate',shell=True,capture_output=True)
-        if res.stdout == b'up\n':
-            raise KeyboardInterrupt("wifi connected")
-        else:
-           wifi = False
-           run('ip link set wlan0 down',shell=True)
-        for f in [dash_cam,get_image,on_screen,sidebar_builder]:
-            t = Thread(target=f,name=f.__name__)
-            t.daemon = True
-            t.start()
-            logger.info(f"started thread {f.__name__}")
-        while(True):
+def touch_thread(queue=touch_queue): # Touchscreen Thread runs from get_image process
+    touch_input_device = None
+    touch_time = time() + 0.19
+    while True:
+        if time() > touch_time:
+            touch_msg = None
             try:
-                cmd = Popen('evtest /dev/input/by-id/usb-HQEmbed_Multi-Touch-event-if00',
-                            shell=True,stdout=PIPE,stderr=PIPE)
-                touch_thread = Thread(target=enqueue_output, args=(cmd.stdout,))
-                touch_thread.daemon = True
-                touch_thread.start()
-                while(True):
-                    try:
-                        line = touch_queue.get_nowait()
-                        if(b'POSITION_X' in line and b'value' in line):
-                            x = int(line.decode().split('value')[-1])
-                            if x > IMAGE_WIDTH:
-                                line = touch_queue.get_nowait()
-                                y = int(line.decode().split('value')[-1])
-                                if y > 239:
-                                    raise KeyboardInterrupt(f"touch input, x,y: {x},{y}")
-                    except Empty:
-                        sleep(0.019)
-            except Exception as e:
-                logger.error(e.with_traceback(traceback))
-    except KeyboardInterrupt as ki:
-        logger.warning(ki.with_traceback(traceback))
-        print("deuces")
-    except Exception as e:
-        logger.error(e.with_traceback(traceback))
-        traceback.print_exc()
-    finally:
-        logger.warning(f"sidebars: {sidebar_queue.qsize()}\timages ready to display: {display_queue.qsize()}")
-        if not wifi:
-            run('ip link set wlan0 up',shell=True)
+                x = None
+                if touch_input_device is None: touch_input_device = InputDevice(touchDevPath)
+                for event in touch_input_device.read():
+                    if event.type == 3: touch_msg = _touch_logic(event,x)
+                    if touch_msg is not None:
+                        if isinstance(touch_msg,int): x = touch_msg
+                        else: queue.put(touch_msg)
+                        touch_msg = None
+            except BlockingIOError: pass # no new input
+            except (OSError, FileNotFoundError): # janky mcu is ailing
+                if touch_input_device is not None: touch_input_device.close()
+                touch_input_device = None
+                touch_time = time() + 0.38
 
-def enqueue_output(out):
-    for line in iter(out.readline, b''):
-        touch_queue.put(line)
-    out.close()
-
-def get_image():
-    while(True):
-        try:
-            usb_capture_id_path = "/dev/v4l/by-id/usb-MACROSIL_AV_TO_USB2.0-video-index0"
-            usb_capture_real_path = os.path.realpath(usb_capture_id_path)
-            if usb_capture_id_path == usb_capture_real_path:
-                logger.error("camera not found!\twaiting...")
-                sleep(3)
+def _touch_logic(event,x): # logic to be improved for interpreting touchscreen input
+    global show_graph # can use global var in threads from cam process. This is not advised.
+    if event.code == 0: # Code 0 gives the X coordinate
+        if event.value > FINAL_IMAGE_WIDTH: return event.value
+        else: return "VIEW" # tap image to change view
+    else: # Sidebar actions defined here
+        if x is not None and event.code == 1:
+            if event.value > SCREEN_HEIGHT/2: # bottom half exits
+                logger.info(f'touch input (X ⇁,Y ⇃) -> {x},{event.value}')
+                return "STOP"
             else:
-                logger.info(f"{usb_capture_id_path} -> {usb_capture_real_path}")
-                index = int(usb_capture_real_path.split("video")[-1])
-                camera = get_camera(index)
-                camera.read()
-                try:
-                    while camera.isOpened():
-                        success, image = camera.read()
-                        if success:
-                            display_queue.put(undistort(image))
-                        else:
-                            logger.error("bad UVC read!")
-                finally:
-                    logger.warning("release camera resource")
-                    camera.release()
-            
-        except Exception as e:
-            logger.error(e.with_traceback(traceback))
+                show_graph = not show_graph
+                return "GRAPH" # top half displays PSI graph
+    return None
 
-def on_screen():
-    while(True):
-        sidebar = sidebar_base
-        try:
-            with open('/dev/fb0','rb+') as frame_buffer:
-                while(True):
-                    try:
-                        final_image = build_reverse_view(display_queue.get(timeout=0.04))
-                        for i in range(480):
-                            frame_buffer.write(final_image[i])
-                            frame_buffer.write(sidebar[i])
-                        frame_buffer.seek(0)
-                    except Empty:
-                        sleep(0.019)
-                    try:
-                        sidebar = sidebar_queue.get_nowait()
-                    except Empty:
-                        pass
-        except Exception as e:
-            logger.error(e.with_traceback(traceback))
+def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL): # OBD Thread runs from get_image process
+    global psi_list # deque is thread safe but gets copied before sending to main process
+    car_connection, psi = None, None
+    try:
+        car_connection = ELM327("/dev/ttyS0") # hardware UART
+        while True:
+            sidebar = sidebar_base.copy() # clone base image set by temp subroutine
+            try: psi = car_connection.psi() # Read data channels and calculate latest PSI reading
+            except Exception as e: logger.exception(e)
+            if psi is not None: # if we have new data build a sidebar and send to main process
+                psi_list.append(pixels_psi(psi)) # 30px/PSI on top, /BAR below zero
+                sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=color,fontScale=1.19,thickness=3)
+                pipe.send(putText(sidebar, "BAR" if psi < 0.0 else "PSI", (42,95), color=COLOR_BAD))
+    except Exception as e: logger.exception(e)
 
-def sidebar_builder():
-    while(True):
-        try:
-            elm = ELM327()
-            while(True):
-                sidebar = sidebar_base.copy()
-                psi = elm.psi()
-                sidebar = putText(sidebar,f"{psi:.1f}",(4,57),color=COLOR_NORMAL,fontScale=1.19,thickness=3)
-                sidebar = putText(sidebar,"BAR" if psi < 0.0 else "PSI",(60,95),color=COLOR_BAD)
-                sidebar = putText(sidebar,f"{elm.volts():.1f}V",(4,130),color=COLOR_BAD,fontScale=1.19,thickness=3)
-                try:
-                    sidebar_queue.put(sidebar)
-                except Full:
-                    sidebar_queue.get()
-                    sidebar_queue.put(sidebar)
-        except Exception as e:
-            traceback.print_exc()
-            logger.error(e.with_traceback(traceback))
-        finally:
-            elm.close()
-            sleep(3)
-
-def dash_entry():
-    t = Thread(target=dash_cam)
-    t.daemon = True
-    t.start()
-
-def dash_cam():
-    while(True): # /dev/disk/by-id/ata-APPLE_SSD_TS128C_71DA5112K6IK-part1
-        dashcam_id_path = \
-                "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_CAMERA_SN0001-video-index0"
-        dashcam = get_camera(int(os.path.realpath(dashcam_id_path).split("video")[-1]),
-                             width=2592,height=1944,mjpg=True)
-        size = (int(dashcam.get(WIDTH)), int(dashcam.get(HEIGHT)))
-        logger.info(f"dashcam resolution: {size}")
-        fps = dashcam.get(FPS)
-        try:
-            while(dashcam.isOpened()):
-                stop_time = int(time()) + 1800
-                out = cv2.VideoWriter(f"/media/usb/dashcam-{stop_time}.avi",fourcc,fps,size)
-                while(time()<stop_time):
-                    success, frame = dashcam.read()
-                    if success:
-                        out.write(frame)
-                    else:
-                       # out.write(putText(np.full((1944,2592),COLOR_BAD,np.uint16),
-                       #                   "No Signal!",(1200,972),COLOR_NORMAL))
-                        logger.warning("missing frame from dashcam!")
-                out.release()
-        except Exception:
-            traceback.print_exc()
-        finally:
-            dashcam.release()
-            out.release()
-
-def get_camera(camIndex:int,apiPreference=cv2.CAP_V4L2,width=720,height=576,mjpg=False) -> cv2.VideoCapture:
-    camera = cv2.VideoCapture(camIndex,apiPreference=apiPreference)
-    if mjpg:
-        camera.set(6,fourcc)
-    camera.set(WIDTH,width)
-    camera.set(HEIGHT,height)
-    camera.set(cv2.CAP_PROP_BRIGHTNESS,25)
-    return camera
-
-def undistort(img):
-    undist = cv2.remap(img,mapx,mapy,interpolation=cv2.INTER_LANCZOS4)
-    image = cv2.resize(undist,SDIM,interpolation=cv2.INTER_LANCZOS4)[64:556]
-    return image
-
-def build_reverse_view(image):
-    middle = cv2.resize(image[213:453,220:740],FDIM,interpolation=cv2.INTER_LANCZOS4)
-    combo = cv2.hconcat([image[8:488,:220],middle,image[:480,-220:]])
-    return cv2.cvtColor(combo,cv2.COLOR_BGR2BGR565)
-
-def putText(img, text="you forgot the text idiot", origin=(0,480), #bottom left
-            color=(0xc5,0x9e,0x21),fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=1,thickness=2,lineType=cv2.LINE_AA):
-    return cv2.putText(img,text,origin,fontFace,fontScale,color,thickness,lineType)
+def get_image(pipe=backup_pipe2): # This Process will pull images from the camera
+    global show_graph # The below command chain reloads CSI chip driver, seems to work better
+    try: run('dtoverlay -r adv728x-m && sleep 0.019 && dtoverlay adv728x-m adv7280m=1',shell=True)
+    except Exception as e: logger.exception(e)
+    while True: # After successfully opening the camera, run accessory threads here to optimize
+        try: #  scheduling of IO-bound operations and isolate from compute-heavy main process
+            with Device.from_id(extract_index(backupCamPath)) as cam:
+                Thread(target=make_sidebar, name="data", daemon=True).start()
+                Thread(target=touch_thread, name="taps", daemon=True).start()
+                for frame in cam: # \/ Rearrange buffer data to raw YUV422 frame
+                    img = frame.array.reshape(frame.height,frame.width,2)
+                    pipe.send((img, psi_list.copy()) if show_graph else img)
+                    try: pipe.send(touch_queue.get(block=False)) # Send touch input
+                    except Empty: pass # Fail silently if there isn't any new input 
+        except Exception as e: logger.exception(e) # Log unexpected error
 
 if __name__ == "__main__":
-    handler = logging.FileHandler("runtime-carCam.log")
-    handler.setLevel(logging.INFO)
-    handler.setFormatter(logging.Formatter('[%(levelname)s] [%(threadName)s] %(message)s'))
+    fmtString = '%(asctime)s [%(levelname)-4s] %(threadName)s: %(message)s'
+    logFilePath = storageRoot + "runtime-carCam.log"
+    handler = RotatingFileHandler(logFilePath, maxBytes=209715200, backupCount=2)
+    level = logging.INFO # DEBUG
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter(fmtString))
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(level)
     logger.addHandler(handler)
-    run('echo none > /sys/class/leds/PWR/trigger',shell=True)
-    run('echo 0 > /sys/class/leds/PWR/brightness',shell=True)
-   # dash_entry()
-    begin()
+    try: show() # run the program's main method
+    except Exception as ex: logger.exception(ex)

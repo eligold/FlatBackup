@@ -20,7 +20,7 @@ This project originated from my attempts to fit a backup camera on my 2013 Audi 
 
 <p align="center">
     <img src="./assets/doc/IMGrear.jpeg" width=76% alt="seamless integration picture failed to load">
-    <br>See the camera? Me neither.
+    <br>See the camera? Neither do I.
 
 </p>
 
