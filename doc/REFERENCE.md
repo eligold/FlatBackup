@@ -150,6 +150,22 @@ AptX > A2DP
 1. ] https://hackerbikepacker.com/device-driver-development-with-rpi-setup
 1. ] https://www.reddit.com/r/podman/comments/12931nx/enabling_services_as_the_nonssh_user_systemctl/
     `sudo systemctl --user -M dietpi@ restart {service}`
+1. ] chatGPT check storage utilization:
+    ```
+    import os
+
+    def check_disk_usage(path):
+        stat = os.statvfs(path)
+        total = stat.f_blocks * stat.f_frsize
+        free = stat.f_bfree * stat.f_frsize
+        used = total - free
+        print(f"Total: {total / (1024**3):.2f} GB")
+        print(f"Used: {used / (1024**3):.2f} GB")
+        print(f"Free: {free / (1024**3):.2f} GB")
+        print(f"Usage: {used / total * 100:.2f}%")
+
+    check_disk_usage('/mnt/usb')
+    ```
 
 Additional resources regarding the generation of python bindings for custom C++ OpenCV modules using OpenCV4 can be found [in the cpp subdirectory](./cpp/README.md)
 
