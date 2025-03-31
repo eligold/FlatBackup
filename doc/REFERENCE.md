@@ -170,3 +170,5 @@ AptX > A2DP
 Additional resources regarding the generation of python bindings for custom C++ OpenCV modules using OpenCV4 can be found [in the cpp subdirectory](./cpp/README.md)
 
  git clone --single-branch --branch code --depth 1 git@github.com:eligold/FlatBackup.git
+
+ image source for USB icon: https://uxwing.com/usb-pen-drive-icon/

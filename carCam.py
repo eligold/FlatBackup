@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import logging, ffmpeg
+import logging, ffmpeg, os
 from logging.handlers import RotatingFileHandler
 from multiprocessing import Process, Pipe
 from threading import Thread
@@ -22,21 +22,29 @@ sidebar_pipe1, sidebar_pipe2 = Pipe()
 # global flag helps coordinate PSI data transmission but is a bad idea with this tenuous, fragile,
 show_graph = False # hare-brained construct of Threads and Processes
 # height, width, channels = image.shape
+
 with open('/root/.btmac','r') as file: mac = file.readline() # load phone MAC address for BT music
 def _sidebar_hot(): _change_sidebar(sidebar_hot)
 def _change_sidebar(img=sidebar_fine): # convenience functions change sidebar color with CPU temp
     global sidebar_base # this is rickety at best
     sidebar_base=img.copy()
 _change_sidebar() # run it to instantiate a sidebar prototype
+
 # CPU temp tracked with gpio library reading internal ADC
 intemp = CPUTemperature(threshold=HIGH_TEMP,event_delay=1.9)
 intemp.when_activated = _sidebar_hot
 intemp.when_deactivated = _change_sidebar
+
 # Display frame buffer memory mapped with numpy
 frame_buffer = np.memmap('/dev/fb0',dtype='uint8',shape=SCREEN_SHAPE)
 frame_buffer[:160,-SIDEBAR_WIDTH:] = sidebar_base # display sidebar
 frame_buffer[:] = np.fromfunction( # this function generates a cool pattern on the screen
     (lambda i,j,k: (np.uint8(j*i*2&(i-199-j)>>8*k))),SCREEN_SHAPE,dtype=np.uint8)
+
+# get free blocks on drive to calculate utilization and display warning icon if nearly full
+stat = os.statvfs(storageRoot)
+if int(100*stat.f_bfree/stat.f_blocks) <= 5: frame_buffer[160:280,-SIDEBAR_WIDTH:] = usb5percent
+elif int(100*stat.f_bfree/stat.f_blocks) < 10: frame_buffer[160:280,-SIDEBAR_WIDTH:] = usb10percent
 
 def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1): # The real meat and potatoes of it
     show_graph, view_flag, exit_flag = False, False, False # flags for managing views, exiting
@@ -82,7 +90,9 @@ def show(back_pipe=backup_pipe1, side_pipe=sidebar_pipe1): # The real meat and p
             lines.append(line)
         dash_proc.stderr.close()
     for line in lines: logger.info(line)
-    Popen(f'bluetoothctl disconnect {mac} && shutdown -h now',shell=True)
+   # disconnect phone to prevent audio issues. TODO don't stop the music!
+    run(f'bluetoothctl disconnect {mac}', shell=True)
+    Popen('shutdown -h now', shell=True)
 
 def touch_thread(queue=touch_queue): # Touchscreen Thread runs from get_image process
     touch_input_device = None
@@ -124,7 +134,7 @@ def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL): # OBD Thread runs from 
     global psi_list # deque is thread safe but gets copied before sending to main process
     car_connection, psi = None, None
     try:
-        car_connection = ELM327("/dev/ttyS0") # hardware UART
+        car_connection = ELM327("/dev/ttyS0") # hardware UART, TODO replace with output from gauge
         while True:
             sidebar = sidebar_base.copy() # clone base image set by temp subroutine
             try: psi = car_connection.psi() # Read data channels and calculate latest PSI reading
@@ -137,8 +147,8 @@ def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL): # OBD Thread runs from 
 
 def get_image(pipe=backup_pipe2): # This Process will pull images from the camera
     global show_graph # The below command chain reloads CSI chip driver, seems to work better
-    try: run('dtoverlay -r adv728x-m && sleep 0.019 && dtoverlay adv728x-m adv7280m=1',shell=True)
-    except Exception as e: logger.exception(e)
+   # try: run('dtoverlay -r adv728x-m && sleep 0.019 && dtoverlay adv728x-m adv7280m=1',shell=True)
+   # except Exception as e: logger.exception(e)
     while True: # After successfully opening the camera, run accessory threads here to optimize
         try: #  scheduling of IO-bound operations and isolate from compute-heavy main process
             with Device.from_id(extract_index(backupCamPath)) as cam:

@@ -67,6 +67,8 @@ storageRoot = "/mnt/usb/"
 # load up sidebar prototypes for normal and high temp
 sidebar_hot = cv.cvtColor(cv.imread("/root/turboSB_hot.png"),BGRA)[-160:,:120]
 sidebar_fine = cv.cvtColor(cv.imread("/root/turboSB.png"),BGRA)[-160:,:120]
+usb5percent = cv.cvtColor(cv.imread("/root/usb05.png"),BGRA)[-120:,:120]
+usb10percent = cv.cvtColor(cv.imread("/root/usb10.png"),BGRA)[-120:,:120]
 
 def putText(img, text, origin=(0,480), #bottom left
             color=(0xc5,0x9e,0x21,0xff),fontFace=cv.FONT_HERSHEY_SIMPLEX,
