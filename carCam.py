@@ -147,8 +147,8 @@ def make_sidebar(pipe=sidebar_pipe2,color=COLOR_NORMAL): # OBD Thread runs from 
 
 def get_image(pipe=backup_pipe2): # This Process will pull images from the camera
     global show_graph # The below command chain reloads CSI chip driver, seems to work better
-   # try: run('dtoverlay -r adv728x-m && sleep 0.019 && dtoverlay adv728x-m adv7280m=1',shell=True)
-   # except Exception as e: logger.exception(e)
+    try: run('dtoverlay -r adv728x-m && sleep 0.019 && dtoverlay adv728x-m adv7280m=1',shell=True)
+    except Exception as e: logger.exception(e)
     while True: # After successfully opening the camera, run accessory threads here to optimize
         try: #  scheduling of IO-bound operations and isolate from compute-heavy main process
             with Device.from_id(extract_index(backupCamPath)) as cam:

@@ -106,20 +106,20 @@ def build_graph(graph_list, frame_buffer, depth=PSI_BUFFER_DEPTH):
     for i in range(4): frame_buffer[coordinates[:,0]-1+i//2, coordinates[:,1]-1+i%2] = BLUE
     for i in range(1,4): frame_buffer[coordinates[:,0]+i//2, coordinates[:,1]+i%2] = SHADOW
 
-def fullsize(img,y=38):
+def fullsize(img,y=48): # y=38):
     frame = np.zeros((576,720,3),np.uint8)
     frame[y:img.shape[1]+y] = img # 48:-48
     return frame
 
 def build_output_image(img): # MAYBE ALSO TRY mapx, mapy ?
     height, width = FINAL_IMAGE_HEIGHT, EDGEBAR_WIDTH
-    y=48 # 48
     intermediate = cv.remap(img,map1,map2,interpolation=LINEAR)
-    image = cv.resize(intermediate,SDIM,interpolation=LINEAR)[64-y:552-y]
-    large = cv.resize(image[213:453,width:-width],FDIM,interpolation=LINEAR)
-    return cv.hconcat([image[8:,:width], large, image[4:height+4,-width:]])
+    image = cv.resize(intermediate,SDIM,interpolation=LINEAR) # [64-y:552-y]?  y=48
+    large = cv.resize(image[200:440,width:-width],FDIM,interpolation=LINEAR) # 213:453
+    return cv.hconcat([image[:height,:width], large, image[:height,-width:]])
 
-def adv(img): # image = cv.vconcat([img[27:],img[:27]])
+def adv(img):
+    img = cv.vconcat([img[27:],img[:27]])
     return fullsize(img) if img.shape[1] < 576 else img
 
 def output_alt(image_backup):
